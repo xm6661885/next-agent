@@ -1,0 +1,29 @@
+[project]
+name = "next-agent"
+version = "0.1.0"
+description = "Web console for persistent Claude Agent SDK agents"
+requires-python = ">=3.11"
+dependencies = [
+  "claude-agent-sdk==0.2.163",
+  "fastapi==0.118.0",
+  "uvicorn[standard]==0.37.0",
+  "tomlkit==0.13.3",
+  "pydantic==2.11.9",
+  "python-multipart==0.0.20",
+  "bcrypt==4.3.0",
+  "itsdangerous==2.2.0",
+]
+
+[dependency-groups]
+dev = ["pytest==8.4.2", "pytest-asyncio==1.2.0", "httpx==0.28.1"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["server"]

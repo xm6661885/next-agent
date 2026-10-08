@@ -1,0 +1,322 @@
+/* Design tokens, reset, layout primitives. */
+
+:root {
+  --pink: #fbc7d1;            /* sRGB 0.984 0.782 0.820 */
+  --pink-soft: #fde4e9;
+  --pink-deep: #f3a7b7;
+  --pink-ink: #b0475f;        /* accent text on light backgrounds */
+  --clay: #d97757;            /* Claude clay, used for the crab and tiny details */
+
+  --bg: #f6f2e7;
+  --bg-2: #efe9da;
+  --surface: #fffdf8;
+  --surface-2: #faf6ec;
+  --line: rgba(74, 52, 30, 0.1);
+  --line-strong: rgba(74, 52, 30, 0.18);
+  --text: #2a2521;
+  --text-2: #6e665d;
+  --text-3: #a39a8f;
+  --on-pink: #4a2430;
+
+  --ok: #5f9b6e;
+  --warn: #c98a2e;
+  --danger: #c4534f;
+  --danger-soft: #f8dedb;
+  --code-bg: #f3eee2;
+
+  --shadow-1: 0 1px 2px rgba(60, 40, 20, 0.06), 0 1px 1px rgba(60, 40, 20, 0.04);
+  --shadow-2: 0 2px 6px rgba(60, 40, 20, 0.06), 0 8px 24px rgba(60, 40, 20, 0.07);
+  --shadow-3: 0 12px 40px rgba(60, 40, 20, 0.16), 0 2px 8px rgba(60, 40, 20, 0.08);
+
+  --r-s: 10px;
+  --r-m: 14px;
+  --r-l: 20px;
+  --r-xl: 28px;
+
+  --font-serif: ui-serif, "New York", "Iowan Old Style", "Charter", Georgia, "Times New Roman", serif;
+  --font-sans: -apple-system, BlinkMacSystemFont, ui-sans-serif, "Segoe UI", "Inter", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-sheet: cubic-bezier(0.32, 0.72, 0, 1);
+
+  --safe-t: env(safe-area-inset-top, 0px);
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-l: env(safe-area-inset-left, 0px);
+  --safe-r: env(safe-area-inset-right, 0px);
+  --app-h: 100dvh;
+  --header-h: 52px;
+  --content-w: 760px;
+
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --pink: #fbc7d1;
+    --pink-soft: rgba(251, 199, 209, 0.12);
+    --pink-deep: #f5a9ba;
+    --pink-ink: #f7b3c2;
+    --clay: #e08a6b;
+
+    --bg: #1f1d1a;
+    --bg-2: #282521;
+    --surface: #2a2723;
+    --surface-2: #322e29;
+    --line: rgba(255, 240, 220, 0.08);
+    --line-strong: rgba(255, 240, 220, 0.15);
+    --text: #efe9df;
+    --text-2: #b0a79b;
+    --text-3: #7c7469;
+    --on-pink: #3b1a24;
+
+    --ok: #82c293;
+    --warn: #e2ad5c;
+    --danger: #ec8a84;
+    --danger-soft: rgba(236, 138, 132, 0.14);
+    --code-bg: #24211d;
+
+    --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.3);
+    --shadow-2: 0 2px 6px rgba(0, 0, 0, 0.25), 0 8px 24px rgba(0, 0, 0, 0.25);
+    --shadow-3: 0 12px 40px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.3);
+
+    color-scheme: dark;
+  }
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+  /* App chrome is not selectable; only messages and editable fields are (see below). */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+input, textarea, [contenteditable], .msg-assistant, .msg-user .bubble, .thinking-body, .selectable {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
+}
+
+body {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+}
+
+#app {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: var(--app-h);
+  overflow: hidden;
+}
+
+button, input, textarea, select {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+  border: none;
+  background: none;
+  padding: 0;
+  touch-action: manipulation;
+}
+
+a { color: var(--pink-ink); text-decoration: none; }
+
+::selection { background: var(--pink); color: var(--on-pink); }
+
+:focus-visible {
+  outline: 2px solid var(--pink-deep);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+h1, h2, h3, .serif {
+  font-family: var(--font-serif);
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* ---------- Page shell ---------- */
+
+.page {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  will-change: transform;
+}
+
+.page.enter-forward { animation: page-in-forward 0.42s var(--ease-out) both; }
+.page.enter-back { animation: page-in-back 0.38s var(--ease-out) both; }
+.page.enter-fade { animation: page-fade 0.35s var(--ease-out) both; }
+
+@keyframes page-in-forward {
+  from { transform: translate3d(36%, 0, 0); opacity: 0; box-shadow: -20px 0 40px rgba(0, 0, 0, 0.08); }
+  to { transform: none; opacity: 1; box-shadow: none; }
+}
+
+@keyframes page-in-back {
+  from { transform: translate3d(-18%, 0, 0); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+
+@keyframes page-fade {
+  from { opacity: 0; transform: scale(0.985); }
+  to { opacity: 1; transform: none; }
+}
+
+.page-scroll {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  padding-bottom: calc(var(--safe-b) + 24px);
+}
+
+.container {
+  width: 100%;
+  max-width: var(--content-w);
+  margin: 0 auto;
+  padding-left: max(18px, var(--safe-l));
+  padding-right: max(18px, var(--safe-r));
+}
+
+/* ---------- Top bar ---------- */
+
+.topbar {
+  position: relative;
+  z-index: 5;
+  flex: none;
+  padding-top: var(--safe-t);
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  -webkit-backdrop-filter: saturate(1.6) blur(18px);
+  backdrop-filter: saturate(1.6) blur(18px);
+  transition: border-color 0.2s;
+  border-bottom: 1px solid transparent;
+}
+
+.topbar.scrolled { border-bottom-color: var(--line); }
+
+.topbar-inner {
+  height: var(--header-h);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 max(8px, var(--safe-r)) 0 max(8px, var(--safe-l));
+  max-width: calc(var(--content-w) + 120px);
+  margin: 0 auto;
+  position: relative;
+}
+
+/* Title centered on the whole bar, not the space left between uneven side buttons. */
+.topbar-center {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: calc(100% - 200px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.topbar-title {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 600;
+  font-size: 16px;
+}
+
+.topbar-title .titles { min-width: 0; display: flex; flex-direction: column; line-height: 1.2; }
+.topbar-title .t1 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.topbar-title .t2 {
+  font-size: 12px;
+  font-weight: 450;
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.large-title {
+  font-family: var(--font-serif);
+  font-size: 34px;
+  line-height: 1.1;
+  font-weight: 500;
+  margin: 10px 0 4px;
+  letter-spacing: -0.02em;
+}
+
+.subtitle { color: var(--text-2); font-size: 15px; margin: 0 0 18px; }
+
+/* ---------- Motion helpers ---------- */
+
+.rise { animation: rise 0.5s var(--ease-out) both; animation-delay: calc(var(--i, 0) * 45ms); }
+
+@keyframes rise {
+  from { opacity: 0; transform: translate3d(0, 10px, 0); }
+  to { opacity: 1; transform: none; }
+}
+
+.pop { animation: pop 0.45s var(--ease-spring) both; }
+
+@keyframes pop {
+  from { opacity: 0; transform: scale(0.9); }
+  to { opacity: 1; transform: none; }
+}
+
+.fade-in { animation: fade-in 0.3s ease both; }
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* iOS zooms the page when a focused field's text is under 16px. */
+@media (pointer: coarse) {
+  input, textarea, select { font-size: 16px !important; }
+}

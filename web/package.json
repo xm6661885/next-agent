@@ -1,0 +1,25 @@
+{
+  "name": "next-agent-web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@preact/signals": "2.11.3",
+    "dompurify": "3.4.16",
+    "highlight.js": "11.12.0",
+    "katex": "0.19.0",
+    "marked": "18.0.14",
+    "preact": "10.29.8"
+  },
+  "devDependencies": {
+    "@babel/core": "7.28.5",
+    "@preact/preset-vite": "2.10.6",
+    "typescript": "5.9.3",
+    "vite": "8.3.2"
+  }
+}

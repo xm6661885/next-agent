@@ -1,0 +1,25 @@
+[Unit]
+Description=next-agent web console for Claude Agent SDK agents
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=YOUR_USER
+Group=YOUR_USER
+WorkingDirectory=/home/YOUR_USER/next-agent
+Environment=HOME=/home/YOUR_USER
+Environment=PATH=/home/YOUR_USER/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=LANG=C.UTF-8
+Environment=LC_ALL=C.UTF-8
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/YOUR_USER/next-agent/.venv/bin/python -m server
+Restart=always
+RestartSec=3
+# Let the app disconnect Claude CLI children gracefully, then clean up leftovers.
+KillMode=mixed
+TimeoutStopSec=20
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
