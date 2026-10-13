@@ -12,6 +12,7 @@ export interface LiveSession {
   agent_id: string
   state: SessionState
   pending: number
+  unread?: boolean
   title?: string
   updated_at?: string
   preview?: string
@@ -45,14 +46,15 @@ export function toastError(e: unknown) {
 // ---------- Agent aggregates from live sessions ----------
 
 export function agentLive(agentId: string) {
-  let running = 0, live = 0, pending = 0
+  let running = 0, live = 0, pending = 0, unread = 0
   for (const s of Object.values(liveSessions.value)) {
     if (s.agent_id !== agentId) continue
+    if (s.unread) unread++
     if (s.state === 'running' || s.state === 'interrupting') running++
     if (s.state !== 'offline') live++
     pending += s.pending || 0
   }
-  return { running, live, pending }
+  return { running, live, pending, unread }
 }
 
 // ---------- /ws/events ----------
@@ -82,7 +84,7 @@ export function connectEvents() {
         ...liveSessions.value,
         [msg.session_id]: { ...prev, ...msg, id: msg.session_id },
       }
-      if (!prev || prev.title !== msg.title || prev.updated_at !== msg.updated_at) sessionsVersion.value++
+      if (!prev || prev.title !== msg.title || prev.updated_at !== msg.updated_at || !!prev.unread !== !!msg.unread) sessionsVersion.value++
     } else if (msg.type === 'agents_changed') {
       agentsVersion.value++
     }

@@ -57,7 +57,7 @@ async def test_interrupt_reaper_reader_death(app):
     c.push(result(sid,0))
     await until(lambda:r.state=='idle')
     r.last_activity=time.monotonic()-2
-    manager.config.config.server.idle_timeout_min=.0001
+    manager.config.config.defaults.idle_timeout_min=.0001
     task=asyncio.create_task(manager.reaper(interval=.01))
     await until(lambda:r.state=='offline')
     task.cancel()
@@ -197,4 +197,100 @@ async def test_edit_refused_while_running(app):
                        'text':'edited','attachments':[],'client_id':'c','rewind_files':False}))
     await until(lambda:any(e['type']=='error' for e in r.ring))
     assert len(client.queries)==1
+    await app.state.manager.stop(sid)
+
+@pytest.mark.asyncio
+async def test_adaptive_warm_and_unread(app):
+    manager=app.state.manager; manager.config.config.defaults.idle_mode='adaptive'
+    s1=app.state.index.create('claude')['id']; s2=app.state.index.create('claude')['id']
+    r1=manager.get_or_create(s1); r2=manager.get_or_create(s2)
+    manager.warm(r1)
+    await until(lambda:r1.state=='idle')
+    assert len(FakeClaudeSDKClient.instances)==1
+    r1.submit(('send',{'content':[{'type':'text','text':'hi'}]}))
+    await until(lambda:r1.state=='running')
+    FakeClaudeSDKClient.instances[-1].push(result(s1,0))
+    await until(lambda:r1.state=='idle')
+    assert r1.session['unread'] and manager.view(s1)['unread']
+    manager.mark_read(r1)
+    assert not manager.view(s1)['unread']
+    manager.warm(r2)
+    await until(lambda:r2.state=='idle' and r1.state=='offline')
+    manager.config.config.defaults.adaptive_keep=2
+    manager.warm(r1)
+    await until(lambda:r1.state=='idle')
+    assert r2.state=='idle'
+    await manager.stop(s1); await manager.stop(s2)
+
+@pytest.mark.asyncio
+async def test_never_mode_skips_reaper(app):
+    manager=app.state.manager; sid=app.state.index.create('claude')['id']; r=manager.get_or_create(sid)
+    manager.config.config.defaults.idle_mode='never'
+    manager.config.config.defaults.idle_timeout_min=.0001
+    r.submit(('warm',))
+    await until(lambda:r.state=='idle')
+    r.last_activity=time.monotonic()-2
+    task=asyncio.create_task(manager.reaper(interval=.01))
+    await asyncio.sleep(.1)
+    assert r.state=='idle'
+    task.cancel()
+    await manager.stop(sid)
+
+@pytest.mark.asyncio
+async def test_per_agent_idle_settings_and_temp(app,tmp_path):
+    from server.config import TempAgent
+    manager=app.state.manager
+    defaults=manager.config.config.defaults
+    defaults.idle_mode='timer'; defaults.idle_timeout_min=.0001
+    manager.config.config.temp_agent=TempAgent(override_groups=['idle'],idle_mode='adaptive',adaptive_keep=1)
+    normal=app.state.index.create('claude')['id']
+    temp=app.state.index.create('_temp',cwd=str(tmp_path))['id']
+    regular=manager.get_or_create(normal); temporary=manager.get_or_create(temp)
+    manager.warm(regular)
+    assert regular.state=='offline' and regular.worker is None
+    manager.warm(temporary)
+    await until(lambda:temporary.state=='idle')
+    regular.submit(('warm',))
+    await until(lambda:regular.state=='idle')
+    regular.last_activity=time.monotonic()-2
+    temporary.last_activity=time.monotonic()-2
+    task=asyncio.create_task(manager.reaper(interval=.01))
+    try:
+        await until(lambda:regular.state=='offline')
+        assert temporary.state=='idle'
+    finally:
+        task.cancel()
+        await manager.stop(normal); await manager.stop(temp)
+
+@pytest.mark.asyncio
+async def test_agent_idle_override_controls_warm(app):
+    manager=app.state.manager
+    agent=manager.agent('claude')
+    agent.override_groups=['idle']; agent.idle_mode='adaptive'; agent.adaptive_keep=2
+    first=app.state.index.create('claude')['id']; second=app.state.index.create('claude')['id']
+    r1=manager.get_or_create(first); r2=manager.get_or_create(second)
+    manager.warm(r1); await until(lambda:r1.state=='idle')
+    manager.warm(r2); await until(lambda:r2.state=='idle')
+    assert r1.state=='idle'
+    await manager.stop(first); await manager.stop(second)
+
+@pytest.mark.asyncio
+async def test_set_model_failure_restores_override(app,monkeypatch):
+    async def bad(self,model):
+        if model=='nope': raise Exception("Model 'nope' not found")
+        self.model=model
+    monkeypatch.setattr(FakeClaudeSDKClient,'set_model',bad)
+    sid=app.state.index.create('claude')['id']; r=app.state.manager.get_or_create(sid)
+    r.submit(('send',{'content':[{'type':'text','text':'go'}]}))
+    await until(lambda:r.state=='running')
+    FakeClaudeSDKClient.instances[-1].push(result(sid,.1))
+    await until(lambda:r.state=='idle')
+    r.submit(('set_model','sonnet'))
+    await until(lambda:r.session['overrides']['model']=='sonnet')
+    q=asyncio.Queue()
+    r.submit(('set_model','nope','req1',q))
+    ev=await asyncio.wait_for(q.get(),2)
+    assert ev['type']=='error' and 'not found' in ev['message']
+    assert r.session['overrides']['model']=='sonnet'
+    assert app.state.index.sessions[sid]['overrides']['model']=='sonnet'
     await app.state.manager.stop(sid)

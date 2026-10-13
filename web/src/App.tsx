@@ -7,10 +7,12 @@ import { Home } from './pages/Home'
 import { AgentPage } from './pages/AgentPage'
 import { AgentSettings } from './pages/AgentSettings'
 import { Settings } from './pages/Settings'
+import { Memory } from './pages/Memory'
 import { Chat } from './chat/Chat'
 import { DialogHost, Toasts } from './components/ui'
 import { Crab } from './components/crab'
 import { ImageViewerHost } from './components/ImageViewer'
+import { CodeViewerHost } from './chat/Artifacts'
 
 export function App() {
   useEffect(() => {
@@ -31,7 +33,7 @@ export function App() {
     <>
       <Routed />
       <DialogHost />
-      <ImageViewerHost />
+      <ImageViewerHost /><CodeViewerHost />
       <Toasts />
     </>
   )
@@ -76,6 +78,7 @@ function Single() {
     case 'new-agent': page = <AgentSettings />; break
     case 'chat': page = <Chat agentId={r.agentId} sessionId={r.sessionId} />; break
     case 'settings': page = <Settings />; break
+    case 'memory': page = <Memory />; break
   }
   return (
     <div key={key} ref={ref} class={`route enter-${direction.value}`}>

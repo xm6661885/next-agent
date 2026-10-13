@@ -1,7 +1,7 @@
 // REST helpers. All requests send the auth cookie; a 401 flips the app to the login screen.
 
 import { authed } from './store'
-import type { Agent, Attachment, ConfigForm, Importable, Meta, SearchHit, Session, Item } from './types'
+import type { Agent, Artifact, Attachment, ConfigForm, DirListing, Importable, MemoryFile, MemoryListing, Meta, SearchHit, Session, Item } from './types'
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
@@ -58,6 +58,8 @@ export const api = {
   createAgent: (a: Partial<Agent>) => post<Agent>('/api/agents', a),
   updateAgent: (id: string, a: Partial<Agent>) => patch<Agent>(`/api/agents/${enc(id)}`, a),
   deleteAgent: (id: string) => del<{ ok: boolean }>(`/api/agents/${enc(id)}`),
+  groups: () => get<{ groups: string[] }>('/api/groups'),
+  setGroups: (groups: string[], renames?: Record<string, string>) => put<{ groups: string[] }>('/api/groups', { groups, renames }),
   reorderAgents: (ids: string[]) => post<{ ok: boolean }>('/api/agents/reorder', { ids }),
   getClaudeMd: (id: string) => get<{ content: string; path: string; exists: boolean }>(`/api/agents/${enc(id)}/claude-md`),
   putClaudeMd: (id: string, content: string) =>
@@ -71,6 +73,9 @@ export const api = {
 
   sessions: (agentId: string) => get<Session[]>(`/api/agents/${enc(agentId)}/sessions`),
   createSession: (agentId: string, title?: string) => post<Session>(`/api/agents/${enc(agentId)}/sessions`, { title }),
+  tempSessions: () => get<Session[]>('/api/temp/sessions'),
+  createTempSession: (cwd: string) => post<Session>('/api/temp/sessions', { cwd }),
+  dirs: (path: string, hidden = false) => get<DirListing>(`/api/fs/dirs?path=${enc(path)}${hidden ? '&hidden=1' : ''}`),
   importable: (agentId: string) => get<Importable[]>(`/api/agents/${enc(agentId)}/importable`),
   importSessions: (agentId: string, ids: string[]) =>
     post<Session[]>(`/api/agents/${enc(agentId)}/import`, { sdk_session_ids: ids }),
@@ -80,6 +85,7 @@ export const api = {
   session: (sid: string) => get<Session>(`/api/sessions/${enc(sid)}`),
   updateSession: (sid: string, p: Partial<Pick<Session, 'title' | 'overrides'>>) => patch<Session>(`/api/sessions/${enc(sid)}`, p),
   deleteSession: (sid: string, purge = false) => del<{ ok: boolean }>(`/api/sessions/${enc(sid)}${purge ? '?purge=1' : ''}`),
+  markRead: (sid: string) => post<Session>(`/api/sessions/${enc(sid)}/read`, {}),
   sleepSession: (sid: string) => post<Session>(`/api/sessions/${enc(sid)}/sleep`, {}),
   forkSession: (sid: string, at_uuid?: string | null) => post<Session>(`/api/sessions/${enc(sid)}/fork`, { at_uuid: at_uuid ?? null }),
   items: (sid: string, before: string, limit = 200) =>
@@ -113,6 +119,12 @@ export const api = {
     patch<ConfigForm>('/api/config', p),
   fileUrl: (sid: string, path: string, download = false) =>
     `/api/sessions/${enc(sid)}/files?path=${enc(path)}${download ? '&download=1' : ''}`,
+  artifacts: (sid: string) => get<Artifact[]>(`/api/sessions/${enc(sid)}/artifacts`),
   getRawConfig: () => get<{ content: string }>('/api/config/raw'),
   putRawConfig: (content: string) => put<{ content: string }>('/api/config/raw', { content }),
+  memory: () => get<MemoryListing>('/api/memory'),
+  memoryFile: (path: string) => get<MemoryFile & { content: string }>(`/api/memory/file?path=${enc(path)}`),
+  putMemoryFile: (path: string, content: string, create = false) =>
+    put<MemoryFile & { content: string }>('/api/memory/file', { path, content, create }),
+  deleteMemoryFile: (path: string) => del<{ ok: boolean }>(`/api/memory/file?path=${enc(path)}`),
 }

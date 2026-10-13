@@ -1,13 +1,23 @@
 import { useEffect, useRef, useState } from 'preact/hooks'
 import { api } from '../lib/api'
-import { agents, agentsVersion, agentLive, liveSessions, toastError } from '../lib/store'
-import { navigate } from '../lib/router'
+import { agents, agentsVersion, agentLive, liveSessions, sessionsVersion, meta, toast, toastError } from '../lib/store'
+import { TEMP_AGENT, navigate } from '../lib/router'
 import { sessionCache } from './AgentPage'
 import { Avatar, Crab, Spark } from '../components/crab'
-import { IconChat, IconGrip, IconPlus, IconSettings, IconSort } from '../components/icons'
-import { TopBar, useScrolled } from '../components/ui'
+import { IconArrowUp, IconChat, IconEdit, IconFolder, IconGrip, IconMoon, IconPlus, IconSettings, IconSort, IconTag, IconTrash } from '../components/icons'
+import { DirPicker } from '../components/DirPicker'
+import { Sheet, TopBar, confirmDialog, promptDialog, useScrolled } from '../components/ui'
 import { haptic, relTime, shortPath } from '../lib/util'
-import type { Agent } from '../lib/types'
+import type { Agent, Session } from '../lib/types'
+
+// Which group Home opens on (per device). Absent = All.
+const START_KEY = 'home-start'
+const START_LAST = '\u0000last', START_UNGROUPED = '\u0000ungrouped'
+function initialFilter(): string | null {
+  const start = localStorage.getItem(START_KEY)
+  if (start === null) return null
+  return start === START_LAST ? localStorage.getItem('home-group') : start === START_UNGROUPED ? '' : start
+}
 
 const painted = () => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(r, 30))))
 
@@ -25,14 +35,31 @@ export function Home() {
   const [sorting, setSorting] = useState(false)
   const [order, setOrder] = useState<Agent[]>([])
   const [saving, setSaving] = useState(false)
+  const [groups, setGroups] = useState<string[]>([])
+  const [filter, setFilter] = useState<string | null>(initialFilter)
+  const [managing, setManaging] = useState(false)
 
   useEffect(() => {
     api.agents().then((a) => { agents.value = a }).catch(toastError).finally(() => setLoading(false))
+    api.groups().then((g) => setGroups(g.groups)).catch(() => {})
   }, [agentsVersion.value])
 
   // Re-read the live map so cards update as sessions change state.
   void liveSessions.value
   const list = agents.value || []
+  const pick = (g: string | null) => {
+    setFilter(g)
+    if (g === null) localStorage.removeItem('home-group'); else localStorage.setItem('home-group', g)
+  }
+  // A stale filter (group deleted elsewhere) falls back to All.
+  const active = filter !== null && (filter === '' || groups.includes(filter)) ? filter : null
+  const ungrouped = list.filter((a) => !a.group || !groups.includes(a.group))
+  // All: one section per group in order, ungrouped last. A single filter: one flat grid.
+  const sections: { title: string; items: Agent[] }[] = active === null
+    ? (groups.length
+      ? [...groups.map((g) => ({ title: g, items: list.filter((a) => a.group === g) })), { title: 'Ungrouped', items: ungrouped }].filter((x) => x.items.length)
+      : [{ title: '', items: list }])
+    : [{ title: '', items: active === '' ? ungrouped : list.filter((a) => a.group === active) }]
 
   const startSort = () => { setOrder(list); setSorting(true) }
   const finishSort = async () => {
@@ -53,6 +80,7 @@ export function Home() {
           <button class="btn primary small" disabled={saving} onClick={finishSort}>{saving ? <span class="spinner" /> : 'Done'}</button>
         ) : (
           <div class="topbar-actions">
+            {list.length > 0 && <button class="icon-btn" aria-label="Manage groups" onClick={() => setManaging(true)}><IconTag /></button>}
             {list.length > 1 && <button class="icon-btn" aria-label="Reorder agents" onClick={startSort}><IconSort /></button>}
             <button class="icon-btn" aria-label="Settings" onClick={() => navigate({ name: 'settings' })}><IconSettings /></button>
           </div>
@@ -83,13 +111,35 @@ export function Home() {
             </div>
           )}
 
-          {sorting ? <SortList items={order} onChange={setOrder} /> : (
-            <div class="agent-grid">
-              {list.map((a, i) => <AgentCard key={a.id} agent={a} index={i} />)}
+          {!sorting && !loading && groups.length > 0 && (
+            <div class="group-filter rise" role="tablist" aria-label="Filter by group" style={{ '--i': 1 }}>
+              {[[null, 'All', list.length] as const, ...groups.map((g) => [g, g, list.filter((a) => a.group === g).length] as const),
+                ...(ungrouped.length ? [['', 'Ungrouped', ungrouped.length] as const] : [])].map(([key, label, n]) => (
+                <button key={label} role="tab" aria-selected={active === key} class={`chip ${active === key ? 'pink' : ''}`}
+                  onClick={() => { haptic(); pick(key) }}>
+                  {label}<span class="chip-count">{n}</span>
+                </button>
+              ))}
             </div>
           )}
+
+          {sorting ? <SortList items={order} onChange={setOrder} /> : sections.map((sec, si) => (
+            <section key={sec.title || si} class="agent-section">
+              {sec.title && <div class="group-title">{sec.title}</div>}
+              {sec.items.length ? (
+                <div class="agent-grid">
+                  {sec.items.map((a, i) => <AgentCard key={a.id} agent={a} index={i} groups={groups} />)}
+                </div>
+              ) : !loading && list.length > 0 && <p class="fhint" style={{ margin: '14px 4px' }}>No agents in this group yet. Open an agent's settings to add it.</p>}
+            </section>
+          ))}
+
+          {!sorting && !loading && active === null && <TempSessions />}
         </div>
       </div>
+      <GroupManager open={managing} onClose={() => setManaging(false)} groups={groups}
+        counts={Object.fromEntries(groups.map((g) => [g, list.filter((a) => a.group === g).length]))}
+        onSaved={(g) => { setGroups(g); agentsVersion.value++ }} />
       {!sorting && <button class="fab" onClick={() => navigate({ name: 'new-agent' })}>
         <IconPlus /> New agent
       </button>}
@@ -178,13 +228,26 @@ function SortList({ items, onChange }: { items: Agent[]; onChange: (l: Agent[]) 
   )
 }
 
-function AgentCard({ agent, index }: { agent: Agent; index: number }) {
+function AgentCard({ agent, index, groups }: { agent: Agent; index: number; groups: string[] }) {
+  const [moving, setMoving] = useState(false)
+  const press = useRef<{ timer?: number; fired: boolean }>({ fired: false })
+  const startPress = () => {
+    if (!groups.length) return
+    press.current.fired = false
+    press.current.timer = window.setTimeout(() => { press.current.fired = true; haptic(); setMoving(true) }, 550)
+  }
+  const cancelPress = () => clearTimeout(press.current.timer)
+  const moveTo = async (g: string) => {
+    setMoving(false)
+    if (g === (agent.group || '')) return
+    try { await api.updateAgent(agent.id, { group: g }); agentsVersion.value++ } catch (e) { toastError(e) }
+  }
   const live = agentLive(agent.id)
   const running = live.running || agent.status?.running || 0
   const pending = live.pending || agent.status?.pending || 0
   const isLive = live.live || agent.status?.live || 0
   const last = agent.status?.last_session
-  const model = agent.model || 'Default model'
+  const model = agent.effective?.model || agent.model
   const creating = useRef(false)
 
   // Put the agent page under the chat so Back lands on its conversation list. It has to be painted
@@ -206,11 +269,13 @@ function AgentCard({ agent, index }: { agent: Agent; index: number }) {
   return (
     <div class="agent-card-wrap rise" style={{ '--i': index + 2 }}>
     <button class="agent-card press"
-      onClick={() => navigate({ name: 'agent', agentId: agent.id })}>
+      onClick={() => { if (press.current.fired) { press.current.fired = false; return } navigate({ name: 'agent', agentId: agent.id }) }}
+      onContextMenu={(e) => { if (!groups.length) return; e.preventDefault(); setMoving(true) }}
+      onTouchStart={startPress} onTouchEnd={cancelPress} onTouchMove={cancelPress} onTouchCancel={cancelPress}>
       <div class="agent-card-top">
         <Avatar agent={agent} size={52} busy={running > 0} />
         <div class="agent-card-name">
-          <div class="n">{agent.name}</div>
+          <div class="n">{agent.name}{live.unread > 0 && <span class="unread-dot" aria-label={`${live.unread} unread`} />}</div>
           <div class="p">{shortPath(agent.cwd)}</div>
         </div>
         {pending > 0 ? (
@@ -233,13 +298,216 @@ function AgentCard({ agent, index }: { agent: Agent; index: number }) {
       </div>
       <div class="agent-card-foot">
         <span class="mtag">{model}</span>
-        {agent.effort && <span class="mtag">{agent.effort}</span>}
+        {(agent.effective?.effort || agent.effort) && <span class="mtag">{agent.effective?.effort || agent.effort}</span>}
         <span class="when">{last ? relTime(last.updated_at) : ''}</span>
       </div>
     </button>
     <button class="agent-new press" aria-label={`New chat with ${agent.name}`} onClick={newChat}>
       <IconPlus width={16} height={16} /><IconChat width={17} height={17} />
     </button>
+    <Sheet open={moving} onClose={() => setMoving(false)} title={`Move ${agent.name} to`}>
+      <div class="menu">
+        {[...groups, ''].map((g) => (
+          <button key={g || '_none'} onClick={() => moveTo(g)} aria-pressed={(agent.group || '') === g}>
+            <IconTag /> {g || 'Ungrouped'}{(agent.group || '') === g && <span class="menu-check">Current</span>}
+          </button>
+        ))}
+      </div>
+    </Sheet>
+    </div>
+  )
+}
+
+/** Temporary chats as an agent card: header opens its sessions page, the card lists the 5 latest chats. */
+function TempSessions() {
+  const [list, setList] = useState<Session[] | null>(null)
+  const [agent, setAgent] = useState<Agent | null>(null)
+  const [picking, setPicking] = useState(false)
+
+  useEffect(() => { api.tempSessions().then(setList).catch(toastError) }, [sessionsVersion.value])
+  useEffect(() => { api.agent(TEMP_AGENT).then(setAgent).catch(() => {}) }, [agentsVersion.value])
+
+  const start = async (cwd: string) => {
+    setPicking(false)
+    try {
+      const s = await api.createTempSession(cwd)
+      navigate({ name: 'agent', agentId: TEMP_AGENT }, { animate: false })
+      await painted()
+      navigate({ name: 'chat', agentId: TEMP_AGENT, sessionId: s.id })
+    } catch (e) { toastError(e) }
+  }
+
+  const [menuFor, setMenuFor] = useState<Session | null>(null)
+  const reload = () => api.tempSessions().then(setList).catch(toastError)
+  const rename = async (s: Session) => {
+    setMenuFor(null)
+    const t = await promptDialog({ title: 'Rename conversation', value: s.title, confirm: 'Rename' })
+    if (t === null || !t.trim()) return
+    try { await api.updateSession(s.id, { title: t.trim() }); reload() } catch (e) { toastError(e) }
+  }
+  const sleep = async (s: Session) => {
+    setMenuFor(null)
+    try { await api.sleepSession(s.id); toast('Put to sleep') } catch (e) { toastError(e) }
+  }
+  const remove = async (s: Session) => {
+    setMenuFor(null)
+    if (!await confirmDialog({ title: 'Delete conversation?', body: s.title || 'New conversation', confirm: 'Delete', danger: true })) return
+    try { await api.deleteSession(s.id); setList((l) => l && l.filter((x) => x.id !== s.id)) } catch (e) { toastError(e) }
+  }
+
+  const live = liveSessions.value
+  const rows = (list || []).map((s) => {
+    const l = live[s.id]
+    return l ? { ...s, state: l.state, pending: l.pending, unread: l.unread ?? s.unread, title: l.title ?? s.title, updated_at: l.updated_at ?? s.updated_at } : s
+  })
+  const running = rows.filter((s) => s.state === 'running' || s.state === 'interrupting').length
+  const shown = rows.slice(0, 5)
+  const shownAgent = agent || { id: TEMP_AGENT, name: 'Claude Code', avatar: 'crab:gray', order: 0 } as Agent
+  const model = agent?.effective?.model || meta.value?.defaults.model || ''
+
+  return (
+    <section class="temp-section rise">
+      <div class="group-title">Temporary</div>
+      <div class="temp-card">
+        <button class="temp-card-top press" onClick={() => navigate({ name: 'agent', agentId: TEMP_AGENT })}>
+          <Avatar agent={shownAgent} size={52} busy={running > 0} />
+          <div class="agent-card-name">
+            <div class="n">{shownAgent.name}{rows.some((s) => s.unread) && <span class="unread-dot" aria-label="Unread" />}</div>
+            <div class="p">{rows.length ? `${rows.length} chat${rows.length > 1 ? 's' : ''} · ${model}` : `One-off chats in any folder · ${model}`}</div>
+          </div>
+        </button>
+        {shown.length > 0 && <div class="temp-card-list">{shown.map((s) => <TempRow key={s.id} s={s} onMore={() => setMenuFor(s)} />)}</div>}
+        <div class="temp-card-actions">
+          <button class="btn small" onClick={() => setPicking(true)}><IconFolder width={16} height={16} /> Open folder</button>
+          <button class="btn small primary" onClick={() => start('~')} title="New chat in your home folder">
+            <IconPlus width={16} height={16} /> New chat
+          </button>
+        </div>
+      </div>
+      <Sheet open={!!menuFor} onClose={() => setMenuFor(null)} title={menuFor?.title || 'Conversation'}>
+        {menuFor && (
+          <div class="menu">
+            <button onClick={() => rename(menuFor)}><IconEdit /> Rename</button>
+            {menuFor.state !== 'offline' && <button onClick={() => sleep(menuFor)}><IconMoon /> Put to sleep (idle)</button>}
+            <button class="danger" onClick={() => remove(menuFor)}><IconTrash /> Delete</button>
+          </div>
+        )}
+      </Sheet>
+      <DirPicker open={picking} onClose={() => setPicking(false)} onPick={start} confirm="Start chat" />
+    </section>
+  )
+}
+
+function TempRow({ s, onMore }: { s: Session; onMore: () => void }) {
+  const press = useRef<{ timer?: number; fired: boolean }>({ fired: false })
+  const busy = s.state === 'running' || s.state === 'interrupting'
+  // Long press (or right click) opens the menu; swallow the click that follows the long press.
+  const startPress = () => {
+    press.current.fired = false
+    press.current.timer = window.setTimeout(() => { press.current.fired = true; haptic(); onMore() }, 550)
+  }
+  const cancelPress = () => clearTimeout(press.current.timer)
+  const click = () => {
+    if (press.current.fired) { press.current.fired = false; return }
+    navigate({ name: 'chat', agentId: TEMP_AGENT, sessionId: s.id })
+  }
+  return (
+    <button class="row" onClick={click} onContextMenu={(e) => { e.preventDefault(); onMore() }}
+      onTouchStart={startPress} onTouchEnd={cancelPress} onTouchMove={cancelPress} onTouchCancel={cancelPress}>
+      <span class="session-state">
+        {s.pending > 0 ? <span class="dot waiting" /> : busy ? <Spark size={16} /> : <span class={`dot ${s.state !== 'offline' ? 'live' : ''}`} />}
+      </span>
+      <span class="label">
+        <span class={`session-title ${s.unread ? 'unread' : ''}`}>{s.title || 'New conversation'}</span>
+        <span class="hint mono-label">{shortPath(s.cwd || '')}</span>
+      </span>
+      <span class="session-meta">{s.unread && <span class="unread-dot" aria-label="Unread" />}{relTime(s.updated_at)}</span>
+    </button>
+  )
+}
+
+/** Create, rename, reorder and delete groups. Saved as one PUT so renames carry their agents along. */
+function GroupManager({ open, onClose, groups, counts, onSaved }: {
+  open: boolean; onClose: () => void; groups: string[]; counts: Record<string, number>; onSaved: (g: string[]) => void
+}) {
+  // Each row remembers the name it started with, so a rename can be sent as old -> new.
+  const [rows, setRows] = useState<{ from: string; name: string }[]>([])
+  const [draft, setDraft] = useState('')
+  const [saving, setSaving] = useState(false)
+  useEffect(() => { if (open) { setRows(groups.map((g) => ({ from: g, name: g }))); setDraft('') } }, [open])
+
+  const names = rows.map((r) => r.name.trim())
+  const dup = names.some((n, i) => !n || names.indexOf(n) !== i)
+  const add = () => {
+    const n = draft.trim()
+    if (!n || names.includes(n)) return
+    setRows([...rows, { from: '', name: n }]); setDraft('')
+  }
+  const up = (i: number) => { const l = rows.slice(); [l[i - 1], l[i]] = [l[i], l[i - 1]]; setRows(l) }
+  const remove = async (i: number) => {
+    const r = rows[i]
+    const n = r.from ? counts[r.from] || 0 : 0
+    if (n && !await confirmDialog({ title: `Delete "${r.name}"?`, body: `${n} agent${n > 1 ? 's' : ''} will become ungrouped. The agents themselves are kept.`, confirm: 'Delete', danger: true })) return
+    setRows(rows.filter((_, k) => k !== i))
+  }
+  const save = async () => {
+    const pending = draft.trim() && !names.includes(draft.trim()) ? [...rows, { from: '', name: draft.trim() }] : rows
+    setSaving(true)
+    try {
+      const renames = Object.fromEntries(pending.filter((r) => r.from && r.from !== r.name.trim()).map((r) => [r.from, r.name.trim()]))
+      const res = await api.setGroups(pending.map((r) => r.name.trim()), renames)
+      onSaved(res.groups); onClose()
+    } catch (e) { toastError(e) } finally { setSaving(false) }
+  }
+
+  return (
+    <Sheet open={open} onClose={onClose} title="Groups">
+      <p class="fhint" style={{ margin: '0 4px 12px' }}>Sort agents into groups on Home. Long press an agent card to move it, or pick a group in its settings.</p>
+      {rows.length > 0 && <div class="group group-editor">
+        {rows.map((r, i) => (
+          <div key={i} class="group-edit-row">
+            <IconTag width={18} height={18} />
+            <input class="input" value={r.name} maxLength={40} aria-label="Group name"
+              onInput={(e) => setRows(rows.map((x, k) => k === i ? { ...x, name: (e.target as HTMLInputElement).value } : x))} />
+            <span class="group-edit-count">{r.from ? counts[r.from] || 0 : 0}</span>
+            <button class="icon-btn" aria-label={`Move ${r.name} up`} disabled={i === 0} onClick={() => up(i)}><IconArrowUp /></button>
+            <button class="icon-btn danger" aria-label={`Delete ${r.name}`} onClick={() => remove(i)}><IconTrash /></button>
+          </div>
+        ))}
+      </div>}
+      <form class="group-add" onSubmit={(e) => { e.preventDefault(); add() }}>
+        <input class="input" value={draft} maxLength={40} placeholder="New group, e.g. Work"
+          onInput={(e) => setDraft((e.target as HTMLInputElement).value)} />
+        <button class="btn" type="submit" disabled={!draft.trim() || names.includes(draft.trim())}><IconPlus width={16} height={16} /> Add</button>
+      </form>
+      {groups.length > 0 && <StartPicker groups={groups} />}
+      <div style={{ display: 'flex', gap: '10px', marginTop: '16px' }}>
+        <button class="btn block" onClick={onClose}>Cancel</button>
+        <button class="btn primary block" disabled={dup || saving} onClick={save}>{saving ? <span class="spinner" /> : 'Save'}</button>
+      </div>
+    </Sheet>
+  )
+}
+
+/** Per-device choice of the group Home opens on. Saved immediately, separate from the group list. */
+function StartPicker({ groups }: { groups: string[] }) {
+  const [start, setStart] = useState(() => localStorage.getItem(START_KEY))
+  const choose = (v: string | null) => {
+    setStart(v)
+    if (v === null) localStorage.removeItem(START_KEY); else localStorage.setItem(START_KEY, v)
+  }
+  const options: [string | null, string][] = [[null, 'All'], ...groups.map((g) => [g, g] as [string, string]), [START_UNGROUPED, 'Ungrouped'], [START_LAST, 'Last used']]
+  const current = start !== null && start !== START_LAST && start !== START_UNGROUPED && !groups.includes(start) ? null : start
+  return (
+    <div class="field" style={{ marginTop: '18px' }}>
+      <span class="flabel">Open Home on</span>
+      <div class="chips" role="radiogroup" aria-label="Open Home on">
+        {options.map(([v, label]) => (
+          <button key={label + String(v)} type="button" role="radio" aria-checked={current === v}
+            class={`chip ${current === v ? 'pink' : ''}`} onClick={() => choose(v)}>{label}</button>
+        ))}
+      </div>
+      <span class="fhint">Saved on this device only. Last used reopens the filter you picked most recently.</span>
     </div>
   )
 }

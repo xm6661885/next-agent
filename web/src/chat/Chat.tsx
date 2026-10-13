@@ -4,19 +4,26 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/ho
 import { memo } from 'preact/compat'
 import { api } from '../lib/api'
 import { agents, meta, toast, toastError } from '../lib/store'
-import { back, navigate } from '../lib/router'
+import { back, navigate, parentOf, route } from '../lib/router'
 import { Avatar, Spark } from '../components/crab'
-import { BackButton, Segmented, Sheet, Switch, TopBar, confirmDialog, promptDialog } from '../components/ui'
-import { IconBrain, IconCheck, IconChevronDown, IconCopy, IconFork, IconMore, IconRewind, IconEdit, IconNewChat, IconTerminal } from '../components/icons'
+import { BackButton, Sheet, Switch, TopBar, confirmDialog, promptDialog } from '../components/ui'
+import { IconBrain, IconCheck, IconChevronDown, IconCopy, IconFork, IconMore, IconRewind, IconEdit, IconSelect, IconNewChat, IconTerminal, IconLayers } from '../components/icons'
 import { ChatConn } from './conn'
 import { Composer } from './Composer'
 import { TaskTray } from './Tasks'
 import { PermissionCard } from './cards'
 import { ToolCard } from './tools'
-import { mathVersion, renderMarkdown, renderStreaming } from './markdown'
+import { mathVersion, renderMarkdown, renderStreaming, setCodeCards } from './markdown'
+import { genuiHost, splitGenui } from './GenUI'
+import { GenWidget } from './Widgets'
+import { ArtifactsSheet, codeView } from './Artifacts'
+import { clearFade, fadeTail, makeFollower, newFade, unwrapFade } from './fade'
+
+const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches
 import { ModelPicker } from '../components/ModelPicker'
+import { EffortSlider } from '../components/EffortSlider'
 import { openViewer } from '../components/ImageViewer'
-import { MODE_LABELS, copyText, fmtBytes, fmtCost, fmtDuration, fmtTokens, haptic, uid } from '../lib/util'
+import { MODE_LABELS, copyText, fmtBytes, fmtCost, fmtDuration, fmtTokens, haptic, shortPath, uid } from '../lib/util'
 import type { Activity, Agent, Attachment, Item, TextItem, ThinkingItem, ToolItem, UserItem } from '../lib/types'
 
 const VERBS = ['Pondering', 'Brewing', 'Cogitating', 'Percolating', 'Mulling', 'Noodling', 'Simmering', 'Scuttling', 'Tinkering',
@@ -35,9 +42,15 @@ export function Chat({ agentId, sessionId }: { agentId: string; sessionId: strin
   const conn = useMemo(() => new ChatConn(sessionId), [sessionId])
   const [agent, setAgent] = useState<Agent | null>(agents.value?.find((a) => a.id === agentId) || null)
   const [controls, setControls] = useState(false)
+  const [artifacts, setArtifacts] = useState(false)
+  const artifactsOn = meta.value?.defaults.artifacts ?? true
+  setCodeCards(artifactsOn)
   const [msgMenu, setMsgMenu] = useState<UserItem | null>(null)
+  const [selectText, setSelectText] = useState<string | null>(null)
   const [editing, setEditing] = useState<UserItem | null>(null)
   const [modelOpen, setModelOpen] = useState(false)
+  // Model sheet edits are drafts; they are sent only when the sheet closes.
+  const [draft, setDraft] = useState<{ model?: string; effort?: string }>({})
   const scroller = useRef<HTMLDivElement>(null)
   const stick = useRef(true)
   const userScroll = useRef(0)
@@ -60,6 +73,11 @@ export function Chat({ agentId, sessionId }: { agentId: string; sessionId: strin
     if (!meta.value) api.meta().then((m) => { meta.value = m }).catch(() => {})
   }, [agentId])
 
+  const applyEffort = async (e: string) => {
+    const err = await conn.send({ type: 'set_effort', effort: e })
+    if (err) toast(err, 'error'); else toast(`Effort: ${e}`)
+  }
+
   const items = conn.items.value
   const state = conn.state.value
   const session = conn.session.value
@@ -67,8 +85,9 @@ export function Chat({ agentId, sessionId }: { agentId: string; sessionId: strin
   const init = conn.init.value
   const busy = state === 'running' || state === 'interrupting'
   const mode = session?.overrides?.permission_mode || init?.permission_mode || agent?.permission_mode || 'default'
-  const model = session?.overrides?.model || init?.model || agent?.model || meta.value?.defaults.model || ''
-  const effort = session?.overrides?.effort || agent?.effort || meta.value?.defaults.effort || ''
+  const agentModel = agent?.effective?.model || meta.value?.defaults.model || ''
+  const model = session?.overrides?.model || init?.model || (agent?.effective?.model ?? agent?.model) || meta.value?.defaults.model || ''
+  const effort = session?.overrides?.effort || (agent?.effective?.effort ?? agent?.effort) || meta.value?.defaults.effort || ''
 
   // Keep pinned to the bottom while new content streams, unless the user scrolled up.
   const onScroll = () => {
@@ -82,16 +101,21 @@ export function Chat({ agentId, sessionId }: { agentId: string; sessionId: strin
     setShowJump(dist > 400)
     if (el.scrollTop < 200 && conn.hasMore.value && !loadingOlder) loadOlder()
   }
+  const follower = useMemo(() => makeFollower(() => scroller.current), [])
+  const firstPaint = useRef(true)
   useLayoutEffect(() => {
     const el = scroller.current
-    if (el && stick.current) el.scrollTop = el.scrollHeight
+    if (!el || !stick.current) return
+    // Glide while content streams in; jump on first paint or when far away.
+    if (firstPaint.current || reduceMotion || el.scrollHeight - el.scrollTop - el.clientHeight > 1500) { follower.jump(); firstPaint.current = false }
+    else follower.follow()
   }, [items, perms, state])
   useEffect(() => {
     // Images, file previews and math finish loading after the first paint and grow the content;
     // follow them down while pinned to the bottom.
     const el = scroller.current, inner = el?.firstElementChild
     if (!el || !inner || typeof ResizeObserver === 'undefined') return
-    const ro = new ResizeObserver(() => { if (stick.current) el.scrollTop = el.scrollHeight })
+    const ro = new ResizeObserver(() => { if (stick.current) follower.follow() })
     ro.observe(inner)
     return () => ro.disconnect()
   }, [])
@@ -136,6 +160,8 @@ export function Chat({ agentId, sessionId }: { agentId: string; sessionId: strin
     }
     return true
   }
+  genuiHost.send = (text) => { send(text, [], false) }
+  useEffect(() => () => { genuiHost.send = null }, [])
 
   const setMode = async (m: string) => {
     haptic()
@@ -171,9 +197,17 @@ export function Chat({ agentId, sessionId }: { agentId: string; sessionId: strin
     if (err) toast(err, 'error')
   }
 
+  const openModel = () => { setDraft({}); setModelOpen(true) }
+  const closeModel = (d = draft) => {
+    setModelOpen(false)
+    setDraft({})
+    if (d.model !== undefined && d.model !== (session?.overrides?.model || agentModel)) applyModel(d.model)
+    if (d.effort !== undefined && d.effort !== effort) applyEffort(d.effort)
+  }
+
   const applyModel = async (m: string) => {
     const err = await conn.send({ type: 'set_model', model: m })
-    if (err) toast(err, 'error'); else toast(m ? `Model: ${m}` : 'Model reset to agent default')
+    if (err) toast(err, 'error'); else toast(`Model: ${m}`)
   }
 
   const startEdit = (it: UserItem) => {
@@ -197,7 +231,7 @@ export function Chat({ agentId, sessionId }: { agentId: string; sessionId: strin
     if (creating) return
     setCreating(true)
     try {
-      const s = await api.createSession(agentId)
+      const s = session?.cwd ? await api.createTempSession(session.cwd) : await api.createSession(agentId)
       haptic()
       navigate({ name: 'chat', agentId, sessionId: s.id }, { replace: true })
     } catch (e) { toastError(e) } finally { setCreating(false) }
@@ -225,15 +259,19 @@ export function Chat({ agentId, sessionId }: { agentId: string; sessionId: strin
       } else top.push(it)
     }
     // The text of each turn's replies, keyed by its result item, for the copy button.
+    // History loaded from disk has no result items, so those turns get it on their last text item.
     const replies = new Map<string, string>()
     let buf: string[] = []
+    let lastText: string | null = null
+    const flush = () => { if (buf.length && lastText) replies.set(lastText, buf.join('\n\n')); buf = []; lastText = null }
     for (const it of top) {
-      if (it.kind === 'user') buf = []
-      else if (it.kind === 'text' && it.text.trim()) buf.push(it.text.trim())
-      else if (it.kind === 'result') { if (buf.length) replies.set(it.id, buf.join('\n\n')); buf = [] }
+      if (it.kind === 'user') flush()
+      else if (it.kind === 'text' && it.text.trim()) { buf.push(it.text.trim()); lastText = it.id }
+      else if (it.kind === 'result') { if (buf.length) replies.set(it.id, buf.join('\n\n')); buf = []; lastText = null }
     }
+    if (!busy) flush()
     return { top, children, replies }
-  }, [items])
+  }, [items, busy])
 
   const lastTop = top[top.length - 1]
   const lastThinking = !!lastTop && lastTop.kind === 'thinking' && (lastTop as ThinkingItem).streaming
@@ -244,8 +282,9 @@ export function Chat({ agentId, sessionId }: { agentId: string; sessionId: strin
   return (
     <div class="page chat-page">
       <TopBar
-        left={<BackButton label="" onClick={() => back({ name: 'agent', agentId })} />}
+        left={<BackButton label="" onClick={() => back(parentOf(route.value))} />}
         right={<div class="topbar-actions">
+          {artifactsOn && <button class="icon-btn" aria-label="Artifacts" onClick={() => setArtifacts(true)}><IconLayers /></button>}
           <button class="icon-btn" aria-label="New conversation" disabled={creating} onClick={newChat}><IconNewChat /></button>
           <button class="icon-btn" aria-label="Session controls" onClick={() => setControls(true)}><IconMore /></button>
         </div>}>
@@ -254,8 +293,8 @@ export function Chat({ agentId, sessionId }: { agentId: string; sessionId: strin
           <span class="titles">
             <span class="t1">{session?.title || 'New conversation'}</span>
             <span class="t2">
-              {agent?.name}
-              {state === 'queued' ? ' · waiting for a free slot' : state === 'starting' ? ' · waking up' : ''}
+              {session?.cwd ? shortPath(session.cwd) : agent?.name}
+              {state === 'queued' ? ' · waiting for a free slot' : state === 'starting' ? ' · loading' : ''}
               {ctx ? ` · ${Math.round(ctx.percent)}% context` : ''}
             </span>
           </span>
@@ -278,19 +317,20 @@ export function Chat({ agentId, sessionId }: { agentId: string; sessionId: strin
             <div class="chat-empty rise">
               {agent && <Avatar agent={agent} size={72} />}
               <h2 class="serif">How can I help?</h2>
-              <p>{agent?.cwd}</p>
+              <p>{session?.cwd || agent?.cwd}</p>
             </div>
           )}
           {top.map((it) => (
             <ItemView key={it.id} it={it} sid={sessionId} children={it.kind === 'tool' ? children.get(it.id) : undefined}
-              reply={it.kind === 'result' ? replies.get(it.id) : undefined} onUserMenu={setMsgMenu} onImage={openChatImage} />
+              reply={replies.get(it.id)} onUserMenu={setMsgMenu} onImage={openChatImage}
+              steering={state === 'running' || state === 'interrupting'} />
           ))}
           {perms.map((p) => <PermissionCard key={p.id} req={p} conn={conn} />)}
           {busy && !lastIsStreamingText && perms.length === 0 && <Working state={state} activity={conn.activity.value} effort={effort} thinking={lastThinking} />}
           {state === 'queued' && (
             <div class="working"><span class="spinner" /> Waiting for a free slot{conn.queuePos.value ? ` (position ${conn.queuePos.value})` : ''}</div>
           )}
-          {state === 'starting' && <div class="working"><Spark size={18} /> <span class="shimmer-text">Waking up Claude</span></div>}
+          {state === 'starting' && <div class="working"><Spark size={18} /> <span class="shimmer-text">Loading Claude</span></div>}
           <div style={{ height: '8px' }} />
         </div>
       </div>
@@ -303,20 +343,26 @@ export function Chat({ agentId, sessionId }: { agentId: string; sessionId: strin
         <TaskTray conn={conn} />
         <Composer sid={sessionId} state={state} mode={mode} model={model} slash={init?.slash_commands || []}
           onSend={send} onInterrupt={() => conn.send({ type: 'interrupt' })} onMode={setMode}
-          onOpenModel={() => setModelOpen(true)} disabled={status === 'closed'} />
+          onOpenModel={openModel} disabled={status === 'closed'} />
       </div>
 
       <ControlsSheet open={controls} onClose={() => setControls(false)} conn={conn} agent={agent} mode={mode}
         onMode={setMode} onModel={applyModel} onRename={rename} onFork={() => { setControls(false); forkAt(null) }} />
 
-      <Sheet open={modelOpen} onClose={() => setModelOpen(false)} title="Model">
-        <ModelPicker value={session?.overrides?.model ?? ''} onChange={(m) => { applyModel(m); setModelOpen(false) }}
-          defaultLabel={`Agent default${agent?.model ? ` (${agent.model})` : ''}`} />
+      {artifactsOn && <ArtifactsSheet open={artifacts} onClose={() => setArtifacts(false)} sid={sessionId} items={items} />}
+      <Sheet open={modelOpen} onClose={() => closeModel()} title="Model">
+        <ModelPicker value={draft.model ?? (session?.overrides?.model || agentModel)} onChange={(m) => closeModel({ ...draft, model: m })} />
         {init?.model && <div class="fhint" style={{ margin: '10px 4px 0' }}>Running: {init.model}</div>}
+        <div class="group-title">Effort</div>
+        <EffortSlider value={draft.effort ?? effort} onChange={(e) => setDraft({ ...draft, effort: e })} />
         <div class="model-sheet-mode">
           <span class={`mode-swatch mode-${mode}`} /> {MODE_LABELS[mode] || mode}
-          <button class="btn small ghost" onClick={() => { setModelOpen(false); setControls(true) }}>More controls</button>
+          <button class="btn small ghost" onClick={() => { closeModel(); setControls(true) }}>More controls</button>
         </div>
+      </Sheet>
+
+      <Sheet open={selectText !== null} onClose={() => setSelectText(null)} title="Select text">
+        <div class="select-text selectable">{selectText}</div>
       </Sheet>
 
       <EditSheet item={editing} sid={sessionId} canRewindFiles={!!agent?.enable_file_checkpointing}
@@ -326,6 +372,7 @@ export function Chat({ agentId, sessionId }: { agentId: string; sessionId: strin
         {msgMenu && (
           <div class="menu">
             <button onClick={() => { copyText(msgMenu.text); setMsgMenu(null); toast('Copied') }}><IconCopy /> Copy text</button>
+            {msgMenu.text && <button onClick={() => { setSelectText(msgMenu.text); setMsgMenu(null) }}><IconSelect /> Select text</button>}
             <button disabled={!msgMenu.uuid || busy || !!msgMenu.parent_tool_use_id} onClick={() => startEdit(msgMenu)}><IconEdit /> Edit and resend</button>
             <button disabled={!msgMenu.uuid} onClick={() => forkAt(msgMenu)}><IconFork /> Fork from here</button>
             {agent?.enable_file_checkpointing && (
@@ -391,12 +438,17 @@ function Working({ state, activity, effort, thinking }: { state: string; activit
   )
 }
 
-const ItemView = memo(function ItemView({ it, sid, children, reply, onUserMenu, onImage }: {
-  it: Item; sid: string; children?: Item[]; reply?: string; onUserMenu: (u: UserItem) => void; onImage: (el: HTMLImageElement) => void
+const ItemView = memo(function ItemView({ it, sid, children, reply, onUserMenu, onImage, steering }: {
+  it: Item; sid: string; steering?: boolean; children?: Item[]; reply?: string; onUserMenu: (u: UserItem) => void; onImage: (el: HTMLImageElement) => void
 }) {
   switch (it.kind) {
-    case 'user': return <UserBubble it={it} onMenu={onUserMenu} />
-    case 'text': return <AssistantText it={it} sid={sid} onImage={onImage} />
+    case 'user': return <UserBubble it={it} onMenu={onUserMenu} steering={steering} />
+    case 'text': return reply ? (
+      <>
+        <AssistantText it={it} sid={sid} onImage={onImage} />
+        <div class="turn-end bare"><CopyReply text={reply} /></div>
+      </>
+    ) : <AssistantText it={it} sid={sid} onImage={onImage} />
     case 'thinking': return <Thinking it={it} />
     case 'tool': return <ToolCard it={it as ToolItem} children={children} />
     case 'notice': return <div class={`notice ${it.level}`}>{it.text}</div>
@@ -427,15 +479,21 @@ function CopyReply({ text }: { text: string }) {
   )
 }
 
-function UserBubble({ it, onMenu }: { it: UserItem; onMenu: (u: UserItem) => void }) {
+function UserBubble({ it, onMenu, steering }: { it: UserItem; onMenu: (u: UserItem) => void; steering?: boolean }) {
   const images = it.attachments?.filter((a) => a.is_image) || []
   const files = it.attachments?.filter((a) => !a.is_image) || []
-  // Tap opens the message actions; long-press is left to the system so the text can be selected.
-  const onClick = () => {
-    if (window.getSelection()?.toString()) return
-    haptic()
-    onMenu(it)
+  // Long press (right click on desktop) opens the message actions. The bubble is not selectable;
+  // "Select text" in the menu shows the text in a selectable sheet.
+  const press = useRef<{ timer?: number; x: number; y: number }>({ x: 0, y: 0 })
+  const startPress = (e: TouchEvent) => {
+    const t = e.touches[0]
+    press.current = { x: t.clientX, y: t.clientY, timer: window.setTimeout(() => { haptic(); onMenu(it) }, 480) }
   }
+  const movePress = (e: TouchEvent) => {
+    const t = e.touches[0]
+    if (Math.abs(t.clientX - press.current.x) > 8 || Math.abs(t.clientY - press.current.y) > 8) clearTimeout(press.current.timer)
+  }
+  const endPress = () => clearTimeout(press.current.timer)
   return (
     <div class={`msg-user ${it.pending ? 'pending' : ''}`}>
       {images.length > 0 && (
@@ -457,21 +515,36 @@ function UserBubble({ it, onMenu }: { it: UserItem; onMenu: (u: UserItem) => voi
           ))}
         </div>
       )}
-      {it.text && <div class="bubble" onClick={onClick} onContextMenu={(e) => { if (!matchMedia('(pointer: coarse)').matches) { e.preventDefault(); onMenu(it) } }}>{it.text}</div>}
+      {it.text && <div class="bubble" onContextMenu={(e) => { e.preventDefault(); onMenu(it) }}
+        onTouchStart={startPress} onTouchMove={movePress} onTouchEnd={endPress} onTouchCancel={endPress}>{it.text}</div>}
       {!it.text && <button type="button" class="msg-actions-btn" onClick={() => onMenu(it)} aria-label="Message actions"><IconMore width={18} height={18} /></button>}
-      {it.pending && <div class="pending-tag">Queued, Claude reads it at the next step</div>}
+      {it.pending && steering && <div class="pending-tag">Queued, Claude reads it at the next step</div>}
     </div>
   )
 }
 
 function AssistantText({ it, sid, onImage }: { it: TextItem; sid: string; onImage: (el: HTMLImageElement) => void }) {
   const ref = useRef<HTMLDivElement>(null)
+  const fade = useRef(newFade())
   void mathVersion.value
-  const html = it.streaming ? renderStreaming(it.text, sid) : renderMarkdown(it.text, sid)
+  const segs = splitGenui(it.text)
+  useLayoutEffect(() => {
+    if (!it.streaming || reduceMotion || !ref.current) { fade.current = newFade(); if (ref.current) clearFade(ref.current); return }
+    const el = ref.current
+    const last = el.classList.contains('md') ? el : el.lastElementChild
+    if (last instanceof HTMLElement && last.classList.contains('md')) fadeTail(last, fade.current)
+    else fade.current = newFade()
+  })
+  const onAnimEnd = (e: AnimationEvent) => unwrapFade(e.target as Element)
   const onClick = (e: MouseEvent) => {
     const target = e.target as HTMLElement
     if (target.tagName === 'IMG' && target.hasAttribute('data-view')) { e.preventDefault(); onImage(target as HTMLImageElement); return }
     const btn = (e.target as HTMLElement).closest('[data-copy]') as HTMLElement | null
+    const card = target.closest('[data-card]') as HTMLElement | null
+    if (card && !btn) {
+      codeView.value = { lang: card.dataset.lang === 'code' ? '' : card.dataset.lang || '', code: card.querySelector('code')?.textContent || '' }
+      return
+    }
     if (!btn) return
     const code = btn.closest('.codeblock')?.querySelector('code')?.textContent || ''
     copyText(code).then(() => {
@@ -479,9 +552,17 @@ function AssistantText({ it, sid, onImage }: { it: TextItem; sid: string; onImag
       setTimeout(() => { btn.textContent = 'Copy' }, 1400)
     })
   }
+  const md = (text: string, last: boolean) => it.streaming && last ? renderStreaming(text, sid) : renderMarkdown(text, sid)
+  if (segs.length === 1 && segs[0].kind === 'md') return (
+    <div class={`msg-assistant md ${it.streaming ? 'streaming' : ''}`} ref={ref} onClick={onClick} onAnimationEnd={onAnimEnd}
+      dangerouslySetInnerHTML={{ __html: md(it.text, true) }} />
+  )
   return (
-    <div class={`msg-assistant md ${it.streaming ? 'streaming' : ''}`} ref={ref} onClick={onClick}
-      dangerouslySetInnerHTML={{ __html: html }} />
+    <div class={`msg-assistant ${it.streaming ? 'streaming' : ''}`} ref={ref} onClick={onClick} onAnimationEnd={onAnimEnd}>
+      {segs.map((g, i) => g.kind === 'md'
+        ? <div key={i} class="md" dangerouslySetInnerHTML={{ __html: md(g.text, i === segs.length - 1) }} />
+        : <GenWidget key={i} code={g.code} done={g.done} />)}
+    </div>
   )
 }
 
@@ -515,19 +596,27 @@ function ControlsSheet({ open, onClose, conn, agent, mode, onMode, onModel, onRe
   const init = conn.init.value
   const tasks = conn.tasks.value
   const [model, setModel] = useState('')
-  useEffect(() => { if (open) setModel(session?.overrides?.model ?? '') }, [open])
-  const effort = session?.overrides?.effort ?? ''
+  const agentModel = agent?.effective?.model || meta.value?.defaults.model || ''
+  useEffect(() => { if (open) setModel(session?.overrides?.model || agentModel) }, [open])
+  const effort = session?.overrides?.effort || agent?.effective?.effort || meta.value?.defaults.effort || ''
   const modes = meta.value?.permission_modes || Object.keys(MODE_LABELS)
   const ctx = session?.context
 
-  const applyModel = (m: string) => { setModel(m); onModel(m) }
+  // Model and effort are drafts here too; they are sent when the sheet closes.
+  const [draftEffort, setDraftEffort] = useState<string | null>(null)
+  useEffect(() => { if (open) setDraftEffort(null) }, [open])
+  const close = () => {
+    onClose()
+    if (model && model !== (session?.overrides?.model || agentModel)) onModel(model)
+    if (draftEffort !== null && draftEffort !== effort) applyEffort(draftEffort)
+  }
   const applyEffort = async (e: string) => {
     const err = await conn.send({ type: 'set_effort', effort: e })
-    if (err) toast(err, 'error'); else toast(e ? `Effort: ${e}` : 'Effort reset')
+    if (err) toast(err, 'error'); else toast(`Effort: ${e}`)
   }
 
   return (
-    <Sheet open={open} onClose={onClose} title="This conversation">
+    <Sheet open={open} onClose={close} title="This conversation">
       <div class="controls">
         <div class="group-title" style={{ marginTop: '4px' }}>Permission mode</div>
         <div class="mode-list">
@@ -540,13 +629,12 @@ function ControlsSheet({ open, onClose, conn, agent, mode, onMode, onModel, onRe
         </div>
 
         <div class="group-title">Model</div>
-        <ModelPicker value={model} onChange={applyModel} defaultLabel={`Agent default${agent?.model ? ` (${agent.model})` : ''}`} />
+        <ModelPicker value={model} onChange={setModel} />
         {init?.model && <div class="fhint" style={{ margin: '6px 4px 0' }}>Running: {init.model}</div>}
 
         <div class="group-title">Effort</div>
-        <Segmented value={effort} onChange={applyEffort}
-          options={['', 'low', 'medium', 'high', 'xhigh', 'max'].map((e) => ({ value: e, label: e || 'Default' }))} />
-        <div class="fhint" style={{ margin: '6px 4px 0' }}>Applies from the next message.</div>
+        <EffortSlider value={draftEffort ?? effort} onChange={setDraftEffort} />
+        <div class="fhint" style={{ margin: '6px 4px 0' }}>Applies when this sheet closes, from the next message.</div>
 
         {tasks.length > 0 && (
           <>
@@ -572,7 +660,7 @@ function ControlsSheet({ open, onClose, conn, agent, mode, onMode, onModel, onRe
         </div>
         {ctx && <div class="ctx-bar"><span style={{ width: `${Math.min(100, ctx.percent)}%` }} /></div>}
         <div class="menu" style={{ padding: '10px 0 0' }}>
-          <button onClick={() => { onClose(); onRename() }}><IconEdit /> Rename</button>
+          <button onClick={() => { close(); onRename() }}><IconEdit /> Rename</button>
           <button onClick={onFork}><IconFork /> Fork conversation</button>
         </div>
         {init && (

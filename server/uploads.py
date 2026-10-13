@@ -2,6 +2,7 @@
 import base64
 import mimetypes
 import re
+import shutil
 from pathlib import Path
 from uuid import uuid4
 from fastapi import HTTPException
@@ -13,8 +14,27 @@ def safe_name(name):
     return re.sub(r'[^A-Za-z0-9._-]', '_', Path(name).name)[:80] or 'file'
 
 class UploadService:
-    def __init__(self, paths, index):
-        self.paths, self.index = paths, index
+    def __init__(self, paths, index, manager=None):
+        self.paths, self.index, self.manager = paths, index, manager
+
+    def folder(self, sid):
+        """Uploads live in the session agent's working directory, so Claude can work with them in place."""
+        session = self.index.sessions.get(sid)
+        if self.manager and session:
+            try:
+                cwd = Path(self.manager.session_agent(session).cwd).expanduser()
+                if cwd.is_dir(): return cwd / 'uploads'
+            except Exception:
+                pass
+        return self.paths.uploads / sid
+
+    def remove_session(self, sid):
+        """Delete a session's uploaded files and index records."""
+        for fid, record in list(self.index.uploads.items()):
+            if record['session_id'] == sid:
+                Path(record['path']).unlink(missing_ok=True)
+                del self.index.uploads[fid]
+        shutil.rmtree(self.paths.uploads / sid, ignore_errors=True)
 
     async def save(self, sid, file):
         content = await file.read(50 * 1024 * 1024 + 1)
@@ -22,7 +42,7 @@ class UploadService:
             raise HTTPException(413, 'File is too large')
         fid = uuid4().hex
         name = safe_name(file.filename or 'file')
-        path = self.paths.uploads / sid / f'{fid}-{name}'
+        path = self.folder(sid) / f'{fid[:8]}-{name}'
         atomic_write(path, content)
         mime = mimetypes.guess_type(name)[0] or 'application/octet-stream'
         record = dict(id=fid, name=name, mime=mime, size=len(content), path=str(path.resolve()),

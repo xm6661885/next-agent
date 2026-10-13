@@ -4,15 +4,13 @@
 import { useEffect, useState } from 'preact/hooks'
 import { api } from '../lib/api'
 import { authed, disconnectEvents, meta, toast, toastError } from '../lib/store'
-import { back } from '../lib/router'
-import { BackButton, Segmented, Switch, TopBar, confirmDialog, useScrolled } from '../components/ui'
-import { IconChevronDown, IconLogout, IconPlus, IconTrash } from '../components/icons'
+import { back, navigate } from '../lib/router'
+import { BackButton, Switch, TopBar, confirmDialog, useScrolled } from '../components/ui'
+import { IconBrain, IconChevron, IconChevronDown, IconLogout, IconPlus, IconTrash } from '../components/icons'
 import { Crab } from '../components/crab'
-import { ModelPicker } from '../components/ModelPicker'
-import { MODE_LABELS } from '../lib/util'
+import { FileOutputFields, GenUIFields, IdleFields, ModelFields, OverrideCard, PermissionFields, SystemPromptFields } from '../components/SettingGroups'
 import type { ConfigForm, Price } from '../lib/types'
 
-const EFFORTS = ['', 'low', 'medium', 'high', 'xhigh', 'max']
 const PRICE_FIELDS: [keyof Price, string][] = [['input', 'Input'], ['output', 'Output'], ['cache_write', 'Cache write'], ['cache_read', 'Cache read']]
 
 interface PriceRow { key: string; model: string; price: Record<keyof Price, string> }
@@ -30,7 +28,6 @@ export function Settings() {
   const [orig, setOrig] = useState('')
   const [rows, setRows] = useState<PriceRow[]>([])
   const [newModel, setNewModel] = useState('')
-  const [promptEdit, setPromptEdit] = useState(false)
   const [saving, setSaving] = useState(false)
   const [version, setVersion] = useState('')
   const [rawOpen, setRawOpen] = useState(false)
@@ -56,7 +53,7 @@ export function Settings() {
   const setServer = <K extends keyof ConfigForm['server']>(k: K, v: ConfigForm['server'][K]) =>
     setForm(form && { ...form, server: { ...form.server, [k]: v } })
   const setDef = <K extends keyof ConfigForm['defaults']>(k: K, v: ConfigForm['defaults'][K]) =>
-    setForm(form && { ...form, defaults: { ...form.defaults, [k]: v } })
+    setForm((f) => f && { ...f, defaults: { ...f.defaults, [k]: v } })
 
   const save = async () => {
     if (!form) return
@@ -75,10 +72,9 @@ export function Settings() {
     }
     setSaving(true)
     try {
-      const { max_concurrent, idle_timeout_min, cli_path, api_key } = form.server
-      const saved = await api.updateConfig({ server: { max_concurrent, idle_timeout_min, cli_path, api_key }, defaults: form.defaults, pricing })
+      const { max_concurrent, cli_path, api_key, anthropic_base_url, anthropic_api_key } = form.server
+      const saved = await api.updateConfig({ server: { max_concurrent, cli_path, api_key, anthropic_base_url, anthropic_api_key }, defaults: form.defaults, pricing })
       load(saved)
-      setPromptEdit(false)
       api.meta().then((m) => { meta.value = m }).catch(() => {})
       toast('Settings saved')
     } catch (e) { toastError(e) } finally { setSaving(false) }
@@ -100,7 +96,6 @@ export function Settings() {
   }
 
   const d = form?.defaults
-  const modes = meta.value?.permission_modes || Object.keys(MODE_LABELS)
 
   return (
     <div class="page wide-page">
@@ -127,14 +122,19 @@ export function Settings() {
                     onInput={(e) => setServer('max_concurrent', Number((e.target as HTMLInputElement).value))} />
                   <span class="fhint">Each one uses about 200 MB. Extra conversations wait in a queue.</span>
                 </label>
-                <label class="field"><span class="flabel">Sleep idle CLI after (minutes)</span>
-                  <input class="input" type="number" min={0} step={1} value={form.server.idle_timeout_min}
-                    onInput={(e) => setServer('idle_timeout_min', Number((e.target as HTMLInputElement).value))} />
-                  <span class="fhint">The conversation resumes on the next message. 0 never sleeps. Sessions with running background tasks or scheduled jobs stay awake.</span>
-                </label>
                 <label class="field"><span class="flabel">Claude Code CLI path</span>
                   <input class="input mono" value={form.server.cli_path} placeholder="Bundled with the SDK" autocapitalize="off" spellcheck={false}
                     onInput={(e) => setServer('cli_path', (e.target as HTMLInputElement).value)} />
+                </label>
+                <label class="field"><span class="flabel">API base URL</span>
+                  <input class="input mono" value={form.server.anthropic_base_url ?? ''} placeholder="https://api.anthropic.com" autocapitalize="off" spellcheck={false}
+                    onInput={(e) => setServer('anthropic_base_url', (e.target as HTMLInputElement).value)} />
+                  <span class="fhint">Passed to every agent as ANTHROPIC_BASE_URL. Empty uses the CLI default.</span>
+                </label>
+                <label class="field"><span class="flabel">API key</span>
+                  <input class="input mono" type="password" value={form.server.anthropic_api_key ?? ''} placeholder="sk-ant-..." autocomplete="off" autocapitalize="off" spellcheck={false}
+                    onInput={(e) => setServer('anthropic_api_key', (e.target as HTMLInputElement).value)} />
+                  <span class="fhint">Passed as ANTHROPIC_API_KEY. Empty uses the CLI login. Agent env variables override both.</span>
                 </label>
                 <label class="field"><span class="flabel">External API key</span>
                   <input class="input mono" value={form.server.api_key ?? ''} placeholder="Empty disables the API" autocapitalize="off" spellcheck={false}
@@ -143,20 +143,20 @@ export function Settings() {
                 </label>
               </div>
 
-              <div class="group-title">Defaults for agents</div>
+              <span class="fhint" style={{ display: 'block', padding: '18px 4px 0' }}>Everything below is the global default. Agents follow it unless they turn on Override global for a section.</span>
+              <OverrideCard title="Model"><ModelFields v={d} set={setDef} /></OverrideCard>
+              <OverrideCard title="Permissions"><PermissionFields v={d} set={setDef} /></OverrideCard>
+              <OverrideCard title="System prompt"><SystemPromptFields v={d} set={setDef} /></OverrideCard>
+              <OverrideCard title="Sleep"><IdleFields v={d} set={setDef} /></OverrideCard>
+              <OverrideCard title="Files from Claude"><FileOutputFields v={d} set={setDef} builtin={form.default_file_output_prompt} /></OverrideCard>
+              <OverrideCard title="Interactive UI"><GenUIFields v={d} set={setDef} builtin={form.default_genui_prompt} /></OverrideCard>
+
+              <div class="group-title">Chat display</div>
               <div class="group">
-                <div class="field"><span class="flabel">Model</span>
-                  <ModelPicker value={d.model} onChange={(m) => setDef('model', m)} defaultLabel="Claude Code default" />
+                <div class="row">
+                  <span class="label">Artifacts<span class="hint">A panel with every file and code block of the conversation, and long code shown as tappable cards.</span></span>
+                  <Switch on={d.artifacts ?? true} onChange={(v) => setDef('artifacts', v)} label="Artifacts" />
                 </div>
-                <div class="field"><span class="flabel">Effort</span>
-                  <Segmented value={d.effort} onChange={(v) => setDef('effort', v)} options={EFFORTS.map((e) => ({ value: e, label: e || 'Default' }))} />
-                </div>
-                <div class="field"><span class="flabel">Permission mode</span>
-                  <select class="select" value={d.permission_mode} onChange={(e) => setDef('permission_mode', (e.target as HTMLSelectElement).value)}>
-                    {modes.map((m) => <option value={m}>{MODE_LABELS[m] || m}</option>)}
-                  </select>
-                </div>
-                <span class="fhint" style={{ display: 'block', padding: '0 16px 14px' }}>Used when an agent leaves the field empty.</span>
               </div>
 
               <div class="group-title">Custom models</div>
@@ -214,35 +214,17 @@ export function Settings() {
                 </div>
               </div>
 
-              <div class="group-title">Files from Claude</div>
-              <div class="group">
-                <div class="row">
-                  <span class="label">Share files in chat<span class="hint">Agents set to Global follow this switch.</span></span>
-                  <Switch on={d.file_output} onChange={(v) => setDef('file_output', v)} label="Share files in chat" />
-                </div>
-                <div class="field"><span class="flabel">Prompt</span>
-                  {promptEdit ? (
-                    <>
-                      <textarea class="textarea mono" rows={9} spellcheck={false} value={d.file_output_prompt}
-                        onInput={(e) => setDef('file_output_prompt', (e.target as HTMLTextAreaElement).value)} />
-                      <div class="inline-actions">
-                        <button type="button" class="btn small ghost" onClick={() => setDef('file_output_prompt', form.default_file_output_prompt)}>Reset to built-in</button>
-                        <button type="button" class="btn small" onClick={() => setPromptEdit(false)}>Done</button>
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <div class="prompt-preview">{d.file_output_prompt}</div>
-                      <div class="inline-actions">
-                        <span class="fhint" style={{ flex: 1, margin: 0 }}>Added to the system prompt, separate from each agent's own prompt.</span>
-                        <button type="button" class="btn small" onClick={() => setPromptEdit(true)}>Edit</button>
-                      </div>
-                    </>
-                  )}
-                </div>
-              </div>
             </>
           )}
+
+          <div class="group-title">Claude Code</div>
+          <div class="group">
+            <button type="button" class="row" onClick={() => navigate({ name: 'memory' })}>
+              <IconBrain width={18} height={18} />
+              <span class="label">Memory<span class="hint">View and edit CLAUDE.md and every project's auto-memory on this machine.</span></span>
+              <IconChevron width={16} height={16} />
+            </button>
+          </div>
 
           <button type="button" class={`group-title collapser ${rawOpen ? 'open' : ''}`} onClick={() => setRawOpen(!rawOpen)}>
             Advanced: config.toml <IconChevronDown width={15} height={15} />

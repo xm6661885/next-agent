@@ -46,6 +46,7 @@
   --safe-l: env(safe-area-inset-left, 0px);
   --safe-r: env(safe-area-inset-right, 0px);
   --app-h: 100dvh;
+  --kb: 0px;
   --header-h: 52px;
   --content-w: 760px;
 
@@ -108,7 +109,7 @@ html, body {
   -webkit-touch-callout: none;
 }
 
-input, textarea, [contenteditable], .msg-assistant, .msg-user .bubble, .thinking-body, .selectable {
+input, textarea, [contenteditable], .msg-assistant, .thinking-body, .selectable {
   -webkit-user-select: text;
   user-select: text;
   -webkit-touch-callout: default;

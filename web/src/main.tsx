@@ -10,6 +10,12 @@ function syncViewport() {
   const vv = window.visualViewport
   const h = vv ? vv.height : window.innerHeight
   document.documentElement.style.setProperty('--app-h', `${h}px`)
+  // Height the keyboard covers at the bottom of the layout viewport. iOS Safari shrinks innerHeight with the
+  // keyboard but not the layout viewport (clientHeight), which is what position: fixed; bottom: 0 uses.
+  const layout = document.documentElement.clientHeight
+  const kb = vv ? Math.max(0, layout - vv.height - Math.max(0, vv.offsetTop)) : 0
+  document.documentElement.style.setProperty('--kb', `${Math.round(kb)}px`)
+  document.documentElement.classList.toggle('kb-open', kb > 80)
   // iOS scrolls the layout viewport when the keyboard opens; pin it back.
   if (vv && vv.offsetTop > 0) window.scrollTo(0, 0)
 }

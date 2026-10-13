@@ -2,31 +2,28 @@
 import asyncio
 import os
 import mimetypes
-import re
-import shutil
 from contextlib import asynccontextmanager
 from pathlib import Path
-from uuid import uuid4
-from urllib.parse import unquote
-import bcrypt
 import hmac
-from fastapi import FastAPI, Request, Response, HTTPException, Depends, UploadFile, File, WebSocket
+from fastapi import FastAPI, Request, HTTPException, Depends, UploadFile, File, WebSocket
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from claude_agent_sdk import list_sessions
 from .paths import DataDir, atomic_write
-from .config import ConfigStore, Agent, now
+from .config import ConfigStore, TEMP_AGENT
 from .store import SessionIndex
 from .auth import Auth, COOKIE, AGE
 from .agents import AgentService
 from .uploads import UploadService
 from .extensions import ExtensionBus
 from .runtime import RuntimeManager
-from .history import load_items, page, transcript_path, search_sessions
+from .history import page, transcript_path, search_sessions
 from .ws import session_socket, events_socket
+from . import memory
+from . import artifacts
 
-MODELS=['','opus','sonnet','haiku','opus[1m]','claude-opus-5-5','claude-sonnet-5-5','claude-fable-5-1']
-EFFORTS=['','low','medium','high','xhigh','max']
+MODELS=['opus','sonnet','haiku','opus[1m]','claude-opus-5-5','claude-sonnet-5-5','claude-fable-5-1']
+EFFORTS=['low','medium','high','xhigh','max']
 MODES=['default','acceptEdits','plan','bypassPermissions','dontAsk','auto']
 
 class CachedAssets(StaticFiles):
@@ -43,7 +40,7 @@ def create_app(data_dir=None):
     extensions=ExtensionBus(config)
     manager=RuntimeManager(paths,config,index,extensions)
     agents=AgentService(config,index,manager,paths)
-    uploads=UploadService(paths,index)
+    uploads=UploadService(paths,index,manager)
     async def config_changed():
         if hasattr(manager.semaphore,'resize'):
             manager.semaphore.resize(config.config.server.max_concurrent)
@@ -108,8 +105,15 @@ def create_app(data_dir=None):
     async def agents_reorder(request:Request,_:None=Depends(require)):
         await agents.reorder((await request.json())['ids'])
         return {'ok':True}
+    @app.get('/api/groups')
+    async def groups_get(_:None=Depends(require)): return {'groups':agents.groups()}
+    @app.put('/api/groups')
+    async def groups_put(request:Request,_:None=Depends(require)):
+        body=await request.json()
+        return {'groups':await agents.set_groups(body.get('groups'),body.get('renames'))}
     @app.get('/api/agents/{aid}')
-    async def agent_get(aid:str,_:None=Depends(require)): return agents.view(agents.get(aid))
+    async def agent_get(aid:str,_:None=Depends(require)):
+        return agents.view(agents.get(aid))
     @app.patch('/api/agents/{aid}')
     async def agent_patch(aid:str,request:Request,_:None=Depends(require)):
         return await agents.patch(aid,await request.json())
@@ -148,24 +152,29 @@ def create_app(data_dir=None):
     @app.get('/api/agents/{aid}/sessions')
     async def agent_sessions(aid:str,_:None=Depends(require)):
         agents.get(aid)
-        return [manager.view(s['id']) for s in sorted(index.sessions.values(),key=lambda x:x['updated_at'],reverse=True) if s['agent_id']==aid]
+        return sorted_sessions(aid)
     @app.get('/api/agents/{aid}/search')
     async def agent_search(aid:str,q:str='',limit:int=50,_:None=Depends(require)):
         agent=agents.get(aid)
         q=q.strip()
         if not q: return []
         own=sorted((s for s in index.sessions.values() if s['agent_id']==aid),key=lambda x:x['updated_at'],reverse=True)
-        hits=await asyncio.to_thread(search_sessions,own,agent.cwd,q,max(1,min(limit,200)))
+        cwd=(lambda s:s['cwd']) if aid==TEMP_AGENT else agent.cwd
+        hits=await asyncio.to_thread(search_sessions,own,cwd,q,max(1,min(limit,200)))
         return [{'session':manager.view(sid),'snippet':snippet} for sid,snippet in hits]
     @app.post('/api/agents/{aid}/sessions')
     async def session_create(aid:str,request:Request,_:None=Depends(require)):
+        if aid==TEMP_AGENT: raise HTTPException(400,'Use /api/temp/sessions')
         agents.get(aid)
         data=await request.json()
         created=index.create(aid,data.get('title',''))
-        manager.session_state(manager.get_or_create(created['id']))
+        runtime=manager.get_or_create(created['id'])
+        manager.session_state(runtime)
+        manager.warm(runtime)
         return manager.view(created['id'])
     @app.get('/api/agents/{aid}/importable')
     async def importable(aid:str,_:None=Depends(require)):
+        if aid==TEMP_AGENT: raise HTTPException(400,'Temporary agent cannot import sessions')
         agent=agents.get(aid)
         existing={s['sdk_session_id'] for s in index.sessions.values()}
         return [{'sdk_session_id':s.session_id,'summary':s.summary,'first_prompt':s.first_prompt,
@@ -173,6 +182,7 @@ def create_app(data_dir=None):
                  if s.session_id not in existing]
     @app.post('/api/agents/{aid}/import')
     async def import_sessions(aid:str,request:Request,_:None=Depends(require)):
+        if aid==TEMP_AGENT: raise HTTPException(400,'Temporary agent cannot import sessions')
         agent=agents.get(aid)
         ids=(await request.json()).get('sdk_session_ids',[])
         available={s.session_id:s for s in await asyncio.to_thread(list_sessions,directory=agent.cwd)}
@@ -189,6 +199,41 @@ def create_app(data_dir=None):
             index.save()
             output.append(manager.view(sdk_id))
         return output
+    def sorted_sessions(aid):
+        return [manager.view(s['id']) for s in sorted(index.sessions.values(),key=lambda x:x['updated_at'],reverse=True) if s['agent_id']==aid]
+    @app.get('/api/temp/sessions')
+    async def temp_sessions(_:None=Depends(require)): return sorted_sessions(TEMP_AGENT)
+    @app.post('/api/temp/sessions')
+    async def temp_session_create(request:Request,_:None=Depends(require)):
+        data=await request.json()
+        cwd=os.path.realpath(os.path.expanduser(str(data.get('cwd') or '')))
+        if not data.get('cwd') or not os.path.isdir(cwd): raise HTTPException(422,'cwd must be an existing directory')
+        created=index.create(TEMP_AGENT,data.get('title',''),cwd=cwd)
+        runtime=manager.get_or_create(created['id'])
+        manager.session_state(runtime)
+        manager.warm(runtime)
+        return manager.view(created['id'])
+    @app.get('/api/fs/dirs')
+    async def fs_dirs(path:str='',hidden:int=0,_:None=Depends(require)):
+        target=os.path.realpath(os.path.expanduser(path or '~'))
+        if not os.path.isdir(target): raise HTTPException(404,'Directory not found')
+        def scan():
+            out=[]
+            try:
+                with os.scandir(target) as entries:
+                    for e in entries:
+                        if not hidden and e.name.startswith('.'): continue
+                        try:
+                            if not e.is_dir(): continue
+                            git=os.path.exists(os.path.join(e.path,'.git'))
+                        except OSError: continue
+                        out.append({'name':e.name,'path':e.path,'git':git})
+            except PermissionError: raise HTTPException(403,'Permission denied')
+            return sorted(out,key=lambda d:d['name'].lower())
+        recent=list(dict.fromkeys(s['cwd'] for s in sorted(index.sessions.values(),key=lambda x:x['updated_at'],reverse=True)
+                                   if s.get('cwd')))[:8]
+        return {'path':target,'parent':os.path.dirname(target) if target!='/' else None,'home':os.path.expanduser('~'),
+                'dirs':await asyncio.to_thread(scan),'recent':recent}
     def session(sid):
         if sid not in index.sessions: raise HTTPException(404,'Session not found')
         return index.sessions[sid]
@@ -216,11 +261,9 @@ def create_app(data_dir=None):
         original=session(sid)
         await manager.stop(sid)
         if purge and original.get('sdk_session_id'):
-            path=transcript_path(original['sdk_session_id'],agents.get(original['agent_id']).cwd)
+            path=transcript_path(original['sdk_session_id'],manager.session_agent(original).cwd)
             if path: path.unlink(missing_ok=True)
-        shutil.rmtree(paths.uploads/sid,ignore_errors=True)
-        for fid,record in list(index.uploads.items()):
-            if record['session_id']==sid: del index.uploads[fid]
+        uploads.remove_session(sid)
         del index.sessions[sid]
         manager.runtimes.pop(sid,None)
     @app.delete('/api/sessions/{sid}')
@@ -240,11 +283,22 @@ def create_app(data_dir=None):
         session(sid)
         await manager.stop(sid)
         return manager.view(sid)
+    @app.post('/api/sessions/{sid}/read')
+    async def session_read(sid:str,_:None=Depends(require)):
+        session(sid)
+        manager.mark_read(manager.get_or_create(sid))
+        return manager.view(sid)
+    @app.post('/api/sessions/{sid}/warm')
+    async def session_warm(sid:str,_:None=Depends(require)):
+        session(sid)
+        manager.warm(manager.get_or_create(sid))
+        return manager.view(sid)
     @app.post('/api/sessions/{sid}/fork')
     async def session_fork(sid:str,request:Request,_:None=Depends(require)):
         source=session(sid)
         body=await request.json()
-        fork=index.create(source['agent_id'],source['title']+' (fork)',fork_of={'session_id':sid,'at_uuid':body.get('at_uuid')})
+        fork=index.create(source['agent_id'],source['title']+' (fork)',fork_of={'session_id':sid,'at_uuid':body.get('at_uuid')},
+                         **({'cwd':source['cwd']} if source.get('cwd') else {}))
         return manager.view(fork['id'])
     @app.get('/api/sessions/{sid}/items')
     async def session_items(sid:str,before:str|None=None,limit:int=200,_:None=Depends(require)):
@@ -254,17 +308,19 @@ def create_app(data_dir=None):
         if before or limit!=200:
             return page(await runtime.all_items(),before,limit)
         return {'items':snap['items'],'has_more':snap['has_more']}
+    @app.get('/api/sessions/{sid}/artifacts')
+    async def session_artifacts(sid:str,_:None=Depends(require)):
+        session(sid)
+        return artifacts.listing(await manager.get_or_create(sid).all_items(),sid)
     async def shared_file(sid,path):
         session(sid)
         normalized=os.path.normpath(path)
         if not os.path.isabs(normalized): raise HTTPException(404,'File not found')
         runtime=manager.get_or_create(sid)
         items=await runtime.all_items()
-        key=(len(items),items[-1]['id'] if items else None)
+        key=(len(items),items[-1]['id'] if items else None,runtime.seq)
         if not runtime.file_refs_cache or runtime.file_refs_cache[0]!=key:
-            refs={os.path.normpath(unquote(match)) for entry in items if entry['kind']=='text'
-                  for match in re.findall(r'file://(/[^\s)"\'<>\]]+)',entry.get('text',''))}
-            runtime.file_refs_cache=(key,refs)
+            runtime.file_refs_cache=(key,artifacts.shared_refs(items))
         if normalized not in runtime.file_refs_cache[1] or not os.path.isfile(normalized):
             raise HTTPException(404,'File not found')
         mime=mimetypes.guess_type(normalized)[0] or 'application/octet-stream'
@@ -325,6 +381,17 @@ def create_app(data_dir=None):
         except Exception as exc: raise HTTPException(400,str(exc)) from exc
         await config_changed()
         return {'content':config.masked()}
+    @app.get('/api/memory')
+    async def memory_list(_:None=Depends(require)): return await asyncio.to_thread(memory.listing)
+    @app.get('/api/memory/file')
+    async def memory_get(path:str,_:None=Depends(require)): return memory.read(path)
+    @app.put('/api/memory/file')
+    async def memory_put(request:Request,_:None=Depends(require)):
+        body=await request.json()
+        return memory.write(body.get('path',''),body.get('content',''),bool(body.get('create')))
+    @app.delete('/api/memory/file')
+    async def memory_delete(path:str,_:None=Depends(require)):
+        memory.delete(path); return {'ok':True}
     @app.websocket('/ws/sessions/{sid}')
     async def ws_session(ws:WebSocket,sid:str): await session_socket(ws,sid,auth,manager,index,uploads)
     @app.websocket('/ws/events')

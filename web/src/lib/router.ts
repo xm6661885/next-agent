@@ -2,6 +2,9 @@
 
 import { signal } from '@preact/signals'
 
+/** Agent id that owns temporary sessions. It has its own sessions page and settings, but is not in the agent list. */
+export const TEMP_AGENT = '_temp'
+
 export type Route =
   | { name: 'home' }
   | { name: 'agent'; agentId: string }
@@ -9,6 +12,7 @@ export type Route =
   | { name: 'new-agent' }
   | { name: 'chat'; agentId: string; sessionId: string }
   | { name: 'settings' }
+  | { name: 'memory' }
 
 export function parse(path: string): Route {
   const p = path.replace(/\/+$/, '').split('/').filter(Boolean).map(decodeURIComponent)
@@ -16,6 +20,7 @@ export function parse(path: string): Route {
   if (p[0] === 'agents' && p[1] && p[2] === 'settings') return { name: 'agent-settings', agentId: p[1] }
   if (p[0] === 'agents' && p[1] && p[2] === 's' && p[3]) return { name: 'chat', agentId: p[1], sessionId: p[3] }
   if (p[0] === 'agents' && p[1]) return { name: 'agent', agentId: p[1] }
+  if (p[0] === 'settings' && p[1] === 'memory') return { name: 'memory' }
   if (p[0] === 'settings') return { name: 'settings' }
   return { name: 'home' }
 }
@@ -29,6 +34,7 @@ export function href(r: Route): string {
     case 'agent-settings': return `/agents/${e(r.agentId)}/settings`
     case 'chat': return `/agents/${e(r.agentId)}/s/${e(r.sessionId)}`
     case 'settings': return '/settings'
+    case 'memory': return '/settings/memory'
   }
 }
 
@@ -70,7 +76,9 @@ export function navigate(r: Route | string, opts: { replace?: boolean; animate?:
 /** Where Back leads when there is no history entry to return to. */
 export function parentOf(r: Route): Route {
   switch (r.name) {
-    case 'chat': case 'agent-settings': return { name: 'agent', agentId: r.agentId }
+    case 'chat': return { name: 'agent', agentId: r.agentId }
+    case 'agent-settings': return { name: 'agent', agentId: r.agentId }
+    case 'memory': return { name: 'settings' }
     default: return { name: 'home' }
   }
 }

@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState } from 'preact/hooks'
 import { api } from '../lib/api'
 import { agents, agentsVersion, liveSessions, sessionsVersion, toast, toastError } from '../lib/store'
-import { back, entryKey, navigate, wide } from '../lib/router'
+import { TEMP_AGENT, back, entryKey, navigate, wide } from '../lib/router'
+import { DirPicker } from '../components/DirPicker'
 import { Avatar, Spark } from '../components/crab'
 import { BackButton, Sheet, TopBar, confirmDialog, promptDialog, useScrolled } from '../components/ui'
 import { IconCheck, IconChat, IconClose, IconEdit, IconFork, IconImport, IconMoon, IconMore, IconPlus, IconSearch, IconSettings, IconTrash } from '../components/icons'
@@ -44,13 +45,15 @@ export function AgentPage({ agentId }: { agentId: string }) {
     api.agent(agentId).then(setAgent).catch((e) => { toastError(e); if (e.status === 404) back() })
   }, [agentId, agentsVersion.value])
 
-  const loadSessions = () => api.sessions(agentId).then(setSessions).catch(toastError)
+  const isTemp = agentId === TEMP_AGENT
+  const [picking, setPicking] = useState(false)
+  const loadSessions = () => (isTemp ? api.tempSessions() : api.sessions(agentId)).then(setSessions).catch(toastError)
   useEffect(() => { loadSessions() }, [agentId, sessionsVersion.value])
 
   const live = liveSessions.value
   const merged = (sessions || []).map((s) => {
     const l = live[s.id]
-    return l ? { ...s, state: l.state, pending: l.pending, title: l.title ?? s.title, preview: l.preview ?? s.preview, updated_at: l.updated_at ?? s.updated_at } : s
+    return l ? { ...s, state: l.state, pending: l.pending, unread: l.unread ?? s.unread, title: l.title ?? s.title, preview: l.preview ?? s.preview, updated_at: l.updated_at ?? s.updated_at } : s
   })
   const q = query.trim()
 
@@ -112,11 +115,13 @@ export function AgentPage({ agentId }: { agentId: string }) {
   const totalCost = merged.reduce((n, s) => n + (s.total_cost_usd || 0), 0)
   const anyRunning = merged.some((s) => s.state === 'running')
 
-  const newChat = async () => {
+  const newChat = async (cwd?: string) => {
     if (creating) return
+    if (isTemp && !cwd) return setPicking(true)
+    setPicking(false)
     setCreating(true)
     try {
-      const s = await api.createSession(agentId)
+      const s = isTemp ? await api.createTempSession(cwd!) : await api.createSession(agentId)
       navigate({ name: 'chat', agentId, sessionId: s.id })
     } catch (e) { toastError(e) } finally { setCreating(false) }
   }
@@ -179,19 +184,19 @@ export function AgentPage({ agentId }: { agentId: string }) {
             <div class="agent-hero rise">
               <Avatar agent={agent} size={84} busy={anyRunning} />
               <h1 class="serif">{agent.name}</h1>
-              <div class="agent-hero-path">{shortPath(agent.cwd)}</div>
+              <div class="agent-hero-path">{isTemp ? 'Any folder, one chat at a time' : shortPath(agent.cwd)}</div>
               {agent.description && <p class="agent-hero-desc">{agent.description}</p>}
               <div class="agent-hero-tags">
-                <span class="mtag">{agent.model || 'Default model'}</span>
-                {agent.effort && <span class="mtag">effort {agent.effort}</span>}
+                <span class="mtag">{agent.effective?.model || agent.model}</span>
+                {(agent.effective?.effort || agent.effort) && <span class="mtag">effort {agent.effective?.effort || agent.effort}</span>}
                 <span class="mtag">{merged.length} chats</span>
                 <span class="mtag">{fmtCost(totalCost)}</span>
               </div>
               <div class="agent-hero-actions">
-                <button class="btn primary" onClick={newChat} disabled={creating}>
+                <button class="btn primary" onClick={() => newChat()} disabled={creating}>
                   {creating ? <span class="spinner" /> : <IconPlus width={18} height={18} />} New chat
                 </button>
-                <button class="btn" onClick={() => setImportOpen(true)}><IconImport width={18} height={18} /> Import</button>
+                {!isTemp && <button class="btn" onClick={() => setImportOpen(true)}><IconImport width={18} height={18} /> Import</button>}
               </div>
             </div>
           ) : (
@@ -260,6 +265,7 @@ export function AgentPage({ agentId }: { agentId: string }) {
         </div>
       )}
 
+      {isTemp && <DirPicker open={picking} onClose={() => setPicking(false)} onPick={(c) => newChat(c)} confirm="Start chat" />}
       <ImportSheet open={importOpen} agentId={agentId} onClose={() => setImportOpen(false)} onDone={loadSessions} />
     </div>
   )
@@ -292,10 +298,11 @@ function SessionRow({ s, i, snippet, selected, onOpen, onMore }: {
             : s.pending > 0 ? <span class="dot waiting" /> : busy ? <Spark size={16} /> : <span class={`dot ${s.state !== 'offline' ? 'live' : ''}`} />}
         </span>
         <span class="label">
-          <span class="session-title">{s.title || 'New conversation'}</span>
-          <span class="hint">{hint}</span>
+          <span class={`session-title ${s.unread ? 'unread' : ''}`}>{s.title || 'New conversation'}</span>
+          <span class="hint">{s.cwd ? `${shortPath(s.cwd)} · ${hint}` : hint}</span>
         </span>
         <span class="session-meta">
+          {s.unread && <span class="unread-dot" aria-label="Unread" />}
           <span>{relTime(s.updated_at)}</span>
           {s.fork_of && <IconFork width={13} height={13} />}
         </span>

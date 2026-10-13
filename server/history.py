@@ -90,7 +90,7 @@ def search_sessions(sessions,cwd,q,limit=50):
     for s in sessions:
         if len(hits)>=limit: break
         found=None
-        path=transcript_path(s['sdk_session_id'],cwd) if s.get('sdk_session_id') else None
+        path=transcript_path(s['sdk_session_id'],cwd(s) if callable(cwd) else cwd) if s.get('sdk_session_id') else None
         if path and path.exists():
             with path.open(encoding='utf-8',errors='replace') as stream:
                 for line in stream:

@@ -4,13 +4,14 @@ import { useEffect, useRef, useState } from 'preact/hooks'
 import { meta } from '../lib/store'
 import { IconCheck, IconEdit } from './icons'
 
-export function ModelPicker({ value, onChange, defaultLabel = 'Default' }: {
+export function ModelPicker({ value, onChange, noneLabel }: {
   value: string
   onChange: (m: string) => void
-  defaultLabel?: string
+  /** Adds an empty choice (e.g. "None" for the fallback model). Main model pickers have no empty choice. */
+  noneLabel?: string
 }) {
-  const known = (meta.value?.models || ['', 'opus', 'sonnet']).filter(Boolean)
-  const list = ['', ...known]
+  const known = (meta.value?.models || ['opus', 'sonnet']).filter(Boolean)
+  const list = noneLabel ? ['', ...known] : known
   const isCustom = !!value && !known.includes(value)
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
@@ -29,7 +30,7 @@ export function ModelPicker({ value, onChange, defaultLabel = 'Default' }: {
       <div class="model-chips">
         {list.map((m) => (
           <button type="button" key={m || 'default'} class={`chip ${value === m ? 'pink' : ''}`} onClick={() => { setEditing(false); onChange(m) }}>
-            {m || defaultLabel}
+            {m || noneLabel}
           </button>
         ))}
         {isCustom && !editing && <button type="button" class="chip pink" onClick={() => { setDraft(value); setEditing(true) }}>{value}</button>}

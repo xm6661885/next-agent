@@ -1,7 +1,7 @@
 // Interactive cards for pending requests: tool permission, AskUserQuestion, ExitPlanMode.
 
 import { useState } from 'preact/hooks'
-import type { PermissionRequest, Question } from '../lib/types'
+import type { PermissionRequest, Question, ToolItem } from '../lib/types'
 import { renderMarkdown, highlightCode } from './markdown'
 import { toolSummary } from './tools'
 import { IconCheck, IconClose, IconMap, IconQuestion, IconShield } from '../components/icons'
@@ -95,15 +95,11 @@ function QuestionCard({ req, reply, busy }: { req: PermissionRequest; reply: Rep
       <div class="ask-head">
         <IconQuestion width={18} height={18} />
         <span>{q.header || 'Question'}</span>
-        {questions.length > 1 && (
-          <span class="q-steps">
-            {questions.map((_, k) => (
-              <button key={k} class={`q-step ${k === step ? 'on' : ''} ${(answers[questions[k].question]?.length || other[questions[k].question]) ? 'done' : ''}`}
-                onClick={() => setStep(k)} aria-label={`Question ${k + 1}`} />
-            ))}
-          </span>
-        )}
       </div>
+      {questions.length > 1 && (
+        <QuestionTabs count={questions.length} step={step} onStep={setStep}
+          done={(k) => !!(answers[questions[k].question]?.length || other[questions[k].question]?.trim())} />
+      )}
       <div class="q-text" key={step}>{q.question}</div>
       <div class="q-options" key={`o${step}`}>
         {q.options.map((o, k) => {
@@ -161,6 +157,71 @@ function PlanCard({ req, reply, busy }: { req: PermissionRequest; reply: Reply; 
           <button class="btn small ghost" disabled={busy} onClick={() => setRevising(true)}><IconClose width={16} height={16} /> Keep planning</button>
         </div>
       )}
+    </div>
+  )
+}
+
+/** Numbered tabs to jump between questions. */
+function QuestionTabs({ count, step, onStep, done }: { count: number; step: number; onStep: (k: number) => void; done: (k: number) => boolean }) {
+  return (
+    <div class="q-tabs" role="tablist">
+      {Array.from({ length: count }, (_, k) => (
+        <button key={k} type="button" role="tab" aria-selected={k === step} class={`q-tab ${k === step ? 'on' : ''} ${done(k) ? 'done' : ''}`}
+          onClick={() => onStep(k)} aria-label={`Question ${k + 1}${done(k) ? ', answered' : ''}`}>
+          {done(k) && k !== step ? <IconCheck width={12} height={12} /> : k + 1}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+/** Answers from the AskUserQuestion tool result: `... "question"="answer", "question"="answer" ...`. */
+function parseAnswers(text: string): Record<string, string> {
+  const out: Record<string, string> = {}
+  const re = /"((?:[^"\\]|\\.)*)"="((?:[^"\\]|\\.)*)"/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(text))) out[m[1]] = m[2]
+  return out
+}
+
+/** An AskUserQuestion call that has finished: the questions with the chosen answers. */
+export function AnsweredQuestionCard({ it }: { it: ToolItem }) {
+  const questions: Question[] = it.input?.questions || []
+  const [step, setStep] = useState(0)
+  const content = it.result?.content || ''
+  const skipped = !!it.result?.is_error
+  const answers = skipped ? {} : parseAnswers(content)
+  const q = questions[step]
+  if (!q) return null
+  const answer = answers[q.question] ?? ''
+  const picked = new Set(answer.split(', ').map((x) => x.trim()).filter(Boolean))
+  const isOption = (label: string) => picked.has(label) || answer === label
+  const custom = answer && !q.options.some((o) => isOption(o.label)) ? answer : ''
+  return (
+    <div class={`ask-card question answered ${skipped ? 'skipped' : ''}`}>
+      <div class="ask-head">
+        <IconQuestion width={18} height={18} />
+        <span>{q.header || 'Question'}</span>
+        <span class={`chip ${skipped ? '' : 'pink'} q-status`}>{skipped ? 'Skipped' : 'Answered'}</span>
+      </div>
+      {questions.length > 1 && <QuestionTabs count={questions.length} step={step} onStep={setStep} done={(k) => !!answers[questions[k].question]} />}
+      <div class="q-text">{q.question}</div>
+      <div class="q-options">
+        {q.options.map((o) => {
+          const on = isOption(o.label)
+          return (
+            <div key={o.label} class={`q-opt static ${on ? 'on' : ''}`}>
+              <span class={`q-mark ${q.multiSelect ? 'square' : ''}`}>{on && <IconCheck width={12} height={12} />}</span>
+              <span class="q-opt-text">
+                <span class="q-label">{o.label}</span>
+                {o.description && <span class="q-desc">{o.description}</span>}
+              </span>
+            </div>
+          )
+        })}
+        {custom && <div class="q-opt static on q-custom"><span class="q-mark"><IconCheck width={12} height={12} /></span><span class="q-opt-text"><span class="q-label">{custom}</span></span></div>}
+      </div>
+      {skipped && content && <div class="ask-desc">{content}</div>}
     </div>
   )
 }

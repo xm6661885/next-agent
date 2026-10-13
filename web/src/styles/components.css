@@ -421,8 +421,9 @@ svg.crab .eyes { animation: blink 4.5s infinite; transform-origin: center 3px; t
   z-index: 41;
   left: 0;
   right: 0;
-  bottom: 0;
+  bottom: var(--kb, 0px);
   max-height: calc(var(--app-h) - var(--safe-t) - 24px);
+  transition: bottom 0.25s var(--ease-sheet);
   display: flex;
   flex-direction: column;
   background: var(--surface);
@@ -456,6 +457,7 @@ svg.crab .eyes { animation: blink 4.5s infinite; transform-origin: center 3px; t
 }
 
 .sheet-head h3 { flex: 1; min-width: 0; margin: 0; font-size: 20px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kb-open .sheet { padding-bottom: 0; }
 .sheet-body { overflow-y: auto; padding: 4px 16px 18px; -webkit-overflow-scrolling: touch; }
 
 @media (min-width: 720px) {
@@ -463,7 +465,7 @@ svg.crab .eyes { animation: blink 4.5s infinite; transform-origin: center 3px; t
     left: 50%;
     right: auto;
     bottom: auto;
-    top: 50%;
+    top: calc(var(--app-h) / 2); /* center in the visible area, above an iPad keyboard */
     width: min(560px, calc(100vw - 48px));
     max-height: min(760px, calc(var(--app-h) - 80px));
     border-radius: var(--r-xl);
@@ -638,3 +640,61 @@ svg.crab .eyes { animation: blink 4.5s infinite; transform-origin: center 3px; t
 @media (pointer: coarse) { .viewer-nav { display: none; } }
 
 .topbar-actions { display: flex; align-items: center; gap: 2px; }
+
+/* ---------- Effort slider ---------- */
+.effort { display: flex; flex-direction: column; gap: 8px; user-select: none; }
+.effort-head { display: flex; justify-content: center; }
+.effort-value { font-family: var(--font-serif); font-size: 18px; text-transform: capitalize; animation: pop 0.25s var(--ease-spring) both; }
+.effort-track { position: relative; height: 30px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--line-strong);
+  touch-action: none; cursor: grab; outline: none; overflow: hidden; }
+.effort-track:focus-visible { box-shadow: 0 0 0 3px var(--pink-soft); }
+.effort.dragging .effort-track { cursor: grabbing; }
+.effort-fill { position: absolute; inset: 0 auto 0 0; border-radius: 999px; background: var(--pink); transition: width 0.25s var(--ease-out); }
+.effort.dragging .effort-fill, .effort.dragging .effort-thumb { transition: none; }
+.effort-stop { position: absolute; top: 50%; width: 4px; height: 4px; margin: -2px 0 0 -2px; border-radius: 50%; background: var(--line-strong); }
+.effort-stop.on { background: color-mix(in srgb, var(--pink-ink) 45%, transparent); }
+.effort-thumb { position: absolute; top: 2px; width: 26px; height: 26px; margin-left: 2px; border-radius: 50%; background: #fff;
+  box-shadow: 0 1px 4px rgba(0,0,0,.2); transition: left 0.25s var(--ease-spring); }
+.effort-labels { display: flex; justify-content: space-between; }
+.effort-labels button { font-size: 12px; color: var(--text-3); padding: 2px 4px; text-transform: capitalize; }
+.effort-labels button.on { color: var(--text); font-weight: 650; }
+.effort.max .effort-fill {
+  background: linear-gradient(90deg, #ff8fb1, #ffb86b, #ffe57a, #8ee6a8, #7cc8ff, #b49cff, #ff8fb1);
+  background-size: 200% 100%; animation: effort-rainbow 2.4s linear infinite;
+}
+.effort.max .effort-thumb { box-shadow: 0 0 0 3px rgba(255,255,255,.5), 0 0 14px rgba(255,150,200,.8); }
+.effort.max .effort-value {
+  background: linear-gradient(90deg, #ff6f9c, #ff9f45, #e0c341, #4fc879, #4aa8ff, #9a7bff, #ff6f9c);
+  background-size: 200% 100%; -webkit-background-clip: text; background-clip: text; color: transparent;
+  animation: pop 0.25s var(--ease-spring) both, effort-rainbow 2.4s linear infinite;
+}
+@keyframes effort-rainbow { to { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) { .effort.max .effort-fill, .effort.max .effort-value { animation: none; } }
+
+/* ---------- Crop sheet ---------- */
+.crop-wrap { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.crop-box { position: relative; touch-action: none; line-height: 0; max-width: 100%; }
+.crop-box img { max-width: 100%; max-height: 58vh; display: block; border-radius: 6px; user-select: none; -webkit-user-drag: none; }
+.crop-frame { position: absolute; border: 2px solid #fff; box-shadow: 0 0 0 9999px rgba(0,0,0,.45); cursor: move; touch-action: none; }
+.crop-box { overflow: hidden; border-radius: 6px; }
+.crop-handle { position: absolute; width: 22px; height: 22px; border: 3px solid #fff; }
+.crop-handle.tl { left: -4px; top: -4px; border-right: 0; border-bottom: 0; cursor: nwse-resize; }
+.crop-handle.tr { right: -4px; top: -4px; border-left: 0; border-bottom: 0; cursor: nesw-resize; }
+.crop-handle.bl { left: -4px; bottom: -4px; border-right: 0; border-top: 0; cursor: nesw-resize; }
+.crop-handle.br { right: -4px; bottom: -4px; border-left: 0; border-top: 0; cursor: nwse-resize; }
+.crop-edge { position: absolute; }
+.crop-edge.t, .crop-edge.b { left: 22px; right: 22px; height: 18px; cursor: ns-resize; }
+.crop-edge.t { top: -9px; } .crop-edge.b { bottom: -9px; }
+.crop-edge.l, .crop-edge.r { top: 22px; bottom: 22px; width: 18px; cursor: ew-resize; }
+.crop-edge.l { left: -9px; } .crop-edge.r { right: -9px; }
+.crop-actions { display: flex; gap: 8px; }
+
+/* Settings groups with an "Override global" switch: inherited values read-only and dimmed */
+.group-fields { border: 0; margin: 0; padding: 0; min-width: 0; transition: opacity 0.25s; }
+.group.inherited .group-fields { opacity: 0.5; }
+.group-fields:disabled * { cursor: not-allowed; }
+.switch:disabled { opacity: 0.5; cursor: not-allowed; }
+/* Cards that follow each other without a title in between (agent-only fields after an override card) */
+.group + .group { margin-top: 12px; }
+/* Divider between the "Override global" row and the first field inside the fieldset */
+.row + .group-fields > :first-child { border-top: 1px solid var(--line); }

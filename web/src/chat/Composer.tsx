@@ -7,6 +7,7 @@ import { toastError } from '../lib/store'
 import type { Attachment, SessionState } from '../lib/types'
 import { IconCamera, IconFile, IconImage, IconPaperclip, IconSend, IconStop, IconSteer } from '../components/icons'
 import { Sheet } from '../components/ui'
+import { CropSheet } from '../components/CropSheet'
 import { MODE_CYCLE, MODE_LABELS, fmtBytes, haptic, uid } from '../lib/util'
 import { modelShort } from '../components/ModelPicker'
 import { IconChevronDown } from '../components/icons'
@@ -133,6 +134,7 @@ export function Composer({ sid, state, mode, model, slash, onSend, onInterrupt, 
   }
 
   const [drag, setDrag] = useState(false)
+  const [cropping, setCropping] = useState<File | null>(null)
 
   return (
     <div class={`composer-wrap ${drag ? 'drag' : ''}`}
@@ -172,9 +174,9 @@ export function Composer({ sid, state, mode, model, slash, onSend, onInterrupt, 
         <div class="composer-bar">
           <button class="icon-btn" aria-label="Attach" onClick={() => setAttachOpen(true)}><IconPaperclip /></button>
           <button class={`model-chip mode-${mode}`} onClick={onOpenModel} title={`Model. ${MODE_LABELS[mode] || mode}; Shift+Tab cycles modes`}
-            aria-label={`Model: ${model || 'default'}. Change model`}>
+            aria-label={`Model: ${model}. Change model`}>
             <span class={`mode-swatch mode-${mode}`} />
-            <span class="model-chip-name">{model ? modelShort(model) : 'Default model'}</span>
+            <span class="model-chip-name">{modelShort(model)}</span>
             <IconChevronDown width={14} height={14} />
           </button>
           <span style={{ flex: 1 }} />
@@ -196,7 +198,8 @@ export function Composer({ sid, state, mode, model, slash, onSend, onInterrupt, 
       </div>
       <input ref={fileIn} type="file" multiple hidden onChange={(e) => { addFiles((e.target as HTMLInputElement).files); (e.target as HTMLInputElement).value = '' }} />
       <input ref={imgIn} type="file" accept="image/*" multiple hidden onChange={(e) => { addFiles((e.target as HTMLInputElement).files); (e.target as HTMLInputElement).value = '' }} />
-      <input ref={camIn} type="file" accept="image/*" capture="environment" hidden onChange={(e) => { addFiles((e.target as HTMLInputElement).files); (e.target as HTMLInputElement).value = '' }} />
+      <input ref={camIn} type="file" accept="image/*" capture="environment" hidden onChange={(e) => { const f = (e.target as HTMLInputElement).files?.[0]; if (f) setCropping(f); (e.target as HTMLInputElement).value = '' }} />
+      <CropSheet file={cropping} onCancel={() => setCropping(null)} onDone={(f) => { setCropping(null); addFiles([f]) }} />
       <Sheet open={attachOpen} onClose={() => setAttachOpen(false)} title="Add to message">
         <div class="attach-grid">
           <button onClick={() => { setAttachOpen(false); camIn.current?.click() }}><span><IconCamera /></span>Camera</button>

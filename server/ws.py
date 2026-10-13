@@ -13,6 +13,9 @@ async def session_socket(ws: WebSocket, sid, auth, manager, index, uploads):
     runtime=manager.get_or_create(sid)
     queue=asyncio.Queue(maxsize=1000)
     runtime.subscribers.add(queue)
+    runtime.viewers+=1
+    manager.mark_read(runtime)
+    manager.warm(runtime)
     try:
         first=await ws.receive_json()
         if first.get('type')!='resume':
@@ -92,6 +95,7 @@ async def session_socket(ws: WebSocket, sid, auth, manager, index, uploads):
     except WebSocketDisconnect:
         pass
     finally:
+        runtime.viewers-=1
         runtime.subscribers.discard(queue)
 
 async def events_socket(ws: WebSocket, auth, manager, agents):
@@ -102,7 +106,7 @@ async def events_socket(ws: WebSocket, auth, manager, agents):
     try:
         await ws.send_json({'type':'hello','agents':[{'id':a['id'],'status':a['status']} for a in agents.list()],
                             'sessions':[{'id':s['id'],'agent_id':s['agent_id'],'state':manager.view(s['id'])['state'],
-                                         'pending':manager.view(s['id'])['pending']} for s in manager.index.sessions.values()]})
+                                         'pending':manager.view(s['id'])['pending'],'unread':bool(s.get('unread'))} for s in manager.index.sessions.values()]})
         while True:
             event_task=asyncio.create_task(queue.get())
             close_task=asyncio.create_task(ws.receive())

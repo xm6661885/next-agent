@@ -1,5 +1,5 @@
 // App-shell service worker. API and WebSocket traffic always go to the network.
-const CACHE = 'next-agent-v6'
+const CACHE = 'next-agent-v18'
 const SHELL = ['/', '/manifest.webmanifest', '/icons/icon-192.png', '/icons/apple-touch-icon.png']
 
 self.addEventListener('install', (e) => {

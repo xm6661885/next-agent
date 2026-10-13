@@ -3,33 +3,39 @@
 import { useEffect, useRef, useState } from 'preact/hooks'
 import { api } from '../lib/api'
 import { agents, meta, toast, toastError } from '../lib/store'
-import { back, navigate } from '../lib/router'
+import { TEMP_AGENT, back, navigate } from '../lib/router'
 import { Avatar, CRAB_COLORS, Crab } from '../components/crab'
 import { BackButton, Segmented, Switch, TopBar, confirmDialog, useScrolled } from '../components/ui'
-import { IconTrash } from '../components/icons'
-import { ModelPicker } from '../components/ModelPicker'
-import { MODE_LABELS } from '../lib/util'
-import type { Agent } from '../lib/types'
+import { IconChevronDown, IconTrash } from '../components/icons'
+import { FileOutputFields, GenUIFields, IdleFields, ModelFields, OverrideCard, PermissionFields, SystemPromptFields } from '../components/SettingGroups'
+import type { Agent, Effective, OverrideGroup } from '../lib/types'
 
-const BLANK: Partial<Agent> = {
-  name: '', avatar: 'crab:pink', description: '', cwd: '', model: '', fallback_model: '', effort: '',
-  thinking: '', thinking_budget: 0, permission_mode: 'bypassPermissions', system_prompt_mode: 'preset', system_prompt: '',
-  claude_md: 'inherit', setting_sources: ['user', 'project', 'local'], tools: [], allowed_tools: [], disallowed_tools: [],
-  add_dirs: [], max_turns: 0, max_budget_usd: 0, env: {}, mcp_servers: {}, agents: {}, enable_file_checkpointing: true,
-  file_output: '', file_output_prompt: '', extra_args: {},
+const GROUP_FIELDS: Record<OverrideGroup, (keyof Effective)[]> = {
+  model: ['model', 'effort', 'fallback_model', 'thinking', 'thinking_budget'], permissions: ['permission_mode'], system_prompt: ['system_prompt_mode', 'system_prompt'],
+  file_output: ['file_output', 'file_output_prompt'], genui: ['genui', 'genui_prompt'], idle: ['idle_mode', 'idle_timeout_min', 'adaptive_keep'],
 }
 
-const EFFORTS = ['', 'low', 'medium', 'high', 'xhigh', 'max']
+const BLANK: Partial<Agent> = {
+  name: '', avatar: 'crab:pink', description: '', group: '', cwd: '', model: '', fallback_model: '', effort: '',
+  thinking: 'adaptive', thinking_budget: 8000, permission_mode: 'bypassPermissions', system_prompt_mode: 'preset', system_prompt: '',
+  claude_md: 'inherit', setting_sources: ['user', 'project', 'local'], tools: ['*'], auto_memory: true, allowed_tools: [], disallowed_tools: [],
+  add_dirs: [], max_turns: 0, max_budget_usd: 0, env: {}, mcp_servers: {}, agents: {}, enable_file_checkpointing: true,
+  file_output: true, file_output_prompt: '', genui: true, genui_prompt: '', idle_mode: 'timer', idle_timeout_min: 10, adaptive_keep: 1,
+  override_groups: [], extra_args: {},
+}
+
 const lines = (v: string) => v.split('\n').map((s) => s.trim()).filter(Boolean)
 
 export function AgentSettings({ agentId }: { agentId?: string }) {
   const isNew = !agentId
+  const isTemp = agentId === TEMP_AGENT
   const { scrolled, onScroll, ref: scrollRef } = useScrolled()
   const [a, setA] = useState<Partial<Agent> | null>(isNew ? { ...BLANK } : null)
   const [orig, setOrig] = useState('')
   const [saving, setSaving] = useState(false)
   const [claudeMd, setClaudeMd] = useState<{ content: string; path: string; exists: boolean } | null>(null)
   const [mdDirty, setMdDirty] = useState(false)
+  const [rulesOpen, setRulesOpen] = useState(false)
   const [json, setJson] = useState({ env: '{}', mcp_servers: '{}', agents: '{}', extra_args: '{}' })
   const [jsonErr, setJsonErr] = useState<Record<string, string>>({})
   const fileRef = useRef<HTMLInputElement>(null)
@@ -47,7 +53,7 @@ export function AgentSettings({ agentId }: { agentId?: string }) {
         extra_args: JSON.stringify(x.extra_args || {}, null, 2),
       })
     }).catch(toastError)
-    api.getClaudeMd(agentId!).then(setClaudeMd).catch(() => setClaudeMd(null))
+    if (agentId !== TEMP_AGENT) api.getClaudeMd(agentId!).then(setClaudeMd).catch(() => setClaudeMd(null))
   }, [agentId])
 
   useEffect(() => {
@@ -65,6 +71,8 @@ export function AgentSettings({ agentId }: { agentId?: string }) {
     )
   }
 
+  const [groupNames, setGroupNames] = useState<string[]>([])
+  useEffect(() => { api.groups().then((g) => setGroupNames(g.groups)).catch(() => {}) }, [])
   const set = <K extends keyof Agent>(k: K, v: Agent[K]) => setA({ ...a, [k]: v })
   const setJsonField = (k: keyof typeof json, v: string) => {
     setJson({ ...json, [k]: v })
@@ -77,17 +85,32 @@ export function AgentSettings({ agentId }: { agentId?: string }) {
     }
   }
 
-  const modes = meta.value?.permission_modes || Object.keys(MODE_LABELS)
+  const groups = a.override_groups || []
+  const on = (g: OverrideGroup) => groups.includes(g)
+  const global = meta.value?.defaults
+  /** Values a section shows: the agent's own when overridden, else the global defaults (read-only). */
+  const view = (g: OverrideGroup): Effective => (on(g) ? { ...(global as any), ...a } : { ...(a as any), ...(global || {}) }) as Effective
+  const toggle = (g: OverrideGroup, v: boolean) => {
+    if (!v) return setA({ ...a, override_groups: groups.filter((x) => x !== g) })
+    // Turning a group on that was not saved as overridden starts from the global values.
+    const saved = orig && (JSON.parse(orig).override_groups || []).includes(g)
+    const seed = saved || !global ? {} : Object.fromEntries(GROUP_FIELDS[g].map((f) => [f, (global as any)[f]]))
+    setA({ ...a, ...seed, override_groups: [...groups, g] })
+  }
+  const card = (g: OverrideGroup, title: string, body: any) =>
+    <OverrideCard title={title} override={on(g)} onOverride={(v) => toggle(g, v)}>{body}</OverrideCard>
 
   const save = async () => {
     if (!a.name?.trim()) return toast('Give your agent a name', 'error')
-    if (!a.cwd?.trim()) return toast('Choose a working directory', 'error')
+    if (!isTemp && !a.cwd?.trim()) return toast('Choose a working directory', 'error')
+    if (isNew && a.id && !/^[a-z0-9-]{1,40}$/.test(a.id)) return toast('ID can only use a-z, 0-9 and -', 'error')
     if (Object.values(jsonErr).some(Boolean)) return toast('Fix the JSON fields first', 'error')
     const body: Partial<Agent> = { ...a }
     for (const k of ['env', 'mcp_servers', 'agents', 'extra_args'] as const) {
       body[k] = (json[k].trim() ? JSON.parse(json[k]) : {}) as any
     }
     delete body.status
+    delete body.effective
     setSaving(true)
     try {
       const saved = isNew ? await api.createAgent(body) : await api.updateAgent(agentId!, body)
@@ -99,7 +122,7 @@ export function AgentSettings({ agentId }: { agentId?: string }) {
         setA(saved)
         setOrig(JSON.stringify(saved))
         setMdDirty(false)
-        api.getClaudeMd(saved.id).then(setClaudeMd).catch(() => {})
+        if (!isTemp) api.getClaudeMd(saved.id).then(setClaudeMd).catch(() => {})
       }
     } catch (e) { toastError(e) } finally { setSaving(false) }
   }
@@ -140,7 +163,7 @@ export function AgentSettings({ agentId }: { agentId?: string }) {
     <div class="page">
       <TopBar scrolled={scrolled} left={<BackButton label={isNew ? 'Cancel' : 'Back'} onClick={() => back()} />}
         right={<button class="btn primary small" disabled={saving || !dirty} onClick={save}>{saving ? <span class="spinner" /> : isNew ? 'Create' : 'Save'}</button>}>
-        <span class="topbar-center">{isNew ? 'New agent' : 'Agent settings'}</span>
+        <span class="topbar-center">{isNew ? 'New agent' : isTemp ? 'Temporary chat settings' : 'Agent settings'}</span>
       </TopBar>
       <div class="page-scroll" ref={scrollRef} onScroll={onScroll}>
         <div class="container settings">
@@ -165,61 +188,52 @@ export function AgentSettings({ agentId }: { agentId?: string }) {
             <label class="field"><span class="flabel">Name</span>
               <input class="input" value={a.name} placeholder="Claude" onInput={(e) => set('name', (e.target as HTMLInputElement).value)} />
             </label>
+            {isNew && <label class="field"><span class="flabel">ID</span>
+              <input class="input mono" value={a.id || ''} autocapitalize="off" spellcheck={false} maxLength={40} placeholder="derived from name"
+                onInput={(e) => set('id', (e.target as HTMLInputElement).value.toLowerCase())} />
+              <span class="fhint">Lowercase letters, digits and -. Used in URLs and data folders; it can't be changed later.</span>
+            </label>}
+            {!isNew && !isTemp && <div class="field"><span class="flabel">ID</span>
+              <span class="fhint mono">{agentId}</span>
+            </div>}
             <label class="field"><span class="flabel">Description</span>
               <input class="input" value={a.description} placeholder="What this agent is for"
                 onInput={(e) => set('description', (e.target as HTMLInputElement).value)} />
             </label>
-            <label class="field"><span class="flabel">Working directory</span>
+            {!isTemp && groupNames.length > 0 && <div class="field"><span class="flabel">Group</span>
+              <div class="chips" role="radiogroup" aria-label="Group">
+                {['', ...groupNames].map((g) => (
+                  <button key={g || '_none'} type="button" role="radio" aria-checked={(a.group || '') === g}
+                    class={`chip ${(a.group || '') === g ? 'pink' : ''}`} onClick={() => set('group', g)}>{g || 'None'}</button>
+                ))}
+              </div>
+              <span class="fhint">Manage groups from the tag button on Home.</span>
+            </div>}
+            {!isTemp && <label class="field"><span class="flabel">Working directory</span>
               <input class="input mono" value={a.cwd} autocapitalize="off" spellcheck={false} placeholder="/home/you/project"
                 onInput={(e) => set('cwd', (e.target as HTMLInputElement).value)} />
               <span class="fhint">Claude Code runs here. Project CLAUDE.md, settings and history follow this folder.</span>
-            </label>
+            </label>}
           </div>
 
-          <div class="group-title">Model</div>
+          {card('model', 'Model', <ModelFields v={view('model')} set={set as any} />)}
+{card('permissions', 'Permissions', <PermissionFields v={view('permissions')} set={set as any} />)}
           <div class="group">
-            <div class="field"><span class="flabel">Model</span>
-              <ModelPicker value={a.model || ''} onChange={(m) => set('model', m)}
-                defaultLabel={meta.value?.defaults.model ? `Default (${meta.value.defaults.model})` : 'Claude Code default'} />
+            <ToolField label="Available tools" hint="Built-in tools this agent can use. None selected means no built-in tools." value={a.tools || []}
+              onChange={(v) => set('tools', v)} placeholder={'Read\nGrep'} all />
+            <div class="row">
+              <span class="label">Memory<span class="hint">Auto memory across sessions. Off sets CLAUDE_CODE_DISABLE_AUTO_MEMORY=1.</span></span>
+              <Switch on={a.auto_memory !== false} onChange={(v) => set('auto_memory', v)} label="Memory" />
             </div>
-            <div class="field"><span class="flabel">Fallback model</span>
-              <ModelPicker value={a.fallback_model || ''} onChange={(m) => set('fallback_model', m)} defaultLabel="None" />
-              <span class="fhint">Used when the main model is overloaded.</span>
-            </div>
-            <div class="field"><span class="flabel">Effort</span>
-              <Segmented value={a.effort || ''} onChange={(v) => set('effort', v)}
-                options={EFFORTS.map((e) => ({ value: e, label: e || 'Default' }))} />
-            </div>
-            <div class="field"><span class="flabel">Extended thinking</span>
-              <Segmented value={a.thinking || ''} onChange={(v) => set('thinking', v)}
-                options={[{ value: '', label: 'Default' }, { value: 'adaptive', label: 'Adaptive' }, { value: 'enabled', label: 'Budget' }, { value: 'disabled', label: 'Off' }]} />
-              {a.thinking === 'enabled' && (
-                <input class="input" style={{ marginTop: '10px' }} type="number" min={1024} step={1024} value={a.thinking_budget || 8000}
-                  onInput={(e) => set('thinking_budget', Number((e.target as HTMLInputElement).value))} />
-              )}
-            </div>
-          </div>
-
-          <div class="group-title">Permissions</div>
-          <div class="group">
-            <div class="field"><span class="flabel">Permission mode</span>
-              <select class="select" value={a.permission_mode} onChange={(e) => set('permission_mode', (e.target as HTMLSelectElement).value)}>
-                {modes.map((m) => <option value={m}>{MODE_LABELS[m] || m}</option>)}
-              </select>
-              <span class="fhint">Ask before acting shows approval cards in the chat. You can switch modes inside any conversation.</span>
-            </div>
-            <label class="field"><span class="flabel">Always allowed tools</span>
-              <textarea class="textarea mono" rows={2} value={(a.allowed_tools || []).join('\n')} placeholder={'Read\nBash(git status:*)'}
-                onInput={(e) => set('allowed_tools', lines((e.target as HTMLTextAreaElement).value))} />
-            </label>
-            <label class="field"><span class="flabel">Blocked tools</span>
-              <textarea class="textarea mono" rows={2} value={(a.disallowed_tools || []).join('\n')} placeholder="WebFetch"
-                onInput={(e) => set('disallowed_tools', lines((e.target as HTMLTextAreaElement).value))} />
-            </label>
-            <label class="field"><span class="flabel">Available tools</span>
-              <textarea class="textarea mono" rows={2} value={(a.tools || []).join('\n')} placeholder="Empty means all built-in tools"
-                onInput={(e) => set('tools', lines((e.target as HTMLTextAreaElement).value))} />
-            </label>
+            <button type="button" class={`tool-adv ${rulesOpen ? 'open' : ''}`} onClick={() => setRulesOpen(!rulesOpen)}>
+              Allow and block rules{(a.allowed_tools?.length || a.disallowed_tools?.length) ? ` (${(a.allowed_tools?.length || 0) + (a.disallowed_tools?.length || 0)})` : ''} <IconChevronDown width={14} height={14} />
+            </button>
+            {rulesOpen && <>
+              <ToolField label="Always allowed tools" hint="allowed_tools: run without asking, even in Ask before acting." value={a.allowed_tools || []}
+                onChange={(v) => set('allowed_tools', v)} placeholder={'Read\nBash(git status:*)'} />
+              <ToolField label="Blocked tools" hint="disallowed_tools: removed from this agent, overriding everything else." value={a.disallowed_tools || []}
+                onChange={(v) => set('disallowed_tools', v)} placeholder="WebFetch" danger />
+            </>}
             <label class="field"><span class="flabel">Extra directories</span>
               <textarea class="textarea mono" rows={2} value={(a.add_dirs || []).join('\n')} placeholder="/srv/shared"
                 onInput={(e) => set('add_dirs', lines((e.target as HTMLTextAreaElement).value))} />
@@ -228,7 +242,7 @@ export function AgentSettings({ agentId }: { agentId?: string }) {
 
           <div class="group-title">Instructions</div>
           <div class="group">
-            <div class="field"><span class="flabel">CLAUDE.md</span>
+            {!isTemp && <div class="field"><span class="flabel">CLAUDE.md</span>
               <Segmented value={a.claude_md || 'inherit'} onChange={(v) => set('claude_md', v)}
                 options={[{ value: 'inherit', label: 'From folder' }, { value: 'custom', label: 'Agent only' }]} />
               <span class="fhint">
@@ -248,14 +262,7 @@ export function AgentSettings({ agentId }: { agentId?: string }) {
               ) : (
                 <span class="fhint">Save to switch, then edit the file here.</span>
               )}
-            </div>
-            <div class="field"><span class="flabel">System prompt</span>
-              <Segmented value={a.system_prompt_mode || 'preset'} onChange={(v) => set('system_prompt_mode', v)}
-                options={[{ value: 'preset', label: 'Claude Code + append' }, { value: 'custom', label: 'Replace' }]} />
-              <textarea class="textarea" style={{ marginTop: '10px' }} rows={4} value={a.system_prompt}
-                placeholder={a.system_prompt_mode === 'custom' ? 'Full system prompt' : 'Extra instructions appended to the Claude Code prompt'}
-                onInput={(e) => set('system_prompt', (e.target as HTMLTextAreaElement).value)} />
-            </div>
+            </div>}
             <div class="field"><span class="flabel">Setting sources</span>
               <div class="checks">
                 {['user', 'project', 'local'].map((s) => (
@@ -271,11 +278,13 @@ export function AgentSettings({ agentId }: { agentId?: string }) {
                   </label>
                 ))}
               </div>
-              <span class="fhint">User settings hold your API credentials, so keep them on.</span>
             </div>
           </div>
 
-          <FileOutput a={a} set={set} />
+          {card('system_prompt', 'System prompt', <SystemPromptFields v={view('system_prompt')} set={set as any} />)}
+          {card('idle', 'Sleep', <IdleFields v={view('idle')} set={set as any} />)}
+          {card('file_output', 'Files from Claude', <FileOutputFields v={view('file_output')} set={set as any} disabled={!on('file_output')} builtin={meta.value?.defaults.file_output_prompt || ''} />)}
+          {card('genui', 'Interactive UI', <GenUIFields v={view('genui')} set={set as any} disabled={!on('genui')} builtin={meta.value?.defaults.genui_prompt || ''} />)}
 
           <div class="group-title">Limits</div>
           <div class="group">
@@ -310,7 +319,7 @@ export function AgentSettings({ agentId }: { agentId?: string }) {
             ))}
           </div>
 
-          {!isNew && (
+          {!isNew && !isTemp && (
             <button class="btn danger block" style={{ marginTop: '28px' }} onClick={remove}>
               <IconTrash width={18} height={18} /> Delete agent
             </button>
@@ -322,45 +331,48 @@ export function AgentSettings({ agentId }: { agentId?: string }) {
   )
 }
 
-/** File sharing prompt: on/off per agent and an optional agent-specific prompt, edited only after tapping Edit. */
-function FileOutput({ a, set }: { a: Partial<Agent>; set: <K extends keyof Agent>(k: K, v: Agent[K]) => void }) {
-  const [editing, setEditing] = useState(false)
-  const globalOn = meta.value?.defaults.file_output ?? true
-  const globalPrompt = meta.value?.defaults.file_output_prompt || ''
-  const custom = !!a.file_output_prompt
-  const enabled = a.file_output === 'on' || (!a.file_output && globalOn)
+const BUILTIN_TOOLS = ['Read', 'Write', 'Edit', 'NotebookEdit', 'Glob', 'Grep', 'Bash', 'BashOutput', 'KillShell',
+  'WebFetch', 'WebSearch', 'Agent', 'TaskStop', 'SendMessage', 'ListAgents', 'Skill', 'TodoWrite', 'AskUserQuestion',
+  'EnterPlanMode', 'ExitPlanMode', 'EnterWorktree', 'ExitWorktree', 'CronCreate', 'CronDelete', 'CronList',
+  'ScheduleWakeup', 'Workflow', 'ReportFindings', 'LSP']
+
+/** Chip picker for built-in tool names, with a raw rules editor (patterns, MCP tools) behind Advanced.
+ *  With `all`, the value ["*"] means every built-in tool and is shown as all chips selected. */
+function ToolField({ label, hint, value, onChange, placeholder, danger, all }: {
+  label: string; hint: string; value: string[]; onChange: (v: string[]) => void; placeholder: string; danger?: boolean; all?: boolean
+}) {
+  const star = !!all && value.includes('*')
+  const custom = value.filter((t) => t !== '*' && !BUILTIN_TOOLS.includes(t))
+  const [adv, setAdv] = useState(custom.length > 0)
+  const isOn = (t: string) => star || value.includes(t)
+  const toggle = (t: string) => {
+    const cur = star ? [...BUILTIN_TOOLS, ...custom] : value
+    const next = cur.includes(t) ? cur.filter((x) => x !== t) : [...cur, t]
+    onChange(all && BUILTIN_TOOLS.every((b) => next.includes(b)) ? ['*', ...custom] : next)
+  }
   return (
-    <>
-      <div class="group-title">Files from Claude</div>
-      <div class="group">
-        <div class="field"><span class="flabel">Share files in chat</span>
-          <Segmented value={a.file_output || ''} onChange={(v) => set('file_output', v as Agent['file_output'])}
-            options={[{ value: '', label: `Global (${globalOn ? 'on' : 'off'})` }, { value: 'on', label: 'On' }, { value: 'off', label: 'Off' }]} />
-          <span class="fhint">Adds a short prompt that teaches Claude to link images and files with Markdown, so they show up as previews and downloads here.</span>
-        </div>
-        {enabled && (
-          <div class="field"><span class="flabel">Prompt</span>
-            {editing ? (
-              <>
-                <textarea class="textarea mono" rows={8} spellcheck={false} value={a.file_output_prompt || globalPrompt}
-                  onInput={(e) => set('file_output_prompt', (e.target as HTMLTextAreaElement).value)} />
-                <div class="inline-actions">
-                  <button type="button" class="btn small ghost" onClick={() => { set('file_output_prompt', ''); setEditing(false) }}>Use global prompt</button>
-                  <button type="button" class="btn small" onClick={() => setEditing(false)}>Done</button>
-                </div>
-              </>
-            ) : (
-              <>
-                <div class="prompt-preview">{a.file_output_prompt || globalPrompt}</div>
-                <div class="inline-actions">
-                  <span class="fhint" style={{ flex: 1, margin: 0 }}>{custom ? 'This agent uses its own prompt.' : 'Using the global prompt from Settings.'}</span>
-                  <button type="button" class="btn small" onClick={() => setEditing(true)}>Edit</button>
-                </div>
-              </>
-            )}
-          </div>
-        )}
+    <div class="field"><span class="flabel">{label}</span>
+      {all && <div class="tool-chips">
+        <button type="button" class={`chip ${star ? 'pink' : ''}`} aria-pressed={star} onClick={() => onChange(['*', ...custom])}>All</button>
+        <button type="button" class={`chip ${!star && value.length === 0 ? 'pink' : ''}`} aria-pressed={!star && value.length === 0} onClick={() => onChange([])}>None</button>
+      </div>}
+      <div class="tool-chips">
+        {BUILTIN_TOOLS.map((t) => {
+          const on = isOn(t)
+          return <button type="button" key={t} class={`chip ${on ? (danger ? 'warn' : 'pink') : ''}`} aria-pressed={on} onClick={() => toggle(t)}>{t}</button>
+        })}
       </div>
-    </>
+      <span class="fhint">{hint}{!adv && custom.length > 0 && ` Plus ${custom.length} custom rule${custom.length > 1 ? 's' : ''}.`}</span>
+      <button type="button" class={`tool-adv ${adv ? 'open' : ''}`} onClick={() => setAdv(!adv)}>
+        Advanced rules <IconChevronDown width={14} height={14} />
+      </button>
+      {adv && (
+        <>
+          <textarea class="textarea mono" rows={2} value={value.join('\n')} placeholder={placeholder}
+            onInput={(e) => onChange(lines((e.target as HTMLTextAreaElement).value))} />
+          <span class="fhint">One per line. Supports patterns like Bash(git status:*) and MCP tools like mcp__server__tool.{all && ' * means all built-in tools.'}</span>
+        </>
+      )}
+    </div>
   )
 }

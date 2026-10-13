@@ -1,5 +1,6 @@
 // CLI-style tool call cards: Bash, Read, Edit/Write (diff), Grep/Glob, TodoWrite, Task, Web, MCP.
 
+import { AnsweredQuestionCard } from './cards'
 import { useState } from 'preact/hooks'
 import type { Item, ToolItem } from '../lib/types'
 import { highlightCode, langFromPath, escapeHtml } from './markdown'
@@ -75,6 +76,7 @@ export function ToolCard({ it, children }: { it: ToolItem; children?: Item[] }) 
   const isTask = it.name === 'Task' || it.name === 'Agent'
 
   if (it.name === 'TodoWrite') return <TodoCard it={it} />
+  if (it.name === 'AskUserQuestion' && it.result && it.input?.questions?.length) return <AnsweredQuestionCard it={it} />
 
   const autoOpenable = it.name === 'Edit' || it.name === 'MultiEdit' || it.name === 'Write'
   const expanded = open

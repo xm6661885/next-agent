@@ -6,6 +6,7 @@ import time
 from uuid import uuid4
 from collections import deque
 from claude_agent_sdk import ClaudeSDKClient, ResultMessage, UserMessage
+from .config import TEMP_AGENT, temp_agent, effective
 from .history import load_items, page, transcript_parent
 from .items import ItemBuilder, is_synthetic_message
 
@@ -80,6 +81,7 @@ class SessionRuntime:
         self.truncate_uuid = None
         self.fresh_session_id = None
         self.file_refs_cache = None
+        self.viewers = 0
 
     def emit(self, event):
         self.seq += 1
@@ -124,7 +126,7 @@ class SessionRuntime:
             source = self.session
             if not source.get('sdk_session_id') and source.get('fork_of'):
                 source = self.manager.index.sessions.get(source['fork_of']['session_id'], source)
-            agent = self.manager.agent(source['agent_id'])
+            agent = self.manager.session_agent(source)
             history = await asyncio.to_thread(load_items,source,agent,self.manager.index.uploads)
             if source is not self.session and self.session['fork_of'].get('at_uuid'):
                 at = self.session['fork_of']['at_uuid']
@@ -151,11 +153,11 @@ class SessionRuntime:
         self.queue_position = 0
         self.state_change('starting')
         try:
-            agent = self.manager.agent(self.session['agent_id'])
+            agent = self.manager.session_agent(self.session)
             fork = self.session.get('fork_of') if not self.session.get('sdk_session_id') else None
             source = self.manager.index.sessions.get(fork['session_id']) if fork else None
             history_source = source or self.session
-            history_agent = self.manager.agent(history_source['agent_id'])
+            history_agent = self.manager.session_agent(history_source)
             self.history_base = await asyncio.to_thread(load_items,history_source,history_agent,self.manager.index.uploads)
             if self.fresh_session_id:
                 self.history_base = []
@@ -306,6 +308,8 @@ class SessionRuntime:
             except Exception as exc:
                 self.emit(self.items.notice('error',f'edit failed: {exc}'))
                 self._reply_error(command,f'edit failed: {exc}')
+        elif typ=='warm':
+            await self._connect()
         elif typ in ('set_model','set_mode','set_effort'):
             self.persist_override({'set_model':'model','set_mode':'permission_mode','set_effort':'effort'}[typ],command[1])
             if typ=='set_model' and self.session.get('sdk_session_id'):
@@ -329,7 +333,7 @@ class SessionRuntime:
         if not any(x['kind']=='user' and not x.get('parent_tool_use_id') and x.get('uuid')==uuid for x in items):
             self._reply_error(command,'Message is not a top-level user message')
             return
-        agent=self.manager.agent(self.session['agent_id'])
+        agent=self.manager.session_agent(self.session)
         if payload.get('rewind_files') and agent.enable_file_checkpointing:
             if not self.client and not await self._connect():
                 self._reply_error(command,f'CLI connection failed: {self.connect_error}')
@@ -373,8 +377,13 @@ class SessionRuntime:
                 self.persist_override('permission_mode',command[1])
                 await self.client.set_permission_mode(command[1])
             elif typ=='set_model':
+                previous=self.session['overrides'].get('model')
                 self.persist_override('model',command[1])
-                await self.client.set_model(command[1] or None)
+                try: await self.client.set_model(command[1] or None)
+                except Exception:
+                    # The CLI keeps its old model on any failure; restore the override so the UI flips back.
+                    self.persist_override('model',previous)
+                    raise
                 self.emit(self.items.notice('info',f"Model switched to {command[1] or 'default'}"))
             elif typ=='set_effort':
                 self.persist_override('effort',command[1])
@@ -383,6 +392,7 @@ class SessionRuntime:
                     if not await self._connect():
                         self._reply_error(command,f'CLI connection failed: {self.connect_error}')
                 else: self.restart_needed=True
+            elif typ=='warm': pass
             elif typ=='stop_task':
                 if not str(command[1]).startswith('cron:'): await self.client.stop_task(command[1])
             elif typ=='rewind':
@@ -409,6 +419,7 @@ class SessionRuntime:
             self.session['sdk_session_id']=self.items.sdk_session_id or msg.session_id
             text=next((x['text'] for x in reversed(self.items.items) if x['kind']=='text'),None)
             if text: self.session['preview']=text[:140]
+            if not self.viewers: self.session['unread']=True
             self.manager.index.update(self.sid,**self.session)
             result_event=next((e for e in events if e.get('item',{}).get('kind')=='result'),None)
             if result_event: result_event['item'].update(cost_usd=delta,total_cost_usd=self.session['total_cost_usd'])
@@ -442,7 +453,13 @@ class RuntimeManager:
         self.external_workers={}
 
     def agent(self,aid):
+        if aid==TEMP_AGENT: return temp_agent(self.config.config)
         return next(a for a in self.config.config.agents if a.id==aid)
+
+    def session_agent(self,session):
+        """The agent a session runs as; temporary sessions carry their own cwd."""
+        agent=self.agent(session['agent_id'])
+        return agent.model_copy(update={'cwd':session['cwd']}) if session.get('cwd') else agent
 
     def get_or_create(self,sid):
         if sid not in self.index.sessions: raise KeyError(sid)
@@ -450,12 +467,13 @@ class RuntimeManager:
 
     def view(self,sid):
         runtime=self.runtimes.get(sid)
-        return {**self.index.sessions[sid],'state':runtime.state if runtime else 'offline',
+        return {'unread':False,**self.index.sessions[sid],'state':runtime.state if runtime else 'offline',
                 'pending':len(runtime.permissions.pending) if runtime else 0}
 
     def external_send(self,aid,prompt,sid=None):
         """Queue an external message. Messages for one agent run strictly one after another."""
         self.agent(aid)
+        if aid==TEMP_AGENT and not sid: raise KeyError(aid)
         if sid and self.index.sessions.get(sid,{}).get('agent_id')!=aid: raise KeyError(sid)
         if not sid:
             sid=self.index.create(aid,prompt[:60])['id']
@@ -516,19 +534,45 @@ class RuntimeManager:
     def session_state(self,runtime):
         s=runtime.session
         self.global_emit({'type':'session_state','session_id':runtime.sid,'agent_id':s['agent_id'],
-                          'state':runtime.state,'pending':len(runtime.permissions.pending),
+                          'state':runtime.state,'pending':len(runtime.permissions.pending),'unread':bool(s.get('unread')),
                           'title':s['title'],'updated_at':s['updated_at'],'preview':s['preview']})
         asyncio.create_task(self.extensions.emit('session_state',session_id=runtime.sid,agent_id=s['agent_id'],state=runtime.state))
+
+    def mark_read(self,runtime):
+        if runtime.session.get('unread'):
+            runtime.session['unread']=False
+            self.index.sessions[runtime.sid]['unread']=False
+            self.index.save()
+            self.session_state(runtime)
+
+    @staticmethod
+    def sleepable(runtime):
+        # Sleeping the CLI would kill its background shells, subagents and in-process cron jobs.
+        busy=any(t.get('kind')=='cron' or t.get('status') not in TERMINAL for t in runtime.items.tasks.values())
+        return runtime.state=='idle' and not busy and not runtime.permissions.pending
+
+    def warm(self,runtime):
+        """Adaptive mode: start this session's CLI ahead of the first message and sleep the agent's
+        least recently used idle CLIs beyond `adaptive_keep`."""
+        idle=effective(self.session_agent(runtime.session),self.config.config.defaults)
+        if idle['idle_mode']!='adaptive': return
+        aid=runtime.session['agent_id']
+        others=[r for r in self.runtimes.values() if r is not runtime and r.session.get('agent_id')==aid
+                and r.state!='offline' and r.worker and not r.worker.done()]
+        others.sort(key=lambda r:r.last_activity,reverse=True)
+        for extra in others[max(0,idle['adaptive_keep']-1):]:
+            if self.sleepable(extra): extra.submit(('shutdown',))
+        if runtime.state=='offline': runtime.submit(('warm',))
 
     async def reaper(self,interval=30):
         while True:
             await asyncio.sleep(interval)
-            timeout=self.config.config.server.idle_timeout_min*60
-            if timeout<=0: continue  # 0 disables idle sleep
             for runtime in list(self.runtimes.values()):
-                # Sleeping the CLI would kill its background shells, subagents and in-process cron jobs.
-                busy=any(t.get('kind')=='cron' or t.get('status') not in TERMINAL for t in runtime.items.tasks.values())
-                if runtime.state=='idle' and not busy and not runtime.permissions.pending and time.monotonic()-runtime.last_activity>timeout:
+                idle=effective(self.session_agent(runtime.session),self.config.config.defaults)
+                if idle['idle_mode']!='timer': continue
+                timeout=idle['idle_timeout_min']*60
+                if timeout<=0: continue  # 0 disables idle sleep
+                if self.sleepable(runtime) and time.monotonic()-runtime.last_activity>timeout:
                     runtime.submit(('shutdown',))
 
     async def stop(self,sid):

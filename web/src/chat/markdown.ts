@@ -100,6 +100,11 @@ function fileImage(path: string, alt: string) {
 
 // ---------- Marked ----------
 
+/** Artifacts setting: long fenced code renders as tappable cards. */
+let codeCards = false
+export const CARD_LINES = 12
+export function setCodeCards(on: boolean) { if (codeCards !== on) { codeCards = on; cache.clear() } }
+
 const marked = new Marked({ gfm: true, breaks: false })
 
 marked.use({
@@ -115,6 +120,13 @@ marked.use({
           : text.length < 20000 ? hljs.highlightAuto(text).value : escapeHtml(text)
       } catch {
         html = escapeHtml(text)
+      }
+      const n = text.split('\n').length
+      if (codeCards && n >= CARD_LINES) {
+        // Long code collapses into a card; the chat opens it in the code viewer (data-card).
+        return `<div class="codeblock code-card" data-card data-lang="${escapeHtml(language || 'code')}"><div class="codeblock-head"><span>${escapeHtml(language || 'code')} · ${n} lines</span>`
+          + `<button type="button" class="copy-code" data-copy>Copy</button></div>`
+          + `<pre><code class="hljs">${html}</code></pre><div class="code-card-more">Open</div></div>`
       }
       return `<div class="codeblock"><div class="codeblock-head"><span>${escapeHtml(language || 'code')}</span>`
         + `<button type="button" class="copy-code" data-copy>Copy</button></div>`
@@ -140,7 +152,7 @@ export function escapeHtml(s: string) {
   return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!))
 }
 
-const PURIFY = { ADD_ATTR: ['target', 'data-copy', 'data-file', 'data-view', 'download'] }
+const PURIFY = { ADD_ATTR: ['target', 'data-card', 'data-lang', 'data-copy', 'data-file', 'data-view', 'download'] }
 const cache = new Map<string, string>()
 
 function parse(src: string, sid?: string) {

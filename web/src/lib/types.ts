@@ -33,6 +33,7 @@ export interface Agent {
   claude_md: 'inherit' | 'custom'
   setting_sources: string[]
   tools: string[]
+  auto_memory: boolean
   allowed_tools: string[]
   disallowed_tools: string[]
   add_dirs: string[]
@@ -42,12 +43,40 @@ export interface Agent {
   mcp_servers: Record<string, unknown>
   agents: Record<string, unknown>
   enable_file_checkpointing: boolean
-  file_output: '' | 'on' | 'off'
+  file_output: boolean
   file_output_prompt: string
+  genui: boolean
+  genui_prompt: string
+  idle_mode: IdleMode
+  idle_timeout_min: number
+  adaptive_keep: number
+  /** Home grouping: one of GET /api/groups, or '' for ungrouped. */
+  group: string
+  /** Groups whose fields this agent sets itself; the rest follow [defaults]. */
+  override_groups: OverrideGroup[]
   extra_args: Record<string, string | null>
   created_at: string
   order: number
   status?: AgentStatus
+  /** Read-only: every overridable field resolved against the defaults. */
+  effective?: Effective
+}
+
+export type IdleMode = 'timer' | 'adaptive' | 'never'
+export type OverrideGroup = 'model' | 'permissions' | 'system_prompt' | 'file_output' | 'genui' | 'idle'
+
+export interface Effective {
+  model: string; effort: string; fallback_model: string; thinking: 'adaptive' | 'enabled' | 'disabled'; thinking_budget: number
+  permission_mode: string
+  system_prompt_mode: 'preset' | 'custom'; system_prompt: string
+  file_output: boolean; file_output_prompt: string; genui: boolean; genui_prompt: string
+  idle_mode: IdleMode; idle_timeout_min: number; adaptive_keep: number
+}
+
+/** A file touched or shared in a conversation (GET /api/sessions/{sid}/artifacts). */
+export interface Artifact {
+  path: string; name: string; mime: string; is_image: boolean; exists: boolean; size: number | null
+  sources: ('link' | 'write' | 'edit' | 'upload')[]; first_ts: string; last_ts: string; url: string
 }
 
 export interface Session {
@@ -62,10 +91,14 @@ export interface Session {
   turns: number
   fork_of: { session_id: string; at_uuid: string | null } | null
   imported: boolean
+  /** Set on temporary sessions: the folder they run in. */
+  cwd?: string
   overrides: { model: string | null; effort: string | null; permission_mode: string | null }
   context: { used: number; max: number; percent: number } | null
   state: SessionState
   pending: number
+  /** A turn finished while no client had the chat open. */
+  unread?: boolean
 }
 
 export interface SearchHit {
@@ -198,10 +231,22 @@ export interface TaskInfo {
 export interface Defaults {
   model: string
   effort: string
+  fallback_model: string
+  thinking: 'adaptive' | 'enabled' | 'disabled'
+  thinking_budget: number
   permission_mode: string
   custom_models: string[]
   file_output: boolean
   file_output_prompt: string
+  genui: boolean
+  genui_prompt: string
+  system_prompt_mode: 'preset' | 'custom'
+  system_prompt: string
+  idle_mode: IdleMode
+  idle_timeout_min: number
+  adaptive_keep: number
+  /** Client switch: Artifacts panel and code cards. */
+  artifacts: boolean
 }
 
 export interface Meta {
@@ -215,10 +260,11 @@ export interface Meta {
 export interface Price { input: number; output: number; cache_write: number; cache_read: number }
 
 export interface ConfigForm {
-  server: { host: string; port: number; max_concurrent: number; idle_timeout_min: number; cli_path: string; api_key: string }
+  server: { host: string; port: number; max_concurrent: number; cli_path: string; api_key: string; anthropic_base_url: string; anthropic_api_key: string }
   defaults: Defaults
   pricing: Record<string, Price>
   default_file_output_prompt: string
+  default_genui_prompt: string
 }
 
 export type Activity =
@@ -226,10 +272,37 @@ export type Activity =
   | { kind: 'retry'; at: string; attempt: number; max_retries: number; retry_delay_ms: number; error_status: number | null; error: string; no_response?: { waited_ms: number; retry_wait_ms: number } }
   | { kind: 'thinking_tokens'; at: string; estimated_tokens: number }
 
+export interface DirEntry { name: string; path: string; git: boolean }
+
+export interface DirListing {
+  path: string
+  parent: string | null
+  home: string
+  dirs: DirEntry[]
+  recent: string[]
+}
+
 export interface Importable {
   sdk_session_id: string
   summary: string
   first_prompt: string
   last_modified: string | number
   git_branch?: string | null
+}
+
+/** One file of Claude Code memory. title/description/type come from frontmatter when present. */
+export interface MemoryFile {
+  path: string
+  name: string
+  size: number
+  mtime: number
+  title?: string
+  description?: string
+  type?: string
+}
+
+export interface MemoryListing {
+  root: string
+  global: MemoryFile | null
+  projects: { id: string; cwd: string | null; mtime: number; files: MemoryFile[] }[]
 }

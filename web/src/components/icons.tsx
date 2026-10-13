@@ -72,6 +72,8 @@ export const IconQuestion = (p: P) =>
   I(<><circle cx="12" cy="12" r="10" /><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3" /><path d="M12 17h.01" /></>, p)
 export const IconCopy = (p: P) =>
   I(<><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></>, p)
+export const IconSelect = (p: P) =>
+  I(<><path d="M4 7V5a1 1 0 0 1 1-1h2M17 4h2a1 1 0 0 1 1 1v2M20 17v2a1 1 0 0 1-1 1h-2M7 20H5a1 1 0 0 1-1-1v-2" /><path d="M8 9h8M8 12h8M8 15h5" /></>, p)
 export const IconRewind = (p: P) =>
   I(<><path d="M3 12a9 9 0 1 0 3-6.7L3 8" /><path d="M3 3v5h5" /></>, p)
 export const IconLogout = (p: P) =>
@@ -83,7 +85,11 @@ export const IconNewChat = (p: P) =>
 export const IconClock = (p: P) => I(<><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></>, p)
 export const IconBolt = (p: P) => I(<path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z" />, p)
 export const IconCode = (p: P) => I(<><path d="m16 18 6-6-6-6" /><path d="m8 6-6 6 6 6" /></>, p)
+export const IconLayers = (p: P) => I(<><path d="m12 3 9 5-9 5-9-5 9-5Z" /><path d="m3 13 9 5 9-5" /></>, p)
 export const IconLock = (p: P) =>
   I(<><rect x="4" y="11" width="16" height="10" rx="2.5" /><path d="M8 11V7a4 4 0 0 1 8 0v4" /></>, p)
 export const IconSteer = (p: P) =>
   I(<><path d="M5 12h11" /><path d="m12 7 5 5-5 5" /><path d="M19 5v14" /></>, p)
+export const IconTag = (p: P) =>
+  I(<><path d="M3 12V4a1 1 0 0 1 1-1h8l9 9-9 9-9-9Z" /><circle cx="7.5" cy="7.5" r="1.5" /></>, p)
+export const IconArrowUp = (p: P) => I(<path d="m6 15 6-6 6 6" />, p)
