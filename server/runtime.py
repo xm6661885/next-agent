@@ -11,7 +11,7 @@ from .history import load_items, page, transcript_parent
 from .items import ItemBuilder, is_synthetic_message
 
 TERMINAL={'completed','failed','stopped','killed'}
-from .options import build_options
+from .options import build_options, options_key
 from .permissions import PermissionRegistry
 from .config import now
 from .pricing import process_cost
@@ -57,6 +57,15 @@ class ResizableSemaphore:
                 self.active += 1
                 future.set_result(True)
 
+def kill_cli(client):
+    """Last resort so a cancelled worker never leaves an orphaned CLI process behind."""
+    process=getattr(getattr(client,'_transport',None),'_process',None)
+    if process and process.returncode is None:
+        try:
+            process.kill()
+            asyncio.get_running_loop().create_task(process.wait())  # reap it, no zombie
+        except Exception: log.exception('Failed to kill CLI')
+
 class SessionRuntime:
     def __init__(self, manager, sid):
         self.manager, self.sid = manager, sid
@@ -76,12 +85,19 @@ class SessionRuntime:
         self.last_process_cost = 0.0
         self.stderr_tail = deque(maxlen=50)
         self.restart_needed = False
+        self.options_key = None
         self.queue_position = 0
         self.resume_at = None
         self.truncate_uuid = None
         self.fresh_session_id = None
         self.file_refs_cache = None
         self.viewers = 0
+        self.holds_slot = False
+
+    def release_slot(self):
+        if self.holds_slot:
+            self.holds_slot=False
+            self.manager.semaphore.release()
 
     def emit(self, event):
         self.seq += 1
@@ -146,10 +162,16 @@ class SessionRuntime:
                 'init':self.items.init,'tasks':list(self.items.tasks.values()),'queue_position':self.queue_position,
                 'activity':self.items.activity}
 
+    def _build_options_for_key(self):
+        agent = self.manager.session_agent(self.session)
+        return build_options(agent,self.session,self.manager.config.config.defaults,self.manager.config.config.server,
+                             None,custom_md_path=self.manager.paths.agents/agent.id/'CLAUDE.md')
+
     async def _connect(self):
         self.queue_position = self.manager.queue_position()
         self.state_change('queued')
         await self.manager.semaphore.acquire()
+        self.holds_slot = True
         self.queue_position = 0
         self.state_change('starting')
         try:
@@ -182,6 +204,7 @@ class SessionRuntime:
                                  new_session_id=self.fresh_session_id or self.sid if not resume else None,
                                  stderr=self.stderr_tail.append,
                                  custom_md_path=self.manager.paths.agents/agent.id/'CLAUDE.md')
+            self.options_key = options_key(opts)
             self.client = ClaudeSDKClient(opts)
             await self.client.connect()
             self.resume_at=None
@@ -204,7 +227,7 @@ class SessionRuntime:
             if self.client:
                 try: await asyncio.wait_for(self.client.disconnect(),timeout=3)
                 except Exception: log.exception('Failed to close client after connection error')
-            self.manager.semaphore.release()
+            self.release_slot()
             self.client=None
             self.state_change('offline')
             return False
@@ -216,7 +239,7 @@ class SessionRuntime:
             try: await asyncio.wait_for(self.client.disconnect(),timeout=3)
             except Exception: log.exception('CLI disconnect failed')
             self.client=None
-            self.manager.semaphore.release()
+        self.release_slot()
         self.state_change('offline')
         self.history_base=None
         self.items=ItemBuilder(self.manager.index.uploads)
@@ -291,6 +314,8 @@ class SessionRuntime:
                         else: incoming=None
                     self.commands.task_done()
         except asyncio.CancelledError:
+            # Cancelled (stop timed out, e.g. mid-connect): never leave the CLI running.
+            kill_cli(self.client)
             raise
         except Exception as exc:
             log.exception('Session worker failed')
@@ -298,7 +323,11 @@ class SessionRuntime:
         finally:
             for task in (incoming,commands):
                 if task and not task.done(): task.cancel()
-            if self.client: await self._disconnect()
+            if self.client:
+                try: await self._disconnect()
+                except BaseException: self.client=None
+            self.release_slot()
+            if self.state!='offline': self.state_change('offline')
             self.permissions.cancel_all()
 
     async def _offline_command(self,command):
@@ -310,16 +339,21 @@ class SessionRuntime:
                 self._reply_error(command,f'edit failed: {exc}')
         elif typ=='warm':
             await self._connect()
+        elif typ in ('cancel_queued','send_now'):
+            self._reply_error(command,'Message was already delivered')
         elif typ in ('set_model','set_mode','set_effort'):
             self.persist_override({'set_model':'model','set_mode':'permission_mode','set_effort':'effort'}[typ],command[1])
             if typ=='set_model' and self.session.get('sdk_session_id'):
                 self.emit(self.items.notice('info',f"Model switched to {command[1] or 'default'}"))
 
-    async def _query(self, content):
+    async def _query(self, content, item_id=None):
         sdk_id=self.session.get('sdk_session_id') or self.fresh_session_id or self.sid
+        found=self.items.find(item_id) if item_id else None
+        message={'type':'user','message':{'role':'user','content':content},'parent_tool_use_id':None,'session_id':sdk_id}
+        # Our own uuid lets cancel_async_message withdraw the message while it waits in the CLI queue.
+        if found and found.get('cli_uuid'): message['uuid']=found['cli_uuid']
         async def one():
-            yield {'type':'user','message':{'role':'user','content':content},
-                   'parent_tool_use_id':None,'session_id':sdk_id}
+            yield message
         await self.client.query(one(),session_id=sdk_id)
         self.written += 1
         if self.state=='idle': self.state_change('running')
@@ -366,7 +400,20 @@ class SessionRuntime:
         typ=command[0]
         try:
             if typ=='send':
-                await self._query(command[1]['content'])
+                await self._query(command[1]['content'],command[1].get('item'))
+            elif typ=='cancel_queued':
+                found=self.items.find(command[1])
+                if not found or not found.get('pending'): raise ValueError('Message was already delivered')
+                response=await self.client._query._send_control_request({'subtype':'cancel_async_message','message_uuid':found['cli_uuid']})
+                if not response.get('cancelled'): raise ValueError('Message was already delivered')
+                self.written=max(0,self.written-1)
+                self.emit(self.items.drop_pending(command[1]))
+            elif typ=='send_now':
+                # Interrupt the turn; queued messages stay in the CLI queue and start the next turn.
+                if self.state=='running':
+                    self.permissions.cancel_all()
+                    self.state_change('interrupting')
+                    await self.client.interrupt()
             elif typ=='edit': await self._edit(command[1],command)
             elif typ=='interrupt':
                 self.permissions.cancel_all()
@@ -393,6 +440,15 @@ class SessionRuntime:
                         self._reply_error(command,f'CLI connection failed: {self.connect_error}')
                 else: self.restart_needed=True
             elif typ=='warm': pass
+            elif typ=='reconfigure':
+                # Agent or global settings changed; respawn the CLI only if its launch options differ.
+                if self.options_key==options_key(self._build_options_for_key()):
+                    pass
+                elif self.state=='idle':
+                    await self._disconnect()
+                    if not await self._connect():
+                        self._reply_error(command,f'CLI connection failed: {self.connect_error}')
+                else: self.restart_needed=True
             elif typ=='stop_task':
                 if not str(command[1]).startswith('cron:'): await self.client.stop_task(command[1])
             elif typ=='rewind':
@@ -456,6 +512,12 @@ class RuntimeManager:
         if aid==TEMP_AGENT: return temp_agent(self.config.config)
         return next(a for a in self.config.config.agents if a.id==aid)
 
+    def reconfigure(self,agent_id=None):
+        """Ask live CLIs to pick up changed settings; agent_id None means every agent (global defaults)."""
+        for runtime in list(self.runtimes.values()):
+            if runtime.client and (agent_id is None or runtime.session['agent_id']==agent_id):
+                runtime.submit(('reconfigure',))
+
     def session_agent(self,session):
         """The agent a session runs as; temporary sessions carry their own cwd."""
         agent=self.agent(session['agent_id'])
@@ -494,6 +556,8 @@ class RuntimeManager:
     async def _external_turn(self,sid,prompt):
         if sid not in self.index.sessions: return
         runtime=self.get_or_create(sid)
+        # Warm up the runtime in adaptive mode, like when a WebSocket connects
+        self.warm(runtime)
         events=asyncio.Queue(maxsize=10000)
         runtime.subscribers.add(events)
         try:
@@ -579,12 +643,14 @@ class RuntimeManager:
         runtime=self.runtimes.get(sid)
         if runtime and runtime.worker and not runtime.worker.done():
             runtime.submit(('shutdown',))
-            try: await asyncio.wait_for(runtime.worker,timeout=5)
-            except asyncio.TimeoutError: runtime.worker.cancel()
+            try: await asyncio.wait_for(asyncio.shield(runtime.worker),timeout=8)
+            except asyncio.TimeoutError:
+                runtime.worker.cancel()
+                kill_cli(runtime.client)
 
     async def shutdown(self):
         if self.reaper_task: self.reaper_task.cancel()
-        await asyncio.wait_for(asyncio.gather(*(self.stop(sid) for sid in list(self.runtimes)),return_exceptions=True),timeout=10)
+        await asyncio.wait_for(asyncio.gather(*(self.stop(sid) for sid in list(self.runtimes)),return_exceptions=True),timeout=15)
 
     def memory_mb(self):
         def rss(pid):

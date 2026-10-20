@@ -4,6 +4,7 @@
 import { useEffect, useState } from 'preact/hooks'
 import { api } from '../lib/api'
 import { authed, disconnectEvents, meta, toast, toastError } from '../lib/store'
+import { saveCustomModels } from '../components/ModelPicker'
 import { back, navigate } from '../lib/router'
 import { BackButton, Switch, TopBar, confirmDialog, useScrolled } from '../components/ui'
 import { IconBrain, IconChevron, IconChevronDown, IconLogout, IconPlus, IconTrash } from '../components/icons'
@@ -73,17 +74,25 @@ export function Settings() {
     setSaving(true)
     try {
       const { max_concurrent, cli_path, api_key, anthropic_base_url, anthropic_api_key } = form.server
-      const saved = await api.updateConfig({ server: { max_concurrent, cli_path, api_key, anthropic_base_url, anthropic_api_key }, defaults: form.defaults, pricing })
+      const saved = await api.updateConfig({ server: { max_concurrent, cli_path, api_key, anthropic_base_url, anthropic_api_key }, defaults: { ...form.defaults, custom_models: undefined }, pricing })
       load(saved)
       api.meta().then((m) => { meta.value = m }).catch(() => {})
       toast('Settings saved')
     } catch (e) { toastError(e) } finally { setSaving(false) }
   }
 
+  // The custom model list is shared by every picker and saves right away, separate from the form.
+  const setModels = async (list: string[]) => {
+    try {
+      const saved = await saveCustomModels(list)
+      setForm((f) => f && { ...f, defaults: { ...f.defaults, custom_models: saved } })
+      setOrig((o) => { try { const v = JSON.parse(o); v.f.defaults.custom_models = saved; return JSON.stringify(v) } catch { return o } })
+    } catch (e) { toastError(e) }
+  }
   const addCustomModel = () => {
     const m = newModel.trim()
     if (!m || !form) return
-    if (!form.defaults.custom_models.includes(m)) setDef('custom_models', [...form.defaults.custom_models, m])
+    if (!form.defaults.custom_models.includes(m)) setModels([...form.defaults.custom_models, m])
     setNewModel('')
   }
 
@@ -149,7 +158,7 @@ export function Settings() {
               <OverrideCard title="System prompt"><SystemPromptFields v={d} set={setDef} /></OverrideCard>
               <OverrideCard title="Sleep"><IdleFields v={d} set={setDef} /></OverrideCard>
               <OverrideCard title="Files from Claude"><FileOutputFields v={d} set={setDef} builtin={form.default_file_output_prompt} /></OverrideCard>
-              <OverrideCard title="Interactive UI"><GenUIFields v={d} set={setDef} builtin={form.default_genui_prompt} /></OverrideCard>
+              <OverrideCard title="Interactive UI"><GenUIFields v={d} set={setDef} builtin={form.default_genui_prompt} widgetBuiltin={(k) => form.default_genui_widgets?.[k] || ''} /></OverrideCard>
 
               <div class="group-title">Chat display</div>
               <div class="group">
@@ -168,7 +177,7 @@ export function Settings() {
                       {d.custom_models.map((m) => (
                         <span class="chip removable" key={m}>
                           <span class="mono">{m}</span>
-                          <button type="button" aria-label={`Remove ${m}`} onClick={() => setDef('custom_models', d.custom_models.filter((x) => x !== m))}>
+                          <button type="button" aria-label={`Remove ${m}`} onClick={() => setModels(d.custom_models.filter((x) => x !== m))}>
                             <IconTrash width={14} height={14} />
                           </button>
                         </span>

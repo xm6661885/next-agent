@@ -4,7 +4,7 @@ import secrets
 import shutil
 from pathlib import Path
 from fastapi import HTTPException
-from .config import Agent, TempAgent, TEMP_AGENT, effective
+from .config import Agent, GROUPS, TempAgent, TEMP_AGENT, effective
 
 class AgentService:
     def __init__(self, config, index, manager, paths):
@@ -32,6 +32,7 @@ class AgentService:
 
     async def changed(self, aid):
         self.manager.global_emit({'type':'agents_changed'})
+        self.manager.reconfigure(aid or None)
         await self.manager.extensions.emit('agent_changed', agent_id=aid)
 
     async def create(self, data):
@@ -75,8 +76,11 @@ class AgentService:
             except ValidationError as exc:
                 raise HTTPException(422,str(exc)) from exc
             if 'temp_agent' not in self.config.doc: self.config.doc['temp_agent']=tomlkit.table()
+            dumped=updated.model_dump(mode='json')
             for key in data:
-                if key in TempAgent.model_fields: self.config.doc['temp_agent'][key]=getattr(updated,key)
+                if key in TempAgent.model_fields: self.config.doc['temp_agent'][key]=dumped[key]
+            for group in set(current.override_groups) - set(updated.override_groups):
+                for key in GROUPS.get(group, ()): self.config.doc['temp_agent'].pop(key, None)
             self.config.save()
             await self.changed(aid)
             return self.view(self.get(aid))
@@ -93,6 +97,10 @@ class AgentService:
         for key, value in updated.model_dump(mode='json').items():
             if key in data:
                 entry[key] = value
+        # A group that stops overriding drops its values so the entry follows the global defaults again.
+        for group in set(agent.override_groups) - set(updated.override_groups):
+            for key in GROUPS.get(group, ()):
+                if key in entry: del entry[key]
         self.config.save()
         await self.changed(aid)
         return self.view(self.get(aid))

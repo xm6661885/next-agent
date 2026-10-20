@@ -164,3 +164,15 @@ def test_config_form_new_keys(logged,app):
     assert 'idle_mode' not in response.json()['server']
     assert 'idle_mode' not in app.state.config.doc['server']
     assert logged.patch('/api/config',json={'defaults':{'artifacts':'off'}}).status_code==422
+
+def test_genui_widgets(logged,tmp_path):
+    from server.config import GENUI_WIDGETS
+    r=logged.patch('/api/config',json={'defaults':{'genui_widgets':{'html':{'on':False,'prompt':''},'bogus':{'on':True}}}})
+    w=r.json()['defaults']['genui_widgets']
+    assert set(w)==set(GENUI_WIDGETS) and w['html']['on'] is False and w['ask']['on'] is True
+    assert r.json()['default_genui_widgets']['ask']==GENUI_WIDGETS['ask']
+    a=logged.post('/api/agents',json={'name':'W','cwd':str(tmp_path),'override_groups':['genui'],
+                                      'genui_widgets':{'ask':{'on':True,'prompt':'Mine'}}}).json()
+    assert a['effective']['genui_widgets']['ask']=={'on':True,'prompt':'Mine'}
+    assert a['effective']['genui_widgets']['chart']['prompt']==GENUI_WIDGETS['chart']
+    assert logged.post('/api/agents/w/read').json()=={'ok':True,'read':[]}

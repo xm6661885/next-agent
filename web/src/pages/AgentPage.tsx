@@ -7,7 +7,7 @@ import { TEMP_AGENT, back, entryKey, navigate, wide } from '../lib/router'
 import { DirPicker } from '../components/DirPicker'
 import { Avatar, Spark } from '../components/crab'
 import { BackButton, Sheet, TopBar, confirmDialog, promptDialog, useScrolled } from '../components/ui'
-import { IconCheck, IconChat, IconClose, IconEdit, IconFork, IconImport, IconMoon, IconMore, IconPlus, IconSearch, IconSettings, IconTrash } from '../components/icons'
+import { IconCheck, IconCheckAll, IconChat, IconClose, IconEdit, IconFork, IconImport, IconMoon, IconMore, IconPlus, IconSearch, IconSettings, IconTrash } from '../components/icons'
 import { fmtCost, haptic, relTime, shortPath } from '../lib/util'
 import type { Agent, Importable, SearchHit, Session } from '../lib/types'
 
@@ -56,6 +56,8 @@ export function AgentPage({ agentId }: { agentId: string }) {
     return l ? { ...s, state: l.state, pending: l.pending, unread: l.unread ?? s.unread, title: l.title ?? s.title, preview: l.preview ?? s.preview, updated_at: l.updated_at ?? s.updated_at } : s
   })
   const q = query.trim()
+  const markAllRead = () => api.markAgentRead(agentId)
+    .then(() => setSessions((list) => (list || []).map((s) => ({ ...s, unread: false })))).catch(toastError)
 
   // Search titles and transcripts on the server, debounced. Results reuse the live state.
   useEffect(() => {
@@ -174,7 +176,10 @@ export function AgentPage({ agentId }: { agentId: string }) {
       ) : (
         <TopBar scrolled={scrolled}
           left={<BackButton label="Agents" onClick={() => wide.value ? navigate({ name: 'home' }) : back()} />}
-          right={<button class="icon-btn" aria-label="Agent settings" onClick={() => navigate({ name: 'agent-settings', agentId })}><IconSettings /></button>}>
+          right={<>
+            <button class="icon-btn" aria-label="Mark all as read" disabled={!merged.some((s) => s.unread)} onClick={markAllRead}><IconCheckAll /></button>
+            <button class="icon-btn" aria-label="Agent settings" onClick={() => navigate({ name: 'agent-settings', agentId })}><IconSettings /></button>
+          </>}>
           {scrolled && agent && <span class="topbar-center fade-in">{agent.name}</span>}
         </TopBar>
       )}

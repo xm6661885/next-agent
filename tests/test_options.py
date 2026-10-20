@@ -39,16 +39,22 @@ def test_file_output_prompt_and_resume_without_fork(tmp_path):
     assert opts.system_prompt=='Hello\n\nCustom'
 
 def test_genui_prompt(tmp_path):
-    from server.config import DEFAULT_GENUI_PROMPT
+    from server.config import DEFAULT_GENUI_PROMPT, GENUI_WIDGETS
     agent=Agent(id='a',name='A',cwd=str(tmp_path),override_groups=['system_prompt','file_output'],system_prompt='Hi',file_output=False)
     cfg=ServerConfig(password_hash='***')
     opts=build_options(agent,{},Defaults(),cfg,None)
-    assert opts.system_prompt['append']=='Hi\n\n'+DEFAULT_GENUI_PROMPT
+    assert opts.system_prompt['append']=='Hi\n\n'+'\n'.join([DEFAULT_GENUI_PROMPT,*GENUI_WIDGETS.values()])
     opts=build_options(agent,{},Defaults(genui=False),cfg,None)
     assert opts.system_prompt['append']=='Hi'
     agent.override_groups.append('genui'); agent.genui=True; agent.genui_prompt='UI'
     opts=build_options(agent,{},Defaults(genui=False),cfg,None)
-    assert opts.system_prompt['append']=='Hi\n\nUI'
+    assert opts.system_prompt['append'].startswith('Hi\n\nUI\n- ask:')
+    agent=Agent.model_validate({**agent.model_dump(),'genui_widgets':{'ask':{'on':True,'prompt':'ASK'},**{k:{'on':False} for k in GENUI_WIDGETS if k!='ask'}}})
+    opts=build_options(agent,{},Defaults(genui=False),cfg,None)
+    assert opts.system_prompt['append']=='Hi\n\nUI\nASK'
+    agent.genui_widgets['ask'].on=False
+    opts=build_options(agent,{},Defaults(genui=False),cfg,None)
+    assert opts.system_prompt['append']=='Hi'
 
 def test_uploads_go_to_agent_cwd(tmp_path):
     import asyncio
@@ -93,3 +99,11 @@ def test_api_env_tools_and_memory(tmp_path):
     assert opts.env=={'CLAUDE_CODE_DISABLE_AUTO_MEMORY':'1','ANTHROPIC_BASE_URL':'https://api.example','ANTHROPIC_API_KEY':'sk','X':'1'}
     agent.tools=['Read']
     assert build_options(agent,{},Defaults(),cfg,None).tools==['Read']
+
+def test_btw_options_strip_tools(tmp_path):
+    from server.btw import btw_options
+    agent=Agent(id='a',name='A',cwd=str(tmp_path),mcp_servers={'x':{'command':'x'}})
+    opts=btw_options(agent,{},'old',Defaults(genui=False),ServerConfig(password_hash='***'))
+    assert opts.tools==[] and opts.max_turns==1 and opts.mcp_servers=={} and opts.can_use_tool is None
+    assert opts.resume=='old' and opts.fork_session
+    assert 'no-session-persistence' in opts.extra_args and 'replay-user-messages' not in opts.extra_args

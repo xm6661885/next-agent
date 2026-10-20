@@ -11,7 +11,7 @@ Web console for persistent Claude Agent SDK agents. See README.md for usage and 
 - `server/runtime.py`: `SessionRuntime` (one per session) and `RuntimeManager` (concurrency gate, idle reaper, global feed). Each runtime has one worker task that owns the `ClaudeSDKClient`. All client calls must happen inside that task (SDK issue #576). Other code sends commands through `runtime.submit(...)`.
 - `server/items.py`: converts SDK messages into transcript items and item/patch/delta events. `server/history.py` builds items from transcripts on disk (`get_session_messages`). Changes to one usually need the matching change in the other.
 - `server/permissions.py`: `can_use_tool` creates a pending request and waits on a future with no timeout. It handles AskUserQuestion answers and ExitPlanMode.
-- `server/options.py`: Agent + session overrides become `ClaudeAgentOptions`. It always sets `extra_args["replay-user-messages"]`, which steering confirmation needs.
+- `server/options.py`: Agent + session overrides become `ClaudeAgentOptions`. It always sets `extra_args["replay-user-messages"]` (steering confirmation needs it) and `allow-dangerously-skip-permissions` (so a session can switch to bypassPermissions later).
 - `server/extensions.py`: `ExtensionBus`, the hook point for future webhooks, notifications and agent groups. Events: `session_state`, `turn_result`, `permission_request`, `agent_changed`.
 - `web/src/chat/conn.ts`: per-chat WebSocket. It resumes by `seq` and applies events to signals.
 - `web/src/chat/`: chat UI (tools, request cards, composer). `web/src/pages/` holds the other pages. Styles live in `web/src/styles/` and use the CSS variables in `base.css`.

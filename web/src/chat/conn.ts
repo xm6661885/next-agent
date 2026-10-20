@@ -29,6 +29,7 @@ export class ChatConn {
   private outbox: any[] = []
   private pingTimer: number | undefined
   private lastMsgAt = 0
+  private openedAt = 0
   private reqSeq = 0
   private waiters = new Map<string, (err: string | null) => void>()
   onError?: (msg: string) => void
@@ -58,6 +59,11 @@ export class ChatConn {
       else this.raw({ type: 'ping' })
       return
     }
+    // A handshake started before the app was suspended can hang in CONNECTING forever on iOS.
+    if (this.ws && this.ws.readyState === WebSocket.CONNECTING) {
+      if (Date.now() - this.openedAt > 3000) this.forceReconnect()
+      return
+    }
     this.retry = 0
     this.connect()
   }
@@ -77,6 +83,9 @@ export class ChatConn {
     this.conn.value = this.loaded.value ? 'reconnecting' : 'connecting'
     const ws = new WebSocket(wsUrl(`/ws/sessions/${encodeURIComponent(this.sid)}`))
     this.ws = ws
+    this.openedAt = Date.now()
+    // Handshakes that never settle (iOS after a suspend) get replaced instead of waiting for the OS timeout.
+    window.setTimeout(() => { if (this.ws === ws && ws.readyState === WebSocket.CONNECTING) this.forceReconnect() }, 8000)
     ws.onopen = () => {
       if (this.ws !== ws) return
       this.lastMsgAt = Date.now()
@@ -192,6 +201,12 @@ export class ChatConn {
         else this.onError?.(msg.message)
         break
       }
+      case 'resumed':
+        // The server sent everything we missed (possibly nothing); the socket is live.
+        this.conn.value = 'open'
+        this.retry = 0
+        this.flush()
+        break
       case 'pong':
         if (this.conn.value !== 'open' && this.loaded.value) { this.conn.value = 'open'; this.flush() }
         break
@@ -221,6 +236,13 @@ export class ChatConn {
   private patch(id: string, p: Record<string, any>) {
     const i = this.index.get(id)
     if (i === undefined) return
+    if (p.cancelled) {
+      // A queued message withdrawn from the CLI queue.
+      const list = this.items.value.filter((x) => x.id !== id)
+      this.reindex(list)
+      this.items.value = list
+      return
+    }
     const list = this.items.value.slice()
     list[i] = { ...list[i], ...p } as Item
     this.items.value = list
@@ -245,8 +267,8 @@ export class ChatConn {
   }
 
   /** Optimistic bubble shown until the server echoes the item. */
-  addLocalUser(client_id: string, text: string, attachments: any[]) {
-    const item: any = { id: `local-${client_id}`, kind: 'user', text, attachments, uuid: null, pending: true, client_id, _local: true, ts: new Date().toISOString() }
+  addLocalUser(client_id: string, text: string, attachments: any[], queued = false) {
+    const item: any = { id: `local-${client_id}`, kind: 'user', text, attachments, uuid: null, pending: true, queued, client_id, _local: true, ts: new Date().toISOString() }
     this.upsert(item)
   }
 

@@ -12,7 +12,7 @@ import type { Agent, Effective, OverrideGroup } from '../lib/types'
 
 const GROUP_FIELDS: Record<OverrideGroup, (keyof Effective)[]> = {
   model: ['model', 'effort', 'fallback_model', 'thinking', 'thinking_budget'], permissions: ['permission_mode'], system_prompt: ['system_prompt_mode', 'system_prompt'],
-  file_output: ['file_output', 'file_output_prompt'], genui: ['genui', 'genui_prompt'], idle: ['idle_mode', 'idle_timeout_min', 'adaptive_keep'],
+  file_output: ['file_output', 'file_output_prompt'], genui: ['genui', 'genui_prompt', 'genui_widgets'], idle: ['idle_mode', 'idle_timeout_min', 'adaptive_keep'],
 }
 
 const BLANK: Partial<Agent> = {
@@ -20,7 +20,7 @@ const BLANK: Partial<Agent> = {
   thinking: 'adaptive', thinking_budget: 8000, permission_mode: 'bypassPermissions', system_prompt_mode: 'preset', system_prompt: '',
   claude_md: 'inherit', setting_sources: ['user', 'project', 'local'], tools: ['*'], auto_memory: true, allowed_tools: [], disallowed_tools: [],
   add_dirs: [], max_turns: 0, max_budget_usd: 0, env: {}, mcp_servers: {}, agents: {}, enable_file_checkpointing: true,
-  file_output: true, file_output_prompt: '', genui: true, genui_prompt: '', idle_mode: 'timer', idle_timeout_min: 10, adaptive_keep: 1,
+  file_output: true, file_output_prompt: '', genui: true, genui_prompt: '', genui_widgets: {}, idle_mode: 'timer', idle_timeout_min: 10, adaptive_keep: 1,
   override_groups: [], extra_args: {},
 }
 
@@ -284,7 +284,8 @@ export function AgentSettings({ agentId }: { agentId?: string }) {
           {card('system_prompt', 'System prompt', <SystemPromptFields v={view('system_prompt')} set={set as any} />)}
           {card('idle', 'Sleep', <IdleFields v={view('idle')} set={set as any} />)}
           {card('file_output', 'Files from Claude', <FileOutputFields v={view('file_output')} set={set as any} disabled={!on('file_output')} builtin={meta.value?.defaults.file_output_prompt || ''} />)}
-          {card('genui', 'Interactive UI', <GenUIFields v={view('genui')} set={set as any} disabled={!on('genui')} builtin={meta.value?.defaults.genui_prompt || ''} />)}
+          {card('genui', 'Interactive UI', <GenUIFields v={view('genui')} set={set as any} disabled={!on('genui')} builtin={meta.value?.defaults.genui_prompt || ''}
+            widgetBuiltin={(k) => meta.value?.defaults.genui_widgets?.[k]?.prompt || meta.value?.default_genui_widgets?.[k] || ''} />)}
 
           <div class="group-title">Limits</div>
           <div class="group">

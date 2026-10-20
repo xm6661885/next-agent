@@ -129,10 +129,32 @@ export function FileOutputFields({ v, set, disabled, builtin }: SectionProps & {
     prompt={v.file_output_prompt} onPrompt={(x) => set('file_output_prompt', x)} builtin={builtin} />
 }
 
-export function GenUIFields({ v, set, disabled, builtin }: SectionProps & { builtin: string }) {
-  return <PromptFields on={v.genui} onToggle={(x) => set('genui', x)} label="Generative UI in replies" disabled={disabled}
-    hint="Claude can answer with live SVG diagrams, buttons, forms, sliders and charts."
-    prompt={v.genui_prompt} onPrompt={(x) => set('genui_prompt', x)} builtin={builtin} />
+const WIDGETS: [string, string, string][] = [
+  ['ask', 'Ask', 'Question cards with tappable options.'],
+  ['chart', 'Chart', 'Line, bar, area and pie charts.'],
+  ['mermaid', 'Mermaid', 'Flowcharts, sequence and other diagrams.'],
+  ['mindmap', 'Mind map', 'Indented lists drawn as a mind map.'],
+  ['svg', 'SVG', 'Static illustrations.'],
+  ['html', 'HTML', 'Sandboxed interactive fragments.'],
+]
+
+export function GenUIFields({ v, set, disabled, builtin, widgetBuiltin }: SectionProps & { builtin: string; widgetBuiltin: (k: string) => string }) {
+  const widgets = v.genui_widgets || {}
+  const setWidget = (k: string, p: Partial<{ on: boolean; prompt: string }>) =>
+    set('genui_widgets', { ...widgets, [k]: { on: widgets[k]?.on ?? true, prompt: widgets[k]?.prompt ?? '', ...p } })
+  return (
+    <>
+      <PromptFields on={v.genui} onToggle={(x) => set('genui', x)} label="Generative UI in replies" disabled={disabled}
+        hint="Claude can answer with live diagrams, question cards, charts and interactive fragments. This prompt comes first; each enabled widget adds its own."
+        prompt={v.genui_prompt} onPrompt={(x) => set('genui_prompt', x)} builtin={builtin} />
+      {v.genui && WIDGETS.map(([k, label, hint]) => {
+        const w = widgets[k] || { on: true, prompt: '' }
+        const own = widgetBuiltin(k)
+        return <PromptFields key={k} on={w.on} onToggle={(x) => setWidget(k, { on: x })} label={label} hint={hint} disabled={disabled}
+          prompt={w.prompt && w.prompt !== own ? w.prompt : ''} onPrompt={(x) => setWidget(k, { prompt: x })} builtin={own} />
+      })}
+    </>
+  )
 }
 
 export function IdleFields({ v, set }: SectionProps) {

@@ -1,4 +1,4 @@
-// Tiny history router with direction-aware page transitions and swipe-back support.
+// Tiny history router with direction-aware page transitions.
 
 import { signal } from '@preact/signals'
 
@@ -50,8 +50,16 @@ export const direction = signal<'forward' | 'back' | 'fade' | 'none'>('fade')
 // show the previous page, so replaying the enter animation looks like a flash.
 let ownBack = false
 
-let depth = (history.state && history.state.depth) || 0
-if (!history.state) history.replaceState({ depth }, '')
+/**
+ * Installed PWA. iOS runs its own edge-swipe back there, which reloads or double-navigates, so
+ * standalone never grows browser history: pages live on an in-memory stack and every move is a
+ * replaceState. With nothing to go back to, the system gesture does nothing.
+ */
+const STANDALONE = !!(navigator as any).standalone || matchMedia('(display-mode: standalone)').matches
+const stack: string[] = []
+
+let depth = STANDALONE ? 0 : (history.state && history.state.depth) || 0
+if (!history.state || STANDALONE) history.replaceState({ depth }, '')
 
 /** Scroll offsets per history entry, so going back (button or swipe) lands where the user left. */
 export const scrollMemory = new Map<string, number>()
@@ -66,7 +74,8 @@ export function navigate(r: Route | string, opts: { replace?: boolean; animate?:
     direction.value = 'fade'
   } else {
     depth++
-    history.pushState({ depth }, '', url)
+    if (STANDALONE) { stack.push(location.pathname); history.replaceState({ depth }, '', url) }
+    else history.pushState({ depth }, '', url)
     scrollMemory.delete(entryKey())
     direction.value = opts.animate === false ? 'none' : 'forward'
   }
@@ -85,6 +94,15 @@ export function parentOf(r: Route): Route {
 
 /** Go back in history if we pushed a page, otherwise to the given fallback. */
 export function back(fallback: Route = { name: 'home' }) {
+  if (STANDALONE) {
+    const url = stack.pop()
+    if (url === undefined) return navigate(fallback, { replace: true })
+    depth--
+    history.replaceState({ depth }, '', url)
+    direction.value = 'back'
+    route.value = parse(url)
+    return
+  }
   if (depth > 0) { ownBack = true; history.back() }
   else navigate(fallback, { replace: true })
 }
@@ -96,67 +114,3 @@ window.addEventListener('popstate', (e) => {
   depth = d
   route.value = parse(location.pathname)
 })
-
-/**
- * Edge swipe to go back on touch devices when running standalone (Safari's own gesture
- * covers the browser case). Attach to a page root element.
- */
-export function attachSwipeBack(el: HTMLElement, onBack: () => void) {
-  const standalone = (navigator as any).standalone || matchMedia('(display-mode: standalone)').matches
-  if (!standalone) return () => {}
-  let startX = 0, startY = 0, dx = 0, active = false, decided = false, startPath = ''
-  const onStart = (e: TouchEvent) => {
-    const t = e.touches[0]
-    if (t.clientX > 24) return
-    startX = t.clientX; startY = t.clientY; dx = 0; active = true; decided = false; startPath = location.pathname
-  }
-  // Newer iOS versions run their own edge-swipe back in standalone apps too. When the system already
-  // navigated, drop our gesture so the two do not go back twice (chat -> agent -> home).
-  const onPop = () => {
-    if (!active && !el.style.transform) return
-    active = false
-    el.style.transition = ''
-    el.style.transform = ''
-    el.style.boxShadow = ''
-  }
-  window.addEventListener('popstate', onPop)
-  const onMove = (e: TouchEvent) => {
-    if (!active) return
-    const t = e.touches[0]
-    dx = t.clientX - startX
-    const dy = t.clientY - startY
-    if (!decided) {
-      if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return
-      decided = true
-      if (Math.abs(dy) > Math.abs(dx) || dx < 0) { active = false; return }
-    }
-    el.style.transition = 'none'
-    el.style.transform = `translate3d(${Math.max(0, dx)}px,0,0)`
-    el.style.boxShadow = '-12px 0 30px rgba(0,0,0,0.12)'
-  }
-  const onEnd = () => {
-    if (!active) return
-    active = false
-    const w = el.clientWidth
-    el.style.transition = 'transform 0.28s cubic-bezier(0.32,0.72,0,1)'
-    if (location.pathname !== startPath) return
-    if (dx > w * 0.33) {
-      el.style.transform = `translate3d(${w}px,0,0)`
-      setTimeout(() => { if (location.pathname === startPath) onBack() }, 200)
-    } else {
-      el.style.transform = ''
-      setTimeout(() => { el.style.boxShadow = ''; el.style.transition = '' }, 300)
-    }
-  }
-  el.addEventListener('touchstart', onStart, { passive: true })
-  el.addEventListener('touchmove', onMove, { passive: true })
-  el.addEventListener('touchend', onEnd)
-  el.addEventListener('touchcancel', onEnd)
-  return () => {
-    window.removeEventListener('popstate', onPop)
-    el.removeEventListener('touchstart', onStart)
-    el.removeEventListener('touchmove', onMove)
-    el.removeEventListener('touchend', onEnd)
-    el.removeEventListener('touchcancel', onEnd)
-  }
-}

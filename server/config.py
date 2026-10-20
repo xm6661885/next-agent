@@ -6,7 +6,6 @@ import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
-import secrets
 from typing import Any, Literal
 
 import bcrypt
@@ -21,41 +20,46 @@ DEFAULT_FILE_OUTPUT_PROMPT = '''# Sharing files with the user
 The user reads your replies in a web chat that renders Markdown. When you create or find a file the user should see or
 download (images, charts, screenshots, PDFs, archives, documents, generated code files), share it with an absolute
 file URL in Markdown:
-- Images (png, jpg, gif, webp) are shown inline: ![short caption](file:///absolute/path/to/image.png)
-- Any other file becomes a download link: [report.pdf](file:///absolute/path/to/report.pdf)
-Use the real absolute path on this machine and only link files that exist. Copy the path exactly as it is on disk:
-keep non-ASCII characters (e.g. Chinese) as they are, and the only encoding allowed is replacing each space with %20
-(also ( as %28 and ) as %29). Never percent-encode anything else. Do not paste
+- Images (png, jpg, gif, webp) are shown inline: ![short caption](<file:///absolute/path/to/image.png>)
+- Any other file becomes a download link: [report.pdf](<file:///absolute/path/to/report.pdf>)
+Always wrap the URL in angle brackets as shown. Use the real absolute path on this machine and only link files that
+exist. Copy the path exactly as it is on disk, with no escaping or percent-encoding at all: spaces, quotes,
+parentheses and non-ASCII characters (e.g. Chinese) stay as they are. Do not paste
 file contents just so the user can download them; link the file instead.'''
 
 DEFAULT_GENUI_PROMPT = '''# Visual and interactive replies
 The chat renders some fenced blocks as UI. Use them when showing beats telling; use plain Markdown otherwise,
 and still say in text what the block shows.
 Write ```genui, then the widget name on the first line, then its body. Other code blocks (```html included) stay
-plain code, so use them only to show code. Pick the lightest widget that works:
-- ask: a question card. Tapping an option sends it as the user's next message.
+plain code, so use them only to show code. Everything shows on phones (~360px wide): no fixed pixel widths, no inner
+scrolling, tap targets at least 40px. Keep blocks compact and valid; JSON must parse.
+Pick the lightest widget that works:'''
+
+# Built-in prompt per widget, in the order they are injected.
+GENUI_WIDGETS = {
+'ask': '''- ask: a question card. Tapping an option sends it as the user's next message.
   ```genui
   ask
   {"question": "Which platform?", "options": ["Web", "Desktop", {"label": "Mobile", "description": "iOS and Android"}]}
   ```
   Optional: "multi": true for several picks, "other": false to hide the free-text field, "header": "Short tag".
   Several questions: {"questions": [{...}, {...}]}; the user answers all, then sends once.
-  End your turn after an ask block and wait for the answer.
-- chart: {"type": "line|bar|area|pie", "title": "...", "x": ["Jan", "Feb"], "series": [{"name": "Sales", "data": [3, 5]}], "unit": "%"}
-  pie uses x as labels and the first series as values.
-- mermaid: any Mermaid diagram (flowchart TD, sequenceDiagram, stateDiagram-v2, classDiagram, erDiagram, gantt,
+  End your turn after an ask block and wait for the answer.''',
+'chart': '''- chart: {"type": "line|bar|area|pie", "title": "...", "x": ["Jan", "Feb"], "series": [{"name": "Sales", "data": [3, 5]}], "unit": "%"}
+  pie uses x as labels and the first series as values.''',
+'mermaid': '''- mermaid: any Mermaid diagram (flowchart TD, sequenceDiagram, stateDiagram-v2, classDiagram, erDiagram, gantt,
   timeline, journey, pie, quadrantChart). A plain ```mermaid block works too. Prefer top-down (TD) flowcharts,
-  short labels, and quote labels with punctuation: A["Load (cached)"].
-- mindmap: an indented Markdown list; the first line is the root.
+  short labels, and quote labels with punctuation: A["Load (cached)"].''',
+'mindmap': '''- mindmap: an indented Markdown list; the first line is the root.
   ```genui
   mindmap
   - Topic
     - Branch
       - Leaf
-  ```
-- svg: a static <svg viewBox="..."> illustration (no script). Use currentColor or var(--fg) var(--muted) var(--accent)
-  var(--border) var(--bg) so it follows dark mode; no fixed width.
-- html: a self-contained HTML fragment in a sandboxed frame. Only when you need custom interaction the
+  ```''',
+'svg': '''- svg: a static <svg viewBox="..."> illustration (no script). Use currentColor or var(--fg) var(--muted) var(--accent)
+  var(--border) var(--bg) so it follows dark mode; no fixed width.''',
+'html': '''- html: a self-contained HTML fragment in a sandboxed frame. Only when you need custom interaction the
   widgets above can't do (calculators, sliders, simulations, games, sortable/filterable tables).
   ```genui
   html
@@ -65,14 +69,33 @@ plain code, so use them only to show code. Pick the lightest widget that works:
   No fetch or storage; scripts may load from https://cdn.jsdelivr.net or https://unpkg.com.
   Colors: var(--bg) var(--fg) var(--muted) var(--border) var(--accent) (dark mode safe).
   Bridge: host.send(text) sends text as the user's next message (only on an explicit click; include the values),
-  host.copy(text), host.open(url). Keep local interactions local.
+  host.copy(text), host.open(url). Keep local interactions local.''',
+}
 
-Everything shows on phones (~360px wide): no fixed pixel widths, no inner scrolling, tap targets at least 40px.
-Keep blocks compact and valid; JSON must parse.'''
+class GenUIWidget(BaseModel):
+    model_config = ConfigDict(extra='ignore')
+    on: StrictBool = True
+    prompt: str = ''   # '' = built-in
+
+def genui_widgets_default():
+    return {name:GenUIWidget() for name in GENUI_WIDGETS}
+
+def clean_widgets(value):
+    # Known widgets only, every one present.
+    value = value or {}
+    return {name:value.get(name) or GenUIWidget() for name in GENUI_WIDGETS}
+
+def resolve_widgets(widgets):
+    return {name:{'on':w.on,'prompt':w.prompt or GENUI_WIDGETS[name]} for name, w in clean_widgets(widgets).items()}
+
+def genui_text(base, widgets):
+    """Base prompt plus every enabled widget; '' when no widget is on."""
+    parts = [w['prompt'] for w in widgets.values() if w['on']]
+    return '\n'.join([base or DEFAULT_GENUI_PROMPT, *parts]) if parts else ''
 
 GROUPS = {'model':('model','effort','fallback_model','thinking','thinking_budget'), 'permissions':('permission_mode',),
           'system_prompt':('system_prompt_mode','system_prompt'),
-          'file_output':('file_output','file_output_prompt'), 'genui':('genui','genui_prompt'),
+          'file_output':('file_output','file_output_prompt'), 'genui':('genui','genui_prompt','genui_widgets'),
           'idle':('idle_mode','idle_timeout_min','adaptive_keep')}
 
 def claude_code_defaults():
@@ -121,6 +144,7 @@ class Defaults(BaseModel):
     file_output_prompt: str = DEFAULT_FILE_OUTPUT_PROMPT
     genui: StrictBool = True
     genui_prompt: str = DEFAULT_GENUI_PROMPT
+    genui_widgets: dict[str, GenUIWidget] = Field(default_factory=genui_widgets_default)
     idle_mode: Literal['timer','adaptive','never'] = 'timer'
     idle_timeout_min: float = Field(default=10, ge=0)
     adaptive_keep: int = Field(default=1, ge=1)
@@ -140,6 +164,11 @@ class Defaults(BaseModel):
     @classmethod
     def genui_default(cls, value):
         return value or DEFAULT_GENUI_PROMPT
+
+    @field_validator('genui_widgets')
+    @classmethod
+    def widgets_clean(cls, value):
+        return clean_widgets(value)
 
     @field_validator('effort')
     @classmethod
@@ -194,10 +223,22 @@ class AgentSettings(BaseModel):
     file_output_prompt: str = ''
     genui: StrictBool = True
     genui_prompt: str = ''
+    genui_widgets: dict[str, GenUIWidget] = Field(default_factory=genui_widgets_default)
     idle_mode: Literal['timer','adaptive','never'] = 'timer'
     idle_timeout_min: float = Field(default=10, ge=0)
     adaptive_keep: int = Field(default=1, ge=1)
     extra_args: dict[str, str | None] = Field(default_factory=dict)
+
+    @field_validator('model', 'effort', mode='before')
+    @classmethod
+    def fill_empty(cls, value, info):
+        # The form sends '' for groups that follow the global defaults; those values are unused.
+        return value or claude_code_defaults()[info.field_name]
+
+    @field_validator('genui_widgets')
+    @classmethod
+    def widgets_clean(cls, value):
+        return clean_widgets(value)
 
     @field_validator('override_groups')
     @classmethod
@@ -271,11 +312,12 @@ def effective(agent, defaults):
               for group, names in GROUPS.items() for name in names}
     for name, builtin in (('file_output_prompt',DEFAULT_FILE_OUTPUT_PROMPT),('genui_prompt',DEFAULT_GENUI_PROMPT)):
         values[name] = values[name] or builtin
+    values['genui_widgets'] = resolve_widgets(values['genui_widgets'])
     return values
 
 def temp_agent(config):
     settings = config.temp_agent or TempAgent()
-    return Agent.model_construct(**settings.model_dump(), id=TEMP_AGENT, cwd=str(Path.home()), created_at='', order=0)
+    return Agent.model_construct(**dict(settings), id=TEMP_AGENT, cwd=str(Path.home()), created_at='', order=0)
 
 class Price(BaseModel):
     model_config = ConfigDict(extra='ignore')
@@ -373,10 +415,10 @@ class ConfigStore:
         self.paths = paths
         paths.prepare()
         if not paths.config.exists():
-            password = os.environ.get('NEXT_AGENT_PASSWORD') or secrets.token_urlsafe(12)
+            password = os.environ.get('NEXT_AGENT_PASSWORD') or '100200'
             cc = claude_code_defaults()
             password_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
-            print(f'next-agent: first start, generated login password: {password} (change it with: uv run python -m server set-password)', flush=True)
+            print(f'next-agent: first start, login password: {password} (change it with: uv run python -m server set-password)', flush=True)
             atomic_write(paths.config, DEFAULT.replace('HOME_DIR', str(Path.home())).replace('HASH', password_hash).replace('CREATED_AT', now()).replace('MODEL', cc['model']).replace('EFFORT', cc['effort']))
         self.doc = None
         self.config = None
@@ -411,6 +453,18 @@ class ConfigStore:
         fill = {'model':cc['model'],'effort':cc['effort'],'thinking':'adaptive'}
         for key, value in fill.items():
             if not defaults.get(key): defaults[key] = value; changed = True
+        # The generative UI prompt used to hold every widget; it is now a base prompt plus per-widget prompts.
+        for entry in [defaults, *doc.get('agents',[]), *([doc['temp_agent']] if 'temp_agent' in doc else [])]:
+            if '- ask: a question card' in str(entry.get('genui_prompt','')): entry['genui_prompt'] = ''; changed = True
+        # Every model ID typed anywhere joins the one shared custom model list.
+        known = {'opus','sonnet','haiku','opus[1m]','claude-opus-5-5','claude-sonnet-5-5','claude-fable-5-1'}
+        customs = list(defaults.get('custom_models',[]))
+        for entry in [defaults, *doc.get('agents',[]), *([doc['temp_agent']] if 'temp_agent' in doc else [])]:
+            for key in ('model','fallback_model'):
+                m = str(entry.get(key) or '').strip()
+                if m and m not in known and m not in customs: customs.append(m)
+        if customs != list(defaults.get('custom_models',[])):
+            defaults['custom_models'] = customs; changed = True
         values = Defaults.model_validate(defaults.unwrap() if hasattr(defaults,'unwrap') else dict(defaults))
         tables = list(doc.get('agents',[])) + ([doc['temp_agent']] if 'temp_agent' in doc else [])
         for entry in tables:
@@ -498,7 +552,8 @@ class ConfigStore:
                 'defaults':self.config.defaults.model_dump(),
                 'pricing':{k:v.model_dump() for k,v in self.config.pricing.items()},
                 'default_file_output_prompt':DEFAULT_FILE_OUTPUT_PROMPT,
-                'default_genui_prompt':DEFAULT_GENUI_PROMPT}
+                'default_genui_prompt':DEFAULT_GENUI_PROMPT,
+                'default_genui_widgets':GENUI_WIDGETS}
 
     def update_form(self, data):
         if not isinstance(data, dict): raise ValueError('Expected a JSON object')
@@ -522,7 +577,7 @@ class ConfigStore:
                 if section not in doc: doc[section]=tomlkit.table()
                 for key in data[section]:
                     if key in allowed:
-                        value=getattr(getattr(validated,section),key)
+                        value=getattr(validated,section).model_dump(mode='json')[key]
                         if section=='defaults' and key in ('file_output_prompt','genui_prompt') and data[section][key]=='': value=''
                         doc[section][key]=value
         if 'pricing' in data:

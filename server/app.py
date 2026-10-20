@@ -6,21 +6,22 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 import hmac
 from fastapi import FastAPI, Request, HTTPException, Depends, UploadFile, File, WebSocket
-from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from claude_agent_sdk import list_sessions
 from .paths import DataDir, atomic_write
-from .config import ConfigStore, TEMP_AGENT
+from .config import GENUI_WIDGETS, ConfigStore, TEMP_AGENT
 from .store import SessionIndex
 from .auth import Auth, COOKIE, AGE
 from .agents import AgentService
 from .uploads import UploadService
 from .extensions import ExtensionBus
 from .runtime import RuntimeManager
-from .history import page, transcript_path, search_sessions
+from .history import page, transcript_path, search_sessions, agent_id, subagent_items
 from .ws import session_socket, events_socket
 from . import memory
 from . import artifacts
+from . import btw
 
 MODELS=['opus','sonnet','haiku','opus[1m]','claude-opus-5-5','claude-sonnet-5-5','claude-fable-5-1']
 EFFORTS=['low','medium','high','xhigh','max']
@@ -47,6 +48,7 @@ def create_app(data_dir=None):
         else:
             manager.semaphore=asyncio.Semaphore(config.config.server.max_concurrent)
         manager.global_emit({'type':'agents_changed'})
+        manager.reconfigure()
     @asynccontextmanager
     async def lifespan(app):
         manager.reaper_task=asyncio.create_task(manager.reaper())
@@ -288,6 +290,12 @@ def create_app(data_dir=None):
         session(sid)
         manager.mark_read(manager.get_or_create(sid))
         return manager.view(sid)
+    @app.post('/api/agents/{aid}/read')
+    async def agent_read(aid:str,_:None=Depends(require)):
+        agents.get(aid)
+        ids=[s['id'] for s in index.sessions.values() if s['agent_id']==aid and s.get('unread')]
+        for sid in ids: manager.mark_read(manager.get_or_create(sid))
+        return {'ok':True,'read':ids}
     @app.post('/api/sessions/{sid}/warm')
     async def session_warm(sid:str,_:None=Depends(require)):
         session(sid)
@@ -300,6 +308,22 @@ def create_app(data_dir=None):
         fork=index.create(source['agent_id'],source['title']+' (fork)',fork_of={'session_id':sid,'at_uuid':body.get('at_uuid')},
                          **({'cwd':source['cwd']} if source.get('cwd') else {}))
         return manager.view(fork['id'])
+    @app.post('/api/sessions/{sid}/btw')
+    async def session_btw(sid:str,request:Request,_:None=Depends(require)):
+        s=session(sid)
+        question=str((await request.json()).get('question') or '').strip()
+        if not question: raise HTTPException(422,'Empty question')
+        fork=s.get('fork_of')
+        resume=s.get('sdk_session_id') or (index.sessions.get(fork['session_id'],{}).get('sdk_session_id') if fork else None)
+        if not resume: raise HTTPException(409,'Nothing to ask about yet')
+        opts=btw.btw_options(manager.session_agent(s),s,resume,config.config.defaults,config.config.server,
+                             custom_md_path=paths.agents/s['agent_id']/'CLAUDE.md')
+        async def body():
+            try:
+                async for chunk in btw.ask(opts,question): yield chunk
+            except Exception as exc:
+                yield f'\n\n[error] {exc}'
+        return StreamingResponse(body(),media_type='text/plain; charset=utf-8',headers={'Cache-Control':'no-store','X-Accel-Buffering':'no'})
     @app.get('/api/sessions/{sid}/items')
     async def session_items(sid:str,before:str|None=None,limit:int=200,_:None=Depends(require)):
         session(sid)
@@ -308,6 +332,19 @@ def create_app(data_dir=None):
         if before or limit!=200:
             return page(await runtime.all_items(),before,limit)
         return {'items':snap['items'],'has_more':snap['has_more']}
+    @app.get('/api/sessions/{sid}/subagents/{tool_use_id}')
+    async def subagent_get(sid:str,tool_use_id:str,_:None=Depends(require)):
+        """A subagent's transcript, read from its own JSONL file (history only has the main thread)."""
+        original=session(sid)
+        items=await manager.get_or_create(sid).all_items()
+        tool=next((x for x in items if x['kind']=='tool' and x['id']==tool_use_id),None)
+        if not tool: raise HTTPException(404,'Agent call not found')
+        aid=agent_id((tool.get('result') or {}).get('content',''))
+        live=[x for x in items if x.get('parent_tool_use_id')==tool_use_id]
+        if not aid or not original.get('sdk_session_id'): return {'agent_id':aid,'items':live}
+        try: saved=await asyncio.to_thread(subagent_items,original['sdk_session_id'],manager.session_agent(original).cwd,aid,index.uploads)
+        except Exception: saved=[]
+        return {'agent_id':aid,'items':saved if len(saved)>=len(live) else live}
     @app.get('/api/sessions/{sid}/artifacts')
     async def session_artifacts(sid:str,_:None=Depends(require)):
         session(sid)
@@ -358,7 +395,18 @@ def create_app(data_dir=None):
     async def meta(_:None=Depends(require)):
         return {'models':list(dict.fromkeys(MODELS+config.config.defaults.custom_models)),
                 'efforts':EFFORTS,'permission_modes':MODES,'version':'0.1.0',
-                'defaults':config.config.defaults.model_dump()}
+                'defaults':config.config.defaults.model_dump(),'default_genui_widgets':GENUI_WIDGETS}
+    @app.put('/api/models')
+    async def models_put(request:Request,_:None=Depends(require)):
+        """Replace the shared custom model list (used by every model picker)."""
+        body=await request.json()
+        if not isinstance(body.get('custom_models'),list) or not all(isinstance(m,str) for m in body['custom_models']):
+            raise HTTPException(422,'custom_models must be a list of strings')
+        try: config.update_form({'defaults':{'custom_models':body['custom_models']}})
+        except ValueError as exc: raise HTTPException(422,str(exc)) from exc
+        manager.global_emit({'type':'agents_changed'})
+        return {'custom_models':config.config.defaults.custom_models,
+                'models':list(dict.fromkeys(MODELS+config.config.defaults.custom_models))}
     @app.get('/api/config')
     async def form_get(_:None=Depends(require)): return config.form()
     @app.patch('/api/config')

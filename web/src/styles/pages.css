@@ -453,8 +453,7 @@
 .tool-adv.open svg { transform: rotate(180deg); }
 
 /* ---------- Agent groups ---------- */
-.group-filter { display: flex; gap: 8px; overflow-x: auto; margin: 18px -4px 4px; padding: 2px 4px; scrollbar-width: none; }
-.group-filter::-webkit-scrollbar { display: none; }
+.group-filter { display: flex; flex-wrap: wrap; gap: 8px; margin: 18px 0 4px; }
 .chip-count { font-size: 11.5px; font-variant-numeric: tabular-nums; opacity: 0.6; }
 .agent-section > .agent-grid { margin-top: 0; }
 .agent-section:first-of-type > .group-title { margin-top: 18px; }

@@ -1,8 +1,20 @@
 // Model chips shared by agent settings and the in-chat controls, plus a "Custom" chip for any model ID.
 
 import { useEffect, useRef, useState } from 'preact/hooks'
-import { meta } from '../lib/store'
+import { meta, toastError } from '../lib/store'
+import { api } from '../lib/api'
 import { IconCheck, IconEdit } from './icons'
+
+/** Add or remove a model ID in the one shared custom model list; every picker updates at once. */
+export async function saveCustomModels(list: string[]) {
+  const r = await api.setModels(list)
+  if (meta.value) meta.value = { ...meta.value, models: r.models, defaults: { ...meta.value.defaults, custom_models: r.custom_models } }
+  return r.custom_models
+}
+export const addCustomModel = (m: string) => {
+  const cur = meta.value?.defaults.custom_models || []
+  return cur.includes(m) || (meta.value?.models || []).includes(m) ? Promise.resolve(cur) : saveCustomModels([...cur, m])
+}
 
 export function ModelPicker({ value, onChange, noneLabel }: {
   value: string
@@ -22,7 +34,9 @@ export function ModelPicker({ value, onChange, noneLabel }: {
   const commit = () => {
     const m = draft.trim()
     setEditing(false)
-    if (m && m !== value) onChange(m)
+    if (!m) return
+    addCustomModel(m).catch(toastError)
+    if (m !== value) onChange(m)
   }
 
   return (

@@ -13,11 +13,18 @@ import type { Agent, Session } from '../lib/types'
 // Which group Home opens on (per device). Absent = All.
 const START_KEY = 'home-start'
 const START_LAST = '\u0000last', START_UNGROUPED = '\u0000ungrouped'
+// The filter picked in this page load, so coming back from an agent keeps it instead of re-applying START_KEY.
+let sessionFilter: string | null | undefined
 function initialFilter(): string | null {
+  if (sessionFilter !== undefined) return sessionFilter
   const start = localStorage.getItem(START_KEY)
   if (start === null) return null
   return start === START_LAST ? localStorage.getItem('home-group') : start === START_UNGROUPED ? '' : start
 }
+
+// Groups survive remounts (and reloads) so Home's first frame already has its sections; otherwise
+// going back flashes the flat ungrouped grid until /api/groups answers.
+let groupsCache: string[] = (() => { try { return JSON.parse(localStorage.getItem('home-groups') || '[]') } catch { return [] } })()
 
 const painted = () => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(r, 30))))
 
@@ -35,13 +42,13 @@ export function Home() {
   const [sorting, setSorting] = useState(false)
   const [order, setOrder] = useState<Agent[]>([])
   const [saving, setSaving] = useState(false)
-  const [groups, setGroups] = useState<string[]>([])
+  const [groups, setGroups] = useState<string[]>(groupsCache)
   const [filter, setFilter] = useState<string | null>(initialFilter)
   const [managing, setManaging] = useState(false)
 
   useEffect(() => {
     api.agents().then((a) => { agents.value = a }).catch(toastError).finally(() => setLoading(false))
-    api.groups().then((g) => setGroups(g.groups)).catch(() => {})
+    api.groups().then((g) => { groupsCache = g.groups; localStorage.setItem('home-groups', JSON.stringify(g.groups)); setGroups(g.groups) }).catch(() => {})
   }, [agentsVersion.value])
 
   // Re-read the live map so cards update as sessions change state.
@@ -49,6 +56,7 @@ export function Home() {
   const list = agents.value || []
   const pick = (g: string | null) => {
     setFilter(g)
+    sessionFilter = g
     if (g === null) localStorage.removeItem('home-group'); else localStorage.setItem('home-group', g)
   }
   // A stale filter (group deleted elsewhere) falls back to All.

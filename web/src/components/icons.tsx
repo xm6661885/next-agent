@@ -90,6 +90,9 @@ export const IconLock = (p: P) =>
   I(<><rect x="4" y="11" width="16" height="10" rx="2.5" /><path d="M8 11V7a4 4 0 0 1 8 0v4" /></>, p)
 export const IconSteer = (p: P) =>
   I(<><path d="M5 12h11" /><path d="m12 7 5 5-5 5" /><path d="M19 5v14" /></>, p)
+export const IconAside = (p: P) =>
+  I(<><path d="M6 4.5h12a3 3 0 0 1 3 3v7a3 3 0 0 1-3 3h-4l-2 2.5-2-2.5H6a3 3 0 0 1-3-3v-7a3 3 0 0 1 3-3Z" /><path d="M12 8v3.5" /><path d="M12 14.5v.01" /></>, p)
 export const IconTag = (p: P) =>
   I(<><path d="M3 12V4a1 1 0 0 1 1-1h8l9 9-9 9-9-9Z" /><circle cx="7.5" cy="7.5" r="1.5" /></>, p)
+export const IconCheckAll = (p: P) => I(<><path d="M18 7 9.5 15.5 6 12" /><path d="m22 7-8.5 8.5-1-1" /><path d="m2 12 3.5 3.5" /></>, p)
 export const IconArrowUp = (p: P) => I(<path d="m6 15 6-6 6 6" />, p)

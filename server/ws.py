@@ -31,6 +31,7 @@ async def session_socket(ws: WebSocket, sid, auth, manager, index, uploads):
             snapshot=await runtime.snapshot()
             await ws.send_json(snapshot)
             baseline=snapshot['seq']
+        await ws.send_json({'type':'resumed','seq':baseline})
         buffered=[]
         while not queue.empty():
             event=queue.get_nowait()
@@ -57,6 +58,7 @@ async def session_socket(ws: WebSocket, sid, auth, manager, index, uploads):
                             for event in ring:
                                 if event['seq']>seq: await ws.send_json(event)
                         else: await ws.send_json(await runtime.snapshot())
+                        await ws.send_json({'type':'resumed','seq':runtime.seq})
                     elif typ=='send':
                         attachments=[uploads.get(sid,fid) for fid in msg.get('attachments',[])]
                         content=uploads.build_content(msg.get('text',''),attachments)
@@ -65,10 +67,10 @@ async def session_socket(ws: WebSocket, sid, auth, manager, index, uploads):
                             runtime.session['title']=(msg.get('text') or attachments[0]['name'])[:60]
                             index.update(sid,title=runtime.session['title'])
                             manager.session_state(runtime)
-                        runtime.emit(runtime.items.pending_user(msg.get('text',''),
+                        pending=runtime.emit(runtime.items.pending_user(msg.get('text',''),
                                      [{k:a[k] for k in ('id','name','mime','size','path','url','is_image')} for a in attachments],
-                                     msg.get('client_id')))
-                        runtime.submit(('send',{'content':content},req_id,queue))
+                                     msg.get('client_id'),queued=runtime.state in ('running','interrupting')))
+                        runtime.submit(('send',{'content':content,'item':pending['item']['id']},req_id,queue))
                     elif typ=='edit':
                         uuid=msg.get('uuid')
                         if not isinstance(uuid,str) or not uuid.strip(): raise ValueError('uuid is required')
@@ -78,6 +80,9 @@ async def session_socket(ws: WebSocket, sid, auth, manager, index, uploads):
                         runtime.submit(('edit',{'uuid':uuid,'content':content,'text':msg.get('text',''),
                                                 'attachments':[{k:a[k] for k in ('id','name','mime','size','path','url','is_image')} for a in attachments],
                                                 'client_id':msg.get('client_id'),'rewind_files':bool(msg.get('rewind_files'))},req_id,queue))
+                    elif typ in ('cancel_queued','send_now'):
+                        if not isinstance(msg.get('id'),str): raise ValueError('id is required')
+                        runtime.submit((typ,msg['id'],req_id,queue))
                     elif typ in ('interrupt','set_mode','set_model','set_effort','stop_task','rewind'):
                         field={'set_mode':'mode','set_model':'model','set_effort':'effort','stop_task':'task_id','rewind':'uuid'}.get(typ)
                         if field and field not in msg: raise ValueError(f'{field} is required')

@@ -5,8 +5,8 @@ import { useEffect, useRef, useState } from 'preact/hooks'
 import { api } from '../lib/api'
 import { toastError } from '../lib/store'
 import type { Attachment, SessionState } from '../lib/types'
-import { IconCamera, IconFile, IconImage, IconPaperclip, IconSend, IconStop, IconSteer } from '../components/icons'
-import { Sheet } from '../components/ui'
+import { IconCamera, IconFile, IconImage, IconPaperclip, IconSend, IconStop, IconAside } from '../components/icons'
+import { Sheet, confirmDialog } from '../components/ui'
 import { CropSheet } from '../components/CropSheet'
 import { MODE_CYCLE, MODE_LABELS, fmtBytes, haptic, uid } from '../lib/util'
 import { modelShort } from '../components/ModelPicker'
@@ -14,7 +14,7 @@ import { IconChevronDown } from '../components/icons'
 
 interface Pending { key: string; file: File; progress: number; att?: Attachment; error?: string; preview?: string }
 
-export function Composer({ sid, state, mode, model, slash, onSend, onInterrupt, onMode, onOpenModel, disabled }: {
+export function Composer({ sid, state, mode, model, slash, onSend, onInterrupt, onMode, onOpenModel, onBtw, disabled, fill }: {
   sid: string
   state: SessionState
   mode: string
@@ -24,11 +24,22 @@ export function Composer({ sid, state, mode, model, slash, onSend, onInterrupt, 
   onInterrupt: () => void
   onMode: (m: string) => void
   onOpenModel: () => void
+  onBtw?: (question: string) => void
   disabled?: boolean
+  /** Text to load into the box for editing (a queued message pulled back); nonce makes repeats apply. */
+  fill?: { text: string; n: number }
 }) {
   const draftKey = `draft:${sid}`
   const [text, setText] = useState(() => localStorage.getItem(draftKey) || '')
-  const [files, setFiles] = useState<Pending[]>([])
+  // Uploaded attachments are already on the server, so the draft only keeps their metadata.
+  const attKey = `draft-att:${sid}`
+  const [files, setFiles] = useState<Pending[]>(() => {
+    try {
+      const saved: Attachment[] = JSON.parse(localStorage.getItem(attKey) || '[]')
+      return saved.map((att) => ({ key: uid(), file: new File([], att.name, { type: att.mime }), progress: 1, att,
+        preview: att.is_image ? att.url : undefined }))
+    } catch { return [] }
+  })
   const [attachOpen, setAttachOpen] = useState(false)
   const [slashIdx, setSlashIdx] = useState(0)
   const [focused, setFocused] = useState(false)
@@ -42,9 +53,16 @@ export function Composer({ sid, state, mode, model, slash, onSend, onInterrupt, 
   const ready = files.filter((f) => f.att).map((f) => f.att!)
   const canSend = !disabled && !uploading && (text.trim().length > 0 || ready.length > 0)
 
-  useEffect(() => { localStorage.setItem(draftKey, text) }, [text])
+  useEffect(() => { text ? localStorage.setItem(draftKey, text) : localStorage.removeItem(draftKey) }, [text])
+  useEffect(() => {
+    const done = files.filter((f) => f.att).map((f) => f.att!)
+    done.length ? localStorage.setItem(attKey, JSON.stringify(done)) : localStorage.removeItem(attKey)
+  }, [files])
+  useEffect(() => { if (fill) { setText(fill.text); setTimeout(() => ta.current?.focus(), 30) } }, [fill?.n])
   useEffect(() => { resize() }, [text])
-  useEffect(() => () => files.forEach((f) => f.preview && URL.revokeObjectURL(f.preview)), [])
+  useEffect(() => () => files.forEach((f) => f.preview && revoke(f.preview)), [])
+
+  const revoke = (u: string) => { if (u.startsWith('blob:')) URL.revokeObjectURL(u) }
 
   const resize = () => {
     const el = ta.current
@@ -81,7 +99,7 @@ export function Composer({ sid, state, mode, model, slash, onSend, onInterrupt, 
   const removeFile = (key: string) => {
     setFiles((cur) => {
       const f = cur.find((x) => x.key === key)
-      if (f?.preview) URL.revokeObjectURL(f.preview)
+      if (f?.preview) revoke(f.preview)
       return cur.filter((x) => x.key !== key)
     })
   }
@@ -99,7 +117,7 @@ export function Composer({ sid, state, mode, model, slash, onSend, onInterrupt, 
       setText(t)
       setFiles(keep)
     } else {
-      keep.forEach((f) => f.preview && URL.revokeObjectURL(f.preview))
+      keep.forEach((f) => f.preview && revoke(f.preview))
     }
     // Keep the keyboard up on mobile after sending.
     ta.current?.focus()
@@ -158,7 +176,7 @@ export function Composer({ sid, state, mode, model, slash, onSend, onInterrupt, 
                 {f.preview ? <img src={f.preview} alt="" /> : <span class="att-icon"><IconFile width={18} height={18} /></span>}
                 <span class="att-meta">
                   <span class="att-name">{f.file.name}</span>
-                  <span class="att-size">{f.error ? 'Failed' : f.att ? fmtBytes(f.file.size) : `${Math.round(f.progress * 100)}%`}</span>
+                  <span class="att-size">{f.error ? 'Failed' : f.att ? fmtBytes(f.att.size) : `${Math.round(f.progress * 100)}%`}</span>
                 </span>
                 {!f.att && !f.error && <span class="att-progress" style={{ transform: `scaleX(${f.progress})` }} />}
                 <button class="att-x" aria-label="Remove" onClick={() => removeFile(f.key)}>×</button>
@@ -180,12 +198,15 @@ export function Composer({ sid, state, mode, model, slash, onSend, onInterrupt, 
             <IconChevronDown width={14} height={14} />
           </button>
           <span style={{ flex: 1 }} />
-          {busy && canSend && (
-            <button class="icon-btn steer-btn pop" aria-label="Interrupt and send now" title="Interrupt and send now"
-              onClick={() => submit(true)}><IconSteer /></button>
+          {busy && onBtw && (
+            <button class="icon-btn pop" aria-label="Ask on the side" title="Ask on the side (no tools, stays out of the chat)"
+              onClick={() => { const t = text.trim(); if (t && !files.length) setText(''); onBtw(files.length ? '' : t) }}><IconAside /></button>
           )}
           {busy && !canSend ? (
-            <button class="send-btn stop pop" aria-label="Stop" onClick={() => { haptic(); onInterrupt() }}>
+            <button class="send-btn stop pop" aria-label="Stop" onClick={async () => {
+              haptic()
+              if (await confirmDialog({ title: 'Stop Claude?', body: 'The current turn ends now. Background tasks keep running.', confirm: 'Stop', danger: true })) onInterrupt()
+            }}>
               <IconStop />
             </button>
           ) : (

@@ -324,6 +324,7 @@
 }
 
 .tool-sub > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tool-time { flex-shrink: 0; font-variant-numeric: tabular-nums; opacity: .8; }
 .tool.err .tool-sub { color: var(--danger); }
 .tool-wait { animation: dot-pulse 1.6s ease-in-out infinite; }
 
@@ -941,7 +942,14 @@
 .task-row.err .task-detail { color: var(--danger); }
 .task-icon { flex: none; color: var(--text-3); }
 .task-text { flex: 1; min-width: 0; }
-.task-desc { font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.task-desc { font-size: 13.5px; display: flex; min-width: 0; white-space: nowrap; }
+.task-desc-text { flex: 1; min-width: 0; }
+.marquee { overflow: hidden; white-space: nowrap; }
+.marquee > span { display: inline-block; }
+.marquee.on > span { animation: marquee var(--dur, 8s) ease-in-out infinite alternate; }
+@keyframes marquee { 0%, 15% { transform: translateX(0); } 85%, 100% { transform: translateX(var(--shift)); } }
+@media (prefers-reduced-motion: reduce) { .marquee.on > span { animation: none; } .marquee { text-overflow: ellipsis; } }
+.task-row .btn.small { flex: none; }
 .task-detail { font-size: 12px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .subagent-live { margin: 4px 0 2px 6px; }
 .task-kind { color: var(--pink-ink); margin-right: 6px; font-size: 12px; }
@@ -1017,3 +1025,55 @@
 .gw-tool { min-height: 32px; padding: 0 10px; border-radius: 999px; font-size: 13px; color: var(--text-2); }
 .gw-tool:active { background: var(--surface-2); }
 .gw-src { margin: 0; text-align: left; font-family: var(--font-mono); font-size: 13px; white-space: pre-wrap; background: var(--code-bg); padding: 10px 12px; border-radius: 10px; }
+
+/* ---------- Subagent viewer ---------- */
+.subview {
+  position: fixed; z-index: 40; left: 0; right: 0; bottom: 0; height: min(62vh, 560px);
+  display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--line);
+  border-radius: 18px 18px 0 0; box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.14);
+  padding-bottom: env(safe-area-inset-bottom); animation: pop 0.3s var(--ease-spring) both;
+}
+@media (min-width: 760px) {
+  .subview { left: auto; right: 16px; bottom: 16px; width: 440px; height: min(70vh, 640px); border-radius: 16px; }
+}
+.subview-head { display: flex; align-items: center; gap: 10px; padding: 10px 8px 10px 14px; border-bottom: 1px solid var(--line); }
+.subview-icon { display: inline-flex; width: 16px; justify-content: center; }
+.subview-title { flex: 1; min-width: 0; }
+.subview-title .t1 { font-size: 14px; font-weight: 600; }
+.subview-title .t2 { font-size: 12px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.subview-body { flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: 10px 14px 14px; display: flex; flex-direction: column; gap: 6px; }
+.subview-text { font-size: 14px; }
+.subview-thinking { font-size: 12.5px; color: var(--text-3); white-space: pre-wrap; border-left: 2px solid var(--line); padding-left: 8px; max-height: 8em; overflow: hidden; }
+.subview-empty { color: var(--text-3); font-size: 13px; text-align: center; padding: 20px 0; }
+.subview-final { border-top: 1px solid var(--line); padding-top: 8px; margin-top: 4px; }
+.subview-label { font-size: 12px; color: var(--text-3); margin-bottom: 4px; }
+.tool-view { margin-left: auto; font-size: 12px; color: var(--text-2); background: var(--bg-2); border: 0; border-radius: 999px; padding: 2px 10px; cursor: pointer; flex-shrink: 0; }
+
+/* ---------- Folded turn process ---------- */
+.fold-head { align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-3); background: none; border: 0; padding: 4px 0; cursor: pointer; }
+.fold-head:hover { color: var(--text-2); }
+.fold-chev { transition: transform 0.2s ease; }
+.fold.open > .fold-head .fold-chev { transform: rotate(90deg); }
+.fold-body { display: flex; flex-direction: column; gap: inherit; border-left: 2px solid var(--line); padding-left: 12px; }
+
+.btw { display: flex; flex-direction: column; gap: 10px; }
+.btw-q { align-self: flex-end; max-width: 85%; background: var(--pink-soft); color: var(--on-pink); padding: 8px 12px; border-radius: 14px; white-space: pre-wrap; }
+.btw-a { max-height: 50vh; overflow-y: auto; }
+.btw-wait, .btw-hint { color: var(--text-2); font-size: 14px; }
+.btw-input { display: flex; gap: 8px; align-items: center; }
+.btw-input input { flex: 1; min-width: 0; padding: 9px 12px; border-radius: 999px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--text); font: inherit; }
+
+.subview-shell { display: flex; align-items: center; gap: 6px; }
+.queue-tray { margin: 0 auto 6px; max-width: var(--content-w); width: 100%; display: flex; flex-direction: column; gap: 4px; }
+.queue-row { display: flex; align-items: center; gap: 8px; padding: 4px 4px 4px 12px; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--surface); }
+.queue-label { flex: none; font-size: 11.5px; color: var(--pink-ink); }
+.queue-text { flex: 1; min-width: 0; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chat-map { display: flex; flex-direction: column; gap: 2px; padding: 8px 0; }
+.map-row { display: flex; flex-direction: column; gap: 3px; align-items: flex-start; padding: 6px 8px; border-radius: 8px; text-align: left; }
+.map-row:active, .map-row:hover { background: var(--surface-2); }
+.map-row.me { align-items: flex-end; text-align: right; margin-top: 8px; }
+.map-bar { height: 4px; border-radius: 2px; background: var(--line-strong); }
+.map-row.me .map-bar { background: var(--pink); }
+.map-text { font-size: 12.5px; color: var(--text-2); max-width: 100%; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.map-flash { animation: map-flash 1.2s ease-out; border-radius: 12px; }
+@keyframes map-flash { 0%, 40% { box-shadow: 0 0 0 3px var(--pink); } 100% { box-shadow: 0 0 0 3px transparent; } }

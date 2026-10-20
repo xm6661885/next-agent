@@ -3,7 +3,7 @@ import logging
 from pathlib import Path
 from claude_agent_sdk import ClaudeAgentOptions
 from claude_agent_sdk.types import AgentDefinition
-from .config import effective
+from .config import effective, genui_text
 
 log = logging.getLogger(__name__)
 
@@ -19,7 +19,7 @@ def build_options(agent, session, defaults, server_cfg, can_use_tool, resume=Non
         if path and path.exists():
             prompt = '\n\n'.join(filter(None,[prompt,'# Agent instructions (CLAUDE.md)\n'+path.read_text()]))
     if eff['file_output']: prompt = '\n\n'.join(filter(None,[prompt,eff['file_output_prompt']]))
-    if eff['genui']: prompt = '\n\n'.join(filter(None,[prompt,eff['genui_prompt']]))
+    if eff['genui']: prompt = '\n\n'.join(filter(None,[prompt,genui_text(eff['genui_prompt'],eff['genui_widgets'])]))
     if eff['system_prompt_mode']=='custom':
         system_prompt = prompt
     else:
@@ -39,7 +39,7 @@ def build_options(agent, session, defaults, server_cfg, can_use_tool, resume=Non
                   permission_mode=choose('permission_mode'), system_prompt=system_prompt, thinking=thinking,
                   setting_sources=sources, include_partial_messages=True, can_use_tool=can_use_tool,
                   enable_file_checkpointing=agent.enable_file_checkpointing,
-                  extra_args={'replay-user-messages':None,**agent.extra_args},
+                  extra_args={'replay-user-messages':None,'allow-dangerously-skip-permissions':None,**agent.extra_args},
                   allowed_tools=agent.allowed_tools,disallowed_tools=agent.disallowed_tools,
                   add_dirs=agent.add_dirs,env=env,mcp_servers=agent.mcp_servers,
                   agents=definitions or None,max_turns=agent.max_turns or None,
@@ -56,3 +56,10 @@ def build_options(agent, session, defaults, server_cfg, can_use_tool, resume=Non
     elif new_session_id:
         kwargs['session_id']=new_session_id
     return ClaudeAgentOptions(**kwargs)
+
+# Fields that only describe how to attach to the session, not how the CLI behaves.
+_SESSION_FIELDS = {'can_use_tool','stderr','resume','fork_session','resume_session_at','session_id'}
+
+def options_key(opts):
+    """Comparable fingerprint of the settings a running CLI was launched with."""
+    return repr({k:v for k,v in vars(opts).items() if k not in _SESSION_FIELDS})

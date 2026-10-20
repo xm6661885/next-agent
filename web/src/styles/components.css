@@ -653,7 +653,7 @@ svg.crab .eyes { animation: blink 4.5s infinite; transform-origin: center 3px; t
 .effort.dragging .effort-fill, .effort.dragging .effort-thumb { transition: none; }
 .effort-stop { position: absolute; top: 50%; width: 4px; height: 4px; margin: -2px 0 0 -2px; border-radius: 50%; background: var(--line-strong); }
 .effort-stop.on { background: color-mix(in srgb, var(--pink-ink) 45%, transparent); }
-.effort-thumb { position: absolute; top: 2px; width: 26px; height: 26px; margin-left: 2px; border-radius: 50%; background: #fff;
+.effort-thumb { position: absolute; top: 50%; width: 24px; height: 24px; margin-top: -12px; margin-left: 2px; border-radius: 50%; background: #fff;
   box-shadow: 0 1px 4px rgba(0,0,0,.2); transition: left 0.25s var(--ease-spring); }
 .effort-labels { display: flex; justify-content: space-between; }
 .effort-labels button { font-size: 12px; color: var(--text-3); padding: 2px 4px; text-transform: capitalize; }

@@ -52,6 +52,8 @@ export const api = {
   logout: () => post<{ ok: boolean }>('/api/logout'),
   me: () => get<{ authenticated: boolean }>('/api/me'),
   meta: () => get<Meta>('/api/meta'),
+  setModels: (custom_models: string[]) => request<{ custom_models: string[]; models: string[] }>('PUT', '/api/models', { custom_models }),
+  subagent: (sid: string, toolUseId: string) => get<{ agent_id: string | null; items: Item[] }>(`/api/sessions/${enc(sid)}/subagents/${enc(toolUseId)}`),
 
   agents: () => get<Agent[]>('/api/agents'),
   agent: (id: string) => get<Agent>(`/api/agents/${enc(id)}`),
@@ -85,6 +87,7 @@ export const api = {
   session: (sid: string) => get<Session>(`/api/sessions/${enc(sid)}`),
   updateSession: (sid: string, p: Partial<Pick<Session, 'title' | 'overrides'>>) => patch<Session>(`/api/sessions/${enc(sid)}`, p),
   deleteSession: (sid: string, purge = false) => del<{ ok: boolean }>(`/api/sessions/${enc(sid)}${purge ? '?purge=1' : ''}`),
+  markAgentRead: (aid: string) => post<{ ok: boolean; read: string[] }>(`/api/agents/${enc(aid)}/read`, {}),
   markRead: (sid: string) => post<Session>(`/api/sessions/${enc(sid)}/read`, {}),
   sleepSession: (sid: string) => post<Session>(`/api/sessions/${enc(sid)}/sleep`, {}),
   forkSession: (sid: string, at_uuid?: string | null) => post<Session>(`/api/sessions/${enc(sid)}/fork`, { at_uuid: at_uuid ?? null }),

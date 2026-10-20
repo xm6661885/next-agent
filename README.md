@@ -33,7 +33,7 @@ git clone https://github.com/xm6661885/next-agent.git
 cd next-agent
 uv sync                          # backend dependencies
 cd web && npm ci && npm run build && cd ..   # frontend, served from web/dist
-uv run python -m server          # first start prints a generated password (or set NEXT_AGENT_PASSWORD) and writes data/config.toml
+uv run python -m server          # first start uses the default password 100200 (or set NEXT_AGENT_PASSWORD) and writes data/config.toml
 ```
 
 Open `http://<host>:18793`, log in, and create agents from the home page.

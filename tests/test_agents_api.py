@@ -37,3 +37,27 @@ def test_groups(logged,tmp_path):
     store=logged.app.state.config
     store.load()
     assert store.config.groups==['Job']
+
+def test_create_without_model_override(logged,tmp_path):
+    # The new-agent form sends empty model/effort when the model group follows the global defaults.
+    response=logged.post('/api/agents',json={'name':'Plain','cwd':str(tmp_path),'model':'','effort':'','override_groups':[]})
+    assert response.status_code==200,response.text
+    body=response.json()
+    assert body['model'] and body['effort']
+    assert body['effective']['model']==logged.app.state.config.config.defaults.model
+
+def test_override_off_drops_values(logged,tmp_path):
+    aid=logged.post('/api/agents',json={'name':'Perm','cwd':str(tmp_path)}).json()['id']
+    on=logged.patch(f'/api/agents/{aid}',json={'override_groups':['permissions'],'permission_mode':'acceptEdits'}).json()
+    assert on['effective']['permission_mode']=='acceptEdits'
+    off=logged.patch(f'/api/agents/{aid}',json={'override_groups':[],'permission_mode':'acceptEdits'}).json()
+    entry=next(e for e in logged.app.state.config.doc['agents'] if e['id']==aid)
+    assert 'permission_mode' not in entry
+    assert off['effective']['permission_mode']==logged.app.state.config.config.defaults.permission_mode
+
+def test_options_key_ignores_session_fields():
+    from claude_agent_sdk import ClaudeAgentOptions
+    from server.options import options_key
+    a=ClaudeAgentOptions(system_prompt='x',resume='r1',can_use_tool=lambda *a:None)
+    assert options_key(a)==options_key(ClaudeAgentOptions(system_prompt='x',resume='r2'))
+    assert options_key(a)!=options_key(ClaudeAgentOptions(system_prompt='y'))

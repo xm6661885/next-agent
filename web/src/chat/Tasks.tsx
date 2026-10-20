@@ -1,8 +1,26 @@
 // Live tray above the composer for subagents, background shells and scheduled prompts (like the CLI's "1 shell running").
-import { useEffect, useState } from 'preact/hooks'
+import { useEffect, useRef, useState } from 'preact/hooks'
 import type { TaskInfo } from '../lib/types'
 import type { ChatConn } from './conn'
 import { IconAgents, IconChevron, IconClock, IconTerminal } from '../components/icons'
+import { subagentView } from './Subagent'
+
+/** Text that scrolls sideways when it does not fit, like a marquee, so long descriptions stay readable. */
+function Marquee({ text, class: cls }: { text: string; class: string }) {
+  const box = useRef<HTMLDivElement>(null)
+  const [shift, setShift] = useState(0)
+  useEffect(() => {
+    const el = box.current
+    if (!el) return
+    const inner = el.firstElementChild as HTMLElement
+    setShift(Math.max(0, inner.scrollWidth - el.clientWidth))
+  }, [text])
+  return (
+    <div ref={box} class={`${cls} marquee ${shift ? 'on' : ''}`} title={text}>
+      <span style={shift ? { '--shift': `-${shift}px`, '--dur': `${Math.max(4, shift / 30 + 3)}s` } as any : undefined}>{text}</span>
+    </div>
+  )
+}
 
 const DONE = new Set(['completed', 'failed', 'stopped', 'killed'])
 // task_type from the CLI: local_bash, local_agent, remote_agent, in_process_teammate, local_workflow, monitor_mcp, dream.
@@ -10,14 +28,16 @@ const isAgent = (t: TaskInfo) => t.task_type ? t.task_type !== 'local_bash' && t
 
 function elapsed(t: TaskInfo, now: number) {
   const from = t.started_at ? Date.parse(t.started_at) : NaN
-  const ms = t.usage?.duration_ms ?? (isNaN(from) ? 0 : now - from)
+  // usage.duration_ms only moves with progress events; while running, keep counting from the start.
+  const ms = DONE.has(t.status) || isNaN(from) ? t.usage?.duration_ms ?? (isNaN(from) ? 0 : now - from) : Math.max(now - from, t.usage?.duration_ms ?? 0)
   const s = Math.max(0, Math.round(ms / 1000))
   return s < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${Math.floor(s / 3600)}h ${Math.floor(s / 60) % 60}m`
 }
 const tokens = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`
 
 export function TaskTray({ conn }: { conn: ChatConn }) {
-  const all = conn.tasks.value
+  // Shells a subagent starts belong to that subagent's window, not the main chat's tray.
+  const all = conn.tasks.value.filter((t) => !t.parent_tool_use_id)
   const [open, setOpen] = useState(false)
   const [now, setNow] = useState(Date.now())
   const live = all.filter((t) => t.kind === 'cron' || !DONE.has(t.status))
@@ -64,9 +84,12 @@ export function TaskTray({ conn }: { conn: ChatConn }) {
               <div key={t.task_id} class={`task-row ${done ? 'done' : ''} ${t.status === 'failed' ? 'err' : ''}`}>
                 <Icon width={16} height={16} class="task-icon" />
                 <div class="task-text">
-                  <div class="task-desc">{t.subagent_type && <span class="task-kind">{t.subagent_type}</span>}{t.description || t.task_id}</div>
-                  <div class="task-detail">{detail}</div>
+                  <div class="task-desc">{t.subagent_type && <span class="task-kind">{t.subagent_type}</span>}<Marquee class="task-desc-text" text={t.description || t.task_id} /></div>
+                  <Marquee class="task-detail" text={detail} />
                 </div>
+                {isAgent(t) && t.tool_use_id && (
+                  <button class="btn small" onClick={() => { subagentView.value = t.tool_use_id! }}>View</button>
+                )}
                 {!done && !cron && (
                   <button class="btn small" onClick={() => conn.send({ type: 'stop_task', task_id: t.task_id })}>Stop</button>
                 )}

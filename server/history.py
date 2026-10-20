@@ -1,15 +1,11 @@
 """Read and convert SDK transcript messages."""
 import json
+import re
 from pathlib import Path
-from claude_agent_sdk import get_session_messages
-from claude_agent_sdk._internal.sessions import _find_project_dir
-from .items import item, user_text, normalize_result, is_synthetic_user
+from .transcript import transcript_path, session_messages, subagent_messages
+from .items import task_notification, task_notice, item, user_text, normalize_result, is_synthetic_user
 
 _cache = {}
-
-def transcript_path(sdk_id, cwd):
-    project = _find_project_dir(cwd)
-    return project / f'{sdk_id}.jsonl' if project else None
 
 def transcript_parent(sdk_id, cwd, uuid):
     path=transcript_path(sdk_id,cwd)
@@ -21,6 +17,46 @@ def transcript_parent(sdk_id, cwd, uuid):
             if entry.get('uuid')==uuid: return entry.get('parentUuid')
     raise ValueError('Message not found in transcript')
 
+AGENT_ID = re.compile(r'^agentId: ([A-Za-z0-9_-]+)',re.M)
+
+def agent_id(result_text):
+    """The subagent id in an Agent tool result ("agentId: a1b2..."), or None."""
+    match = AGENT_ID.search(result_text or '')
+    return match.group(1) if match else None
+
+def convert(messages, uploads=None):
+    """Transcript messages to items (used for subagent transcripts)."""
+    out = []
+    tools = {}
+    for message in messages:
+        raw = message.message if isinstance(message.message,dict) else {}
+        content = raw.get('content','')
+        if message.type=='user':
+            if isinstance(content,list) and any(isinstance(b,dict) and b.get('type')=='tool_result' for b in content):
+                for block in content:
+                    if isinstance(block,dict) and block.get('type')=='tool_result' and (t := tools.get(block.get('tool_use_id'))):
+                        t['result']=normalize_result(block)
+            elif (note := task_notification(content)) is not None: out.append(task_notice(None,note))
+            elif not is_synthetic_user(content):
+                text, attachments = user_text(content,uploads)
+                out.append(item('user',text=text,attachments=attachments,uuid=message.uuid,pending=False,client_id=None))
+        elif message.type=='assistant' and isinstance(content,list):
+            for block in content:
+                if not isinstance(block,dict): continue
+                typ = block.get('type')
+                if typ=='text': out.append(item('text',text=block.get('text',''),streaming=False))
+                elif typ=='thinking': out.append(item('thinking',text=block.get('thinking',''),streaming=False))
+                elif typ=='tool_use':
+                    value = item('tool',tool_use_id=block.get('id'),name=block.get('name',''),input=block.get('input',{}),
+                                 input_partial='',streaming=False,result=None)
+                    value['id']=block.get('id')
+                    out.append(value)
+                    tools[value['id']]=value
+    return out
+
+def subagent_items(sdk_id, cwd, aid, uploads=None):
+    return convert(subagent_messages(sdk_id,cwd,aid),uploads)
+
 def load_items(session, agent, uploads=None):
     sdk_id = session.get('sdk_session_id')
     if not sdk_id:
@@ -31,7 +67,11 @@ def load_items(session, agent, uploads=None):
     if key in _cache: return [dict(x) for x in _cache[key]]
     converted = []
     tools = {}
-    for message in get_session_messages(sdk_id,directory=agent.cwd):
+    agents = set()
+    for message in session_messages(sdk_id,agent.cwd):
+        if message.compact_summary:
+            converted.append(item('notice',level='info',text='Context compacted'))
+            continue
         raw = message.message if isinstance(message.message,dict) else {}
         content = raw.get('content','')
         parent = message.parent_tool_use_id
@@ -41,6 +81,11 @@ def load_items(session, agent, uploads=None):
                     if isinstance(block,dict) and block.get('type')=='tool_result':
                         target = tools.get(block.get('tool_use_id'))
                         if target: target['result']=normalize_result(block)
+                        if target and (aid := agent_id(target['result']['content'])): agents.add(aid)
+            elif (note := task_notification(content)) is not None:
+                # A tool_use_id that is not a main-thread tool belongs to a subagent's shell; it is not main-chat news.
+                if parent or not note['tool_use_id'] or note['tool_use_id'] in tools or note['task_id'] in agents:
+                    converted.append(task_notice(parent,note))
             elif not is_synthetic_user(content):
                 text, attachments = user_text(content,uploads)
                 converted.append(item('user',parent,text=text,attachments=attachments,uuid=message.uuid,pending=False,client_id=None))

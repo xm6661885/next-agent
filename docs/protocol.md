@@ -36,7 +36,10 @@ All JSON. Timestamps are ISO-8601 UTC strings. IDs are strings.
   "file_output": true,          // group file_output. inject the file-sharing prompt
   "file_output_prompt": "",     // group file_output. "" = built-in prompt
   "genui": true,                // group genui. inject the generative UI prompt
-  "genui_prompt": "",           // group genui. "" = built-in prompt
+  "genui_prompt": "",           // group genui. base prompt injected before the widgets; "" = built-in
+  "genui_widgets": {            // group genui. per widget; keys ask|chart|mermaid|mindmap|svg|html (unknown keys dropped, missing ones filled)
+    "ask": {"on": true, "prompt": ""}, ...   // prompt "" = built-in widget prompt
+  },
   "idle_mode": "timer",         // group idle. timer | adaptive | never (see Idle modes)
   "idle_timeout_min": 10,       // group idle
   "adaptive_keep": 1,           // group idle
@@ -66,7 +69,7 @@ All JSON. Timestamps are ISO-8601 UTC strings. IDs are strings.
     "model": "opus", "effort": "low", "fallback_model": "", "thinking": "adaptive", "thinking_budget": 8000,
     "permission_mode": "...", "system_prompt_mode": "preset", "system_prompt": "",
     "file_output": true, "file_output_prompt": "<resolved text, built-in when empty>", "genui": true,
-    "genui_prompt": "<resolved text>", "idle_mode": "timer", "idle_timeout_min": 10, "adaptive_keep": 1
+    "genui_prompt": "<resolved text>", "genui_widgets": {"ask": {"on": true, "prompt": "<resolved text>"}, ...}, "idle_mode": "timer", "idle_timeout_min": 10, "adaptive_keep": 1
   },
   "status": {
     "running": 1,               // sessions with state running/interrupting
@@ -115,11 +118,11 @@ subagent running under that Task tool item).
 
 | kind | fields |
 |---|---|
-| `user` | `text`, `attachments: [Attachment]`, `uuid` (CLI message uuid, used for rewind/fork; null while pending), `pending: bool` (sent but not yet consumed by the CLI, i.e. queued steer), `client_id` |
+| `user` | `text`, `attachments: [Attachment]`, `uuid` (CLI message uuid, used for rewind/fork; null while pending), `pending: bool` (sent but not yet consumed by the CLI, i.e. queued steer), `queued?: true` (sent while a turn was running; clients show it in the queue tray instead of the transcript until `pending` turns false), `cli_uuid` (uuid written to the CLI for cancel), `client_id` |
 | `text` | `text`, `streaming: bool` |
-| `thinking` | `text`, `streaming: bool` |
-| `tool` | `tool_use_id` (== id), `name`, `input` (object; `{}` while streaming), `input_partial` (string while streaming), `streaming: bool`, `result: null \| {content: string, is_error: bool, images: [dataurl]}` |
-| `notice` | `level: info\|warn\|error`, `text` (e.g. "Interrupted", "Model switched to sonnet", API errors) |
+| `thinking` | `text`, `streaming: bool`, `duration_ms?` (live only: set when the streamed block stops) |
+| `tool` | `tool_use_id` (== id), `name`, `input` (object; `{}` while streaming), `input_partial` (string while streaming), `streaming: bool`, `result: null \| {content: string, is_error: bool, images: [dataurl]}`, `duration_ms?` (live only: tool call to result, sent in the same patch as `result`) |
+| `notice` | `level: info\|warn\|error`, `text` (e.g. "Interrupted", "Model switched to sonnet", API errors). Background task completion notices also carry `task: {task_id, tool_use_id, status, summary}` (from the `task_notification` system message or the CLI's `<task-notification>` user turn, deduped per task; history rebuilds them from the transcript) |
 | `result` | `subtype`, `is_error`, `duration_ms`, `num_turns`, `cost_usd` (this turn), `total_cost_usd` (session), `usage`, `terminal_reason` |
 
 ### Activity (transient status while a turn runs)
@@ -181,9 +184,11 @@ Requests never time out. They stay open until a device answers, the user interru
 | DELETE | `/api/sessions/{sid}` | `?purge=1` also deletes the CLI transcript file | `{ok}` (stops the runtime, deletes uploads) |
 | POST | `/api/sessions/delete` | `{ids: [..], purge?: bool}` | `{ok, deleted: [ids]}`. Same as `DELETE /api/sessions/{sid}` for each id; unknown ids are skipped. |
 | POST | `/api/sessions/{sid}/sleep` | | `Session`. Stops the runtime now (state becomes `offline`), like the idle reaper. |
+| POST | `/api/agents/{aid}/read` | | `{ok, read: [sid...]}`. Clears `unread` on every session of the agent (emits `session_state` for each). |
 | POST | `/api/sessions/{sid}/read` | | `Session` with `unread:false` (also emits `session_state`). Opening the session socket does the same. |
 | POST | `/api/sessions/{sid}/warm` | | `Session`. Starts the CLI now without sending anything (no-op when not offline). Only does work with `idle_mode = "adaptive"`; otherwise returns the session unchanged. |
 | POST | `/api/sessions/{sid}/fork` | `{at_uuid?: string}` | new `Session` (`fork_of` set, `cwd` copied) |
+| POST | `/api/sessions/{sid}/btw` | `{question: string}` | side question: streamed `text/plain` reply (one tool-less turn on a throwaway, unpersisted fork of the transcript; never touches the runtime or items). `422` empty question, `409` session has no transcript yet. Errors mid-stream end with `\n\n[error] <msg>` |
 | GET | `/api/temp/sessions` | | `Session[]` with `agent_id: "_temp"`, newest first |
 | POST | `/api/temp/sessions` | `{cwd: string}` (must exist; `~` expanded) | `Session`; 422 for a missing folder |
 | GET | `/api/fs/dirs?path=&hidden=0\|1` | | `{path, parent\|null, home, dirs: [{name, path, git}], recent: string[]}`; empty path = home |
@@ -195,7 +200,7 @@ Requests never time out. They stay open until a device answers, the user interru
 | POST | `/api/sessions/{sid}/uploads` | multipart `files` (each at most 50 MB) | `[Attachment]` |
 | GET | `/api/uploads/{sid}/{file_id}` | | file bytes (`Content-Disposition: inline`) |
 | GET | `/api/status` | | `{live: n, max_concurrent, queued: n, sessions: [{id, agent_id, state, pending}], memory_mb}` |
-| GET | `/api/meta` | | `{models: [..], efforts: [..], permission_modes: [..], version, defaults}`. `models` = built-in list followed by `defaults.custom_models` (deduplicated, no `""` entry). `efforts` has no `""` either. |
+| GET | `/api/meta` | | `{models: [..], efforts: [..], permission_modes: [..], version, defaults, default_genui_widgets}`. `models` = built-in list followed by `defaults.custom_models` (deduplicated, no `""` entry). `efforts` has no `""` either. |
 | GET | `/api/sessions/{sid}/files` | `?path=<absolute path>&download=0\|1` | File bytes for a `file://` path that appears in an assistant `text` item of this session (see "Files from Claude"). `inline`, or `attachment` with `download=1`. `404` when the path is not referenced in the session, missing, or not a regular file. |
 | GET | `/api/sessions/{sid}/artifacts` | | `[Artifact]` (see "Artifacts"), most recently touched first |
 | GET | `/api/sessions/{sid}/files/stat` | `?path=<absolute path>` | `{name, size, mime, is_image}` with the same access rule, else `404` |
@@ -220,7 +225,8 @@ Errors use the FastAPI `{detail}` format.
     "file_output": true,                     // inject the file-sharing prompt
     "file_output_prompt": "...",             // the injected text (defaults to the built-in prompt)
     "genui": true,                           // inject the generative UI prompt
-    "genui_prompt": "...",                   // the injected text; "" resets to the built-in prompt
+    "genui_prompt": "...",                   // base text; "" resets to the built-in prompt
+    "genui_widgets": {"ask": {"on": true, "prompt": ""}, ...},  // same shape as on agents
     "idle_mode": "timer", "idle_timeout_min": 10, "adaptive_keep": 1,  // moved here from [server]
     // global only (no agent override):
     "custom_models": ["my-relay-model"],     // extra model IDs offered in every model picker
@@ -230,7 +236,8 @@ Errors use the FastAPI `{detail}` format.
     "claude-opus-5-5": {"input": 5, "output": 25, "cache_write": 6.25, "cache_read": 0.5}
   },
   "default_file_output_prompt": "...",       // read-only: the built-in prompt, for a "reset" button
-  "default_genui_prompt": "..."              // read-only: the built-in generative UI prompt
+  "default_genui_prompt": "...",             // read-only: the built-in generative UI base prompt
+  "default_genui_widgets": {"ask": "...", ...} // read-only: built-in prompt per widget
 }
 ```
 **Idle modes** (resolved per agent: the agent's own values with the `idle` override, else `[defaults]`):
@@ -285,7 +292,8 @@ Every event carries `seq` (monotonic per session runtime and per server process)
 | `permission_resolved` | `{id, decision}` (allow / deny / cancelled) |
 | `session` | `{session}` (title, cost, overrides, or context changed) |
 | `init` | `{model, permission_mode, tools, slash_commands, mcp_servers, agents, skills, claude_code_version, cwd}`. Sent only when it changes. |
-| `tasks` | `{tasks: [TaskInfo]}`. `TaskInfo`: `{task_id, kind: "task"|"cron", tool_use_id, description, status, task_type? (local_bash|local_agent|remote_agent|...), subagent_type?, last_tool_name?, summary?, usage?: {total_tokens, tool_uses, duration_ms}, cron?, schedule?, recurring?, started_at, updated_at}`. `task` entries come from `task_started/progress/notification/updated` (subagents, background Bash); `cron` entries (`task_id = "cron:<job id>"`) are mirrored from CronCreate/CronDelete tool calls and cannot be stopped via `stop_task`. |
+| `tasks` | `{tasks: [TaskInfo]}`. `TaskInfo`: `{task_id, kind: "task"|"cron", tool_use_id, description, status, task_type? (local_bash|local_agent|remote_agent|...), subagent_type?, last_tool_name?, summary?, usage?: {total_tokens, tool_uses, duration_ms}, cron?, schedule?, recurring?, started_at, updated_at}`. `task` entries come from `task_started/progress/notification/updated` (subagents, background Bash); `cron` entries (`task_id = "cron:<job id>"`) are mirrored from CronCreate/CronDelete tool calls and cannot be stopped via `stop_task`. `parent_tool_use_id` is the Agent tool call that owns a task (shells started by a subagent, `owned_by_subagent`), else null; their completion notices also carry that parent. |
+| `resumed` | `{seq}`. Sent after every `resume` is answered (replay or snapshot); proves the socket is live. |
 | `activity` | `{activity: Activity \| null}` |
 | `truncate` | `{uuid}`: remove the top-level `user` item with this `uuid` and every item after it (sent by `edit`) |
 | `error` | `{message}` (also logged as a `notice` item when it relates to the conversation) |
@@ -298,6 +306,8 @@ Every message has `type` and may carry `req_id`. Any command that fails gets an 
 |---|---|---|
 | `resume` | `{seq}` | Must be the first message. With `seq` = 0 or null, the server sends a `snapshot`. Otherwise it replays buffered events after `seq` (ring buffer of 2000 per session), or sends a `snapshot` when they are gone. |
 | `send` | `{client_id, text, attachments: [attachment_id]}` | Starts the CLI if it's offline (it may queue). In idle state this starts a turn. In running state this is a **steer**: the message is written now and the CLI picks it up at the next tool boundary. The server emits a `user` item with `pending:true` right away, then a `patch {pending:false, uuid}` once the CLI echoes it. |
+| `cancel_queued` | `{id}` | Withdraw a queued user item (`queued:true`, still `pending`) from the CLI queue via `cancel_async_message`. Success: `patch {cancelled:true}` (client drops the item). Already consumed: `error`. |
+| `send_now` | `{id}` | Interrupt the running turn; queued messages stay in the CLI queue and start the next turn. |
 | `interrupt` | `{}` | `client.interrupt()`. Open permission requests resolve as deny/cancelled. Pending (unconsumed) steer messages stay queued in the CLI. |
 | `permission_reply` | `{id, decision: "allow"\|"allow_always"\|"deny", message?, answers?, mode?}` | `answers` is for question, as `{question_text: label \| [labels]}`. `mode` is for plan approval (switch permission mode after approval, e.g. "acceptEdits"). |
 | `set_mode` | `{mode}` | `set_permission_mode` live (or stored in overrides when offline), and persists `overrides.permission_mode` |
@@ -319,7 +329,7 @@ After that it sends `{type:"session_state", session_id, agent_id, state, pending
 
 When file output is on, the system prompt (append for `preset`, appended text for `custom`) gets the file-output prompt.
 It asks Claude to reference files with Markdown and absolute `file://` URLs:
-`![caption](file:///abs/path.png)` for images and `[name](file:///abs/path.pdf)` for downloads. The web UI rewrites
+`![caption](<file:///abs/path.png>)` for images and `[name](<file:///abs/path.pdf>)` for downloads; the angle brackets let the path stay unescaped (the bare `file://` form is still accepted). The web UI rewrites
 those URLs to `/api/sessions/{sid}/files?path=...`. The server only serves paths that occur, percent-decoded, in a
 `file://` URL inside one of the session's assistant `text` items, or as the file path of a Write/Edit/MultiEdit/NotebookEdit
 tool call in the session.
@@ -379,3 +389,7 @@ zoomable (`maximum-scale=1, user-scalable=no`, `touch-action: manipulation`). Th
 `POST /api/sessions/{sid}/uploads` stores files in `<agent cwd>/uploads/<id8>-<name>` (temporary sessions: the
 session's cwd), falling back to `data/uploads/<sid>/` if the cwd is missing. `path` in the response is that absolute
 path. Deleting a session or agent deletes its uploaded files.
+
+## REST additions
+- `PUT /api/models` `{custom_models: [str]}` -> `{custom_models, models}`. The one shared custom model list (global settings, agent settings and the in-chat picker all edit it). Saved immediately, independent of `PATCH /api/config`.
+- `GET /api/sessions/{sid}/subagents/{tool_use_id}` -> `{agent_id|null, items: [Item]}`. A subagent's transcript from its own JSONL (falls back to live items).

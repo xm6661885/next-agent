@@ -56,3 +56,9 @@ def test_artifacts_and_tool_file_access(logged,app,tmp_path):
     assert logged.get(files,params={'path':str(edit)}).status_code==200
     assert logged.get(files,params={'path':str(notebook)}).status_code==200
     assert logged.get(files,params={'path':str(denied)}).status_code==404
+
+def test_angle_bracket_file_url_keeps_raw_path():
+    from server.artifacts import references
+    text = "![x](<file:///tmp/a b/it's (1).png>) [r](file:///tmp/plain.pdf)"
+    paths = [p for p, *_ in references([{'kind':'text','text':text}])]
+    assert paths == ["/tmp/a b/it's (1).png", '/tmp/plain.pdf']

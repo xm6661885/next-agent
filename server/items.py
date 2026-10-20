@@ -13,22 +13,6 @@ from .config import now
 PATH_LINE = re.compile(r'^The user sent a file: (.+)$')
 log = logging.getLogger(__name__)
 
-def _keep_synthetic_flag():
-    """parse_message drops isSynthetic, which the CLI sets on replayed meta turns (skill bodies etc.).
-    ClaudeSDKClient.receive_messages imports parse_message at call time, so patching the module works."""
-    from claude_agent_sdk._internal import message_parser
-    original = message_parser.parse_message
-    if getattr(original,'_keeps_synthetic',False): return
-    def parse_message(data):
-        msg = original(data)
-        if isinstance(msg,UserMessage) and isinstance(data,dict) and data.get('isSynthetic'):
-            msg.synthetic = True
-        return msg
-    parse_message._keeps_synthetic = True
-    message_parser.parse_message = parse_message
-
-_keep_synthetic_flag()
-
 def ident():
     return uuid4().hex[:12]
 
@@ -86,18 +70,47 @@ def normalize_result(block):
     error = block.is_error if hasattr(block,'is_error') else block.get('is_error',False)
     return {'content':value,'is_error':bool(error),'images':images}
 
+TASK_NOTE = re.compile(r'<(task-id|tool-use-id|status|summary)>(.*?)</\1>', re.S)
+
+def _plain(content):
+    if isinstance(content,str): return content
+    if isinstance(content,list):
+        return '\n'.join(getattr(b,'text',None) or (b.get('text','') if isinstance(b,dict) else '') for b in content)
+    return ''
+
+def task_notification(content):
+    """Fields of a CLI <task-notification> user turn (background task finished), or None."""
+    text = _plain(content).lstrip()
+    if not text.startswith('<task-notification>'): return None
+    fields = {k.replace('-','_'):v.strip() for k,v in TASK_NOTE.findall(text)}
+    return {'task_id':fields.get('task_id',''),'tool_use_id':fields.get('tool_use_id',''),
+            'status':fields.get('status',''),'summary':fields.get('summary','')}
+
+def task_notice(parent, note):
+    status = note['status'] or 'finished'
+    word = 'finished' if status=='completed' else status
+    summary = ' '.join(note['summary'].split())
+    if len(summary) > 100: summary = summary[:99] + '…'
+    text = f'Background task {word}: {summary}' if summary else f'Background task {word}'
+    level = 'warn' if status in ('failed','killed','stopped') else 'info'
+    return item('notice',parent,level=level,text=text,task=note)
+
 def is_synthetic_message(msg):
-    return getattr(msg,'synthetic',False) or is_synthetic_user(msg.content)
+    return is_synthetic_user(msg.content)
 
 def is_synthetic_user(content):
     """CLI-generated user turns (interrupt markers) that should not render as user bubbles."""
     if isinstance(content,list):
         texts=[getattr(b,'text',None) if not isinstance(b,dict) else b.get('text') for b in content]
+        # Image reads replay a meta turn: "[Image: source: <path>, original WxH]" plus the image block.
+        if texts and isinstance(texts[0],str) and texts[0].startswith('[Image: source:'): return True
         if len(texts)!=1 or not isinstance(texts[0],str): return False
         content=texts[0]
     if not isinstance(content,str): return False
     # Slash-command echoes the CLI replays as user turns, e.g. set_model -> <local-command-stdout>.
-    return content.startswith(('[Request interrupted by user','<local-command-','<command-name>','<command-message>'))
+    # Skill bodies are replayed as user turns when a skill loads (the SDK parser drops isSynthetic).
+    return content.startswith(('[Request interrupted by user','<local-command-','<command-name>','<command-message>',
+                               'Base directory for this skill:','[Image: source:'))
 
 class ItemBuilder:
     def __init__(self, uploads=None):
@@ -110,6 +123,8 @@ class ItemBuilder:
         self.activity = None
         self.last_thinking_tokens = float('-inf')
         self.uploads = uploads or {}
+        self.notified = set()
+        self.started = {}  # item id -> monotonic start, for thinking/tool duration_ms
 
     def add(self, value):
         self.items.append(value)
@@ -118,10 +133,29 @@ class ItemBuilder:
     def notice(self, level, text):
         return self.add(item('notice',level=level,text=text))
 
-    def pending_user(self, text, attachments, client_id):
+    def pending_user(self, text, attachments, client_id, queued=False):
         value = item('user',text=text,attachments=attachments,uuid=None,pending=True,client_id=client_id)
+        # queued: written into a running turn; the client shows it in the queue tray, not the transcript.
+        if queued: value['queued'] = True
+        value['cli_uuid'] = str(uuid4())
         self.pending.append(value['id'])
         return self.add(value)
+
+    def owner(self, tool_use_id):
+        """The Agent tool call a tool call ran under, or None for main-thread tools."""
+        found = self.find(tool_use_id) if tool_use_id else None
+        return found.get('parent_tool_use_id') if found else None
+
+    def note_parent(self, note, parent=None):
+        task = self.tasks.get(note['task_id']) or {}
+        return parent or task.get('parent_tool_use_id') or self.owner(note['tool_use_id'])
+
+    def drop_pending(self, iid):
+        """Forget a queued user message the CLI cancelled."""
+        if iid in self.pending: self.pending.remove(iid)
+        found = self.find(iid)
+        if found: self.items.remove(found)
+        return {'type':'patch','id':iid,'patch':{'cancelled':True,'pending':False}}
 
     def find(self, iid):
         return next((x for x in reversed(self.items) if x['id']==iid), None)
@@ -146,8 +180,13 @@ class ItemBuilder:
         task = self.tasks.setdefault(tid,{'task_id':tid,'kind':'task','status':'running','started_at':now()})
         for key in ('tool_use_id','description','task_type','subagent_type','last_tool_name','summary','output_file'):
             if data.get(key) is not None: task[key] = data[key]
+        if 'parent_tool_use_id' not in task:
+            # Shells a subagent starts belong to that subagent's Agent tool call, not to the main thread.
+            owner = self.owner(task.get('tool_use_id')) if data.get('owned_by_subagent') else None
+            task['parent_tool_use_id'] = owner
         if isinstance(data.get('usage'),dict): task['usage'] = data['usage']
         if subtype=='task_notification' and data.get('status'): task['status'] = data['status']
+
         elif subtype=='task_updated':
             patch = data.get('patch') if isinstance(data.get('patch'),dict) else {}
             if patch.get('status'): task['status'] = 'stopped' if patch['status']=='killed' else patch['status']
@@ -191,6 +230,7 @@ class ItemBuilder:
                                  **({'text':'','streaming':True} if btype!='tool_use' else
                                     {'tool_use_id':iid,'name':block.get('name',''),'input':{},'input_partial':'','streaming':True,'result':None}))
                     value['id'] = iid
+                    if btype=='thinking': self.started[iid] = time.monotonic()
                     self.streamed[(getattr(self,'stream_message_id',msg.uuid),index)] = iid
                     out.append(self.add(value))
             elif kind == 'content_block_delta':
@@ -208,6 +248,9 @@ class ItemBuilder:
                 if iid:
                     found = self.find(iid)
                     patch = {'streaming':False}
+                    if found and found['kind']=='thinking' and iid in self.started:
+                        patch['duration_ms'] = int((time.monotonic()-self.started.pop(iid))*1000)
+                    if found and found['kind']=='tool': self.started.setdefault(iid,time.monotonic())
                     if found and found['kind']=='tool' and not found.get('input'):
                         try: patch['input'] = json.loads(found.get('input_partial','') or '{}')
                         except ValueError: pass
@@ -234,8 +277,12 @@ class ItemBuilder:
                     kind, fields = 'tool', {'tool_use_id':block.id,'name':block.name,'input':block.input,
                                             'input_partial':'','streaming':False,'result':None}
                     iid = iid or block.id
+                    self.started.setdefault(iid,time.monotonic())
                 else: continue
-                if iid and self.find(iid): out.append(self.patch(iid,fields))
+                if iid and (found := self.find(iid)):
+                    # A result may already be in (eager tool runs, re-delivered blocks); never reset it.
+                    if found.get('result') is not None: fields.pop('result',None)
+                    out.append(self.patch(iid,fields))
                 else:
                     value = item(kind,parent,**fields)
                     if iid: value['id']=iid
@@ -247,9 +294,16 @@ class ItemBuilder:
             if results:
                 for block in results:
                     result = normalize_result(block)
-                    out.append(self.patch(block.tool_use_id,{'result':result}))
+                    patch = {'result':result}
+                    if block.tool_use_id in self.started:
+                        patch['duration_ms'] = int((time.monotonic()-self.started.pop(block.tool_use_id))*1000)
+                    out.append(self.patch(block.tool_use_id,patch))
                     changed = self.cron_event(self.find(block.tool_use_id),result)
                     if changed: out.append(changed)
+            elif (note := task_notification(msg.content)) is not None:
+                if note['task_id'] not in self.notified:
+                    self.notified.add(note['task_id'])
+                    out.append(self.add(task_notice(self.note_parent(note,parent),note)))
             elif is_synthetic_message(msg):
                 pass
             else:
@@ -292,6 +346,12 @@ class ItemBuilder:
             elif msg.subtype.startswith('task_'):
                 changed = self.task_event(msg.subtype,msg.data)
                 if changed: out.append(changed)
+                tid = msg.data.get('task_id')
+                if msg.subtype=='task_notification' and tid and tid not in self.notified:
+                    self.notified.add(tid)
+                    note={'task_id':tid,'tool_use_id':msg.data.get('tool_use_id') or '',
+                          'status':msg.data.get('status') or '','summary':msg.data.get('summary') or ''}
+                    out.append(self.add(task_notice(self.note_parent(note),note)))
             elif 'compact' in msg.subtype.lower(): out.append(self.notice('info','Conversation compacted'))
             else: log.debug('Ignoring system message subtype: %s', msg.subtype)
         elif isinstance(msg, ResultMessage):

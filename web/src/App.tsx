@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'preact/hooks'
 import { api } from './lib/api'
 import { authed, connectEvents, disconnectEvents } from './lib/store'
-import { attachSwipeBack, back, direction, parentOf, route, wide } from './lib/router'
+import { direction, route, wide } from './lib/router'
 import { Login } from './pages/Login'
 import { Home } from './pages/Home'
 import { AgentPage } from './pages/AgentPage'
@@ -64,11 +64,6 @@ function Single() {
   const key = JSON.stringify(r)
   const ref = useRef<HTMLDivElement>(null)
 
-  useEffect(() => {
-    const el = ref.current
-    if (!el || r.name === 'home') return
-    return attachSwipeBack(el, () => back(parentOf(r)))
-  }, [key])
 
   let page
   switch (r.name) {

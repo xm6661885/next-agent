@@ -40,8 +40,27 @@ export function extractCode(items: Item[]): CodeArtifact[] {
 
 const SOURCE: Record<Artifact['sources'][number], string> = { link: 'Shared', write: 'Created', edit: 'Edited', upload: 'Uploaded' }
 
-export function ArtifactsSheet({ open, onClose, sid, items }: { open: boolean; onClose: () => void; sid: string; items: Item[] }) {
-  const [tab, setTab] = useState<'files' | 'code'>('files')
+/** Chat map: one line per user message and reply, tap to jump there. */
+function ChatMap({ items, onJump }: { items: Item[]; onJump: (id: string) => void }) {
+  const rows = items.filter((x) => !x.parent_tool_use_id && ((x.kind === 'user' && !x.queued) || (x.kind === 'text' && x.text.trim())))
+  if (!rows.length) return <p class="fhint artifact-empty">Messages show up here once the chat starts.</p>
+  return (
+    <div class="chat-map">
+      {rows.map((x) => {
+        const text = (x as any).text?.replace(/```[\s\S]*?```/g, ' [code] ').replace(/\s+/g, ' ').trim() || 'Attachment'
+        return (
+          <button key={x.id} type="button" class={`map-row ${x.kind === 'user' ? 'me' : ''}`} onClick={() => onJump(x.id)}>
+            <span class="map-bar" style={{ width: `${Math.min(100, 18 + text.length / 6)}%` }} />
+            <span class="map-text">{text.slice(0, 140)}</span>
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+export function ArtifactsSheet({ open, onClose, sid, items, onJump }: { open: boolean; onClose: () => void; sid: string; items: Item[]; onJump: (id: string) => void }) {
+  const [tab, setTab] = useState<'files' | 'code' | 'map'>('files')
   const [files, setFiles] = useState<Artifact[] | null>(null)
   useEffect(() => {
     if (!open) return
@@ -56,11 +75,11 @@ export function ArtifactsSheet({ open, onClose, sid, items }: { open: boolean; o
   }
 
   return (
-    <Sheet open={open} onClose={onClose} title="Artifacts">
+    <Sheet open={open} onClose={onClose} title="Artifacts & Map">
       <Segmented value={tab} onChange={setTab}
-        options={[{ value: 'files', label: `Files${files ? ` (${files.length})` : ''}` }, { value: 'code', label: `Code (${code.length})` }]} />
+        options={[{ value: 'files', label: `Files${files ? ` (${files.length})` : ''}` }, { value: 'code', label: `Code (${code.length})` }, { value: 'map', label: 'Map' }]} />
       <div class="artifact-list">
-        {tab === 'files' ? (
+        {tab === 'map' ? <ChatMap items={items} onJump={(id) => { onClose(); onJump(id) }} /> : tab === 'files' ? (
           files === null ? <div class="skeleton" style={{ height: '120px', marginTop: '12px' }} />
             : files.length === 0 ? <p class="fhint artifact-empty">Files Claude creates, edits or shares, and files you upload, show up here.</p>
             : files.map((a) => (

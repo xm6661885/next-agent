@@ -47,6 +47,7 @@ export interface Agent {
   file_output_prompt: string
   genui: boolean
   genui_prompt: string
+  genui_widgets: GenUIWidgets
   idle_mode: IdleMode
   idle_timeout_min: number
   adaptive_keep: number
@@ -62,6 +63,9 @@ export interface Agent {
   effective?: Effective
 }
 
+/** Per-widget switch and prompt; prompt '' = built-in. Keys: ask, chart, mermaid, mindmap, svg, html. */
+export type GenUIWidgets = Record<string, { on: boolean; prompt: string }>
+
 export type IdleMode = 'timer' | 'adaptive' | 'never'
 export type OverrideGroup = 'model' | 'permissions' | 'system_prompt' | 'file_output' | 'genui' | 'idle'
 
@@ -69,7 +73,7 @@ export interface Effective {
   model: string; effort: string; fallback_model: string; thinking: 'adaptive' | 'enabled' | 'disabled'; thinking_budget: number
   permission_mode: string
   system_prompt_mode: 'preset' | 'custom'; system_prompt: string
-  file_output: boolean; file_output_prompt: string; genui: boolean; genui_prompt: string
+  file_output: boolean; file_output_prompt: string; genui: boolean; genui_prompt: string; genui_widgets: GenUIWidgets
   idle_mode: IdleMode; idle_timeout_min: number; adaptive_keep: number
 }
 
@@ -129,6 +133,8 @@ export interface UserItem extends ItemBase {
   attachments: Attachment[]
   uuid: string | null
   pending: boolean
+  /** Sent into a running turn and still waiting in the CLI queue (shown in the queue tray). */
+  queued?: boolean
   client_id?: string
 }
 
@@ -142,6 +148,8 @@ export interface ThinkingItem extends ItemBase {
   kind: 'thinking'
   text: string
   streaming: boolean
+  /** Live sessions only: set when the block stops. */
+  duration_ms?: number
 }
 
 export interface ToolResult {
@@ -158,6 +166,8 @@ export interface ToolItem extends ItemBase {
   input_partial?: string
   streaming: boolean
   result: ToolResult | null
+  /** Live sessions only: tool call to result, set with the result. */
+  duration_ms?: number
 }
 
 export interface NoticeItem extends ItemBase {
@@ -223,6 +233,8 @@ export interface TaskInfo {
   cron?: string
   schedule?: string
   subagent_type?: string
+  /** Agent tool call that owns this task (a shell started by a subagent); null for the main thread. */
+  parent_tool_use_id?: string | null
   recurring?: boolean
   started_at?: string
   updated_at?: string
@@ -240,6 +252,7 @@ export interface Defaults {
   file_output_prompt: string
   genui: boolean
   genui_prompt: string
+  genui_widgets: GenUIWidgets
   system_prompt_mode: 'preset' | 'custom'
   system_prompt: string
   idle_mode: IdleMode
@@ -255,6 +268,7 @@ export interface Meta {
   permission_modes: string[]
   version: string
   defaults: Defaults
+  default_genui_widgets: Record<string, string>
 }
 
 export interface Price { input: number; output: number; cache_write: number; cache_read: number }
@@ -265,6 +279,7 @@ export interface ConfigForm {
   pricing: Record<string, Price>
   default_file_output_prompt: string
   default_genui_prompt: string
+  default_genui_widgets: Record<string, string>
 }
 
 export type Activity =

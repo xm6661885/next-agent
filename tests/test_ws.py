@@ -6,9 +6,11 @@ def test_resume_replay_snapshot_and_subscribers(logged,app):
     with logged.websocket_connect(f'/ws/sessions/{sid}',headers=headers) as ws1:
         ws1.send_json({'type':'resume','seq':0})
         assert ws1.receive_json()['type']=='snapshot'
+        assert ws1.receive_json()['type']=='resumed'
         with logged.websocket_connect(f'/ws/sessions/{sid}',headers=headers) as ws2:
             ws2.send_json({'type':'resume','seq':0})
             assert ws2.receive_json()['type']=='snapshot'
+            assert ws2.receive_json()['type']=='resumed'
             ws1.send_json({'type':'ping'})
             assert ws1.receive_json()['type']=='pong'
             logged.portal.call(r.emit,{'type':'item','item':{'id':'notice1','kind':'notice','ts':now(),'level':'info','text':'hello'}})
@@ -23,6 +25,7 @@ def test_resume_replay_snapshot_and_subscribers(logged,app):
     with logged.websocket_connect(f'/ws/sessions/{sid}',headers=headers) as ws:
         ws.send_json({'type':'resume','seq':1})
         assert ws.receive_json()['type']=='snapshot'
+        assert ws.receive_json()['type']=='resumed'
 
 def test_disconnect_does_not_stop_runtime(logged,app):
     import time
@@ -31,6 +34,7 @@ def test_disconnect_does_not_stop_runtime(logged,app):
     with logged.websocket_connect(f'/ws/sessions/{sid}',headers=headers) as ws:
         ws.send_json({'type':'resume','seq':0})
         assert ws.receive_json()['type']=='snapshot'
+        assert ws.receive_json()['type']=='resumed'
         ws.send_json({'type':'send','client_id':'c','text':'hello','attachments':[]})
         assert ws.receive_json()['item']['kind']=='user'
     runtime=app.state.manager.get_or_create(sid)

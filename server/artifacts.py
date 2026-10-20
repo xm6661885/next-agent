@@ -4,14 +4,16 @@ import os
 import re
 from urllib.parse import quote, unquote
 
-FILE_URL = re.compile(r'file://(/[^\s)"\'<>\]]+)')
+# <file:///any path> keeps the name raw; the bare form stops at spaces and quotes.
+FILE_URL = re.compile(r'<file://(/[^<>\n]+)>|file://(/[^\s)"\'<>\]]+)')
 EDIT_TOOLS = {'Edit','MultiEdit','NotebookEdit'}
 
 def references(items):
     for entry in items:
         kind = entry.get('kind')
         if kind == 'text':
-            for match in FILE_URL.findall(entry.get('text','')):
+            for wrapped, bare in FILE_URL.findall(entry.get('text','')):
+                match = wrapped or bare
                 yield os.path.normpath(unquote(match)), 'link', entry.get('ts',''), None
         elif kind == 'tool' and entry.get('result') is not None and not entry['result'].get('is_error'):
             name = entry.get('name')

@@ -7,10 +7,12 @@ import { agents, meta, toast, toastError } from '../lib/store'
 import { back, navigate, parentOf, route } from '../lib/router'
 import { Avatar, Spark } from '../components/crab'
 import { BackButton, Sheet, Switch, TopBar, confirmDialog, promptDialog } from '../components/ui'
-import { IconBrain, IconCheck, IconChevronDown, IconCopy, IconFork, IconMore, IconRewind, IconEdit, IconSelect, IconNewChat, IconTerminal, IconLayers } from '../components/icons'
+import { IconBrain, IconCheck, IconChevron, IconChevronDown, IconCopy, IconFork, IconMore, IconRewind, IconEdit, IconSelect, IconNewChat, IconTerminal, IconLayers, IconSteer, IconMap } from '../components/icons'
 import { ChatConn } from './conn'
 import { Composer } from './Composer'
+import { BtwSheet } from './Btw'
 import { TaskTray } from './Tasks'
+import { SubagentPanel, subagentView } from './Subagent'
 import { PermissionCard } from './cards'
 import { ToolCard } from './tools'
 import { mathVersion, renderMarkdown, renderStreaming, setCodeCards } from './markdown'
@@ -26,8 +28,28 @@ import { openViewer } from '../components/ImageViewer'
 import { MODE_LABELS, copyText, fmtBytes, fmtCost, fmtDuration, fmtTokens, haptic, shortPath, uid } from '../lib/util'
 import type { Activity, Agent, Attachment, Item, TextItem, ThinkingItem, ToolItem, UserItem } from '../lib/types'
 
-const VERBS = ['Pondering', 'Brewing', 'Cogitating', 'Percolating', 'Mulling', 'Noodling', 'Simmering', 'Scuttling', 'Tinkering',
-  'Puzzling', 'Musing', 'Ruminating', 'Conjuring', 'Crafting', 'Forging', 'Marinating', 'Whirring', 'Churning', 'Deliberating', 'Working']
+// Claude Code's completion verbs ("Cooked for 1m 3s"), picked stably per fold.
+const PAST = ['Baked', 'Brewed', 'Churned', 'Cogitated', 'Cooked', 'Crunched', 'Sautéed', 'Worked']
+const pastVerb = (id: string) => { let h = 0; for (const c of id) h = (h * 31 + c.charCodeAt(0)) | 0; return PAST[Math.abs(h) % PAST.length] }
+
+// Claude Code's spinner verbs (CLI 2.1.293).
+const VERBS = ('Accomplishing Actioning Actualizing Architecting Baking Beaming Beboppin\' Befuddling Billowing Blanching Bloviating ' +
+  'Boogieing Boondoggling Booping Bootstrapping Brewing Bunning Burrowing Calculating Canoodling Caramelizing Cascading Catapulting ' +
+  'Cerebrating Channeling Choreographing Churning Clauding Coalescing Cogitating Combobulating Composing Computing Concocting ' +
+  'Considering Contemplating Cooking Crafting Creating Crunching Crystallizing Cultivating Deciphering Deliberating Determining ' +
+  'Dilly-dallying Discombobulating Doing Doodling Drizzling Ebbing Effecting Elucidating Embellishing Enchanting Envisioning ' +
+  'Fermenting Fiddle-faddling Finagling Flambéing Flibbertigibbeting Flowing Flummoxing Fluttering Forging Forming Frolicking ' +
+  'Frosting Gallivanting Galloping Garnishing Generating Gesticulating Germinating Gitifying Grooving Gusting Harmonizing Hashing ' +
+  'Hatching Herding Honking Hullaballooing Hyperspacing Ideating Imagining Improvising Incubating Inferring Infusing Ionizing ' +
+  'Jitterbugging Julienning Kerfuffling Kneading Leavening Levitating Lollygagging Manifesting Marinating Meandering Metamorphosing ' +
+  'Misting Moonwalking Moseying Mulling Mustering Musing Nebulizing Nesting Newspapering Noodling Nucleating Onioning Orbiting ' +
+  'Orchestrating Osmosing Perambulating Percolating Perusing Philosophizing Photosynthesizing Polishing Pollinating Pondering ' +
+  'Pontificating Pouncing Precipitating Prestidigitating Processing Proofing Propagating Puttering Puzzling Quantumizing ' +
+  'Razzle-dazzling Razzmatazzing Recombobulating Reticulating Roosting Ruminating Sautéing Scampering Schlepping Scurrying Seasoning ' +
+  'Shenaniganing Shimmying Simmering Skedaddling Sketching Slithering Smooshing Sock-hopping Spelunking Spinning Sprouting Stewing ' +
+  'Sublimating Swirling Swooping Symbioting Synthesizing Tempering Thinking Thundering Tinkering Tomfoolering Topsy-turvying ' +
+  'Transfiguring Transmogrifying Transmuting Twisting Undulating Unfurling Unraveling Vibing Waddling Wandering Warping ' +
+  'Whatchamacalliting Whirlpooling Whirring Whisking Wibbling Working Wrangling Zesting Zigzagging').split(' ')
 
 function fmtUsage(u?: Record<string, any>) {
   if (!u) return ''
@@ -84,7 +106,10 @@ export function Chat({ agentId, sessionId }: { agentId: string; sessionId: strin
   const perms = conn.perms.value
   const init = conn.init.value
   const busy = state === 'running' || state === 'interrupting'
-  const mode = session?.overrides?.permission_mode || init?.permission_mode || agent?.permission_mode || 'default'
+  const steered = useRef(new Set<string>())
+  const [btw, setBtw] = useState({ open: false, q: '', n: 0 })
+  const [fill, setFill] = useState({ text: '', n: 0 })
+  const mode = session?.overrides?.permission_mode || init?.permission_mode || (agent?.effective?.permission_mode ?? agent?.permission_mode) || 'default'
   const agentModel = agent?.effective?.model || meta.value?.defaults.model || ''
   const model = session?.overrides?.model || init?.model || (agent?.effective?.model ?? agent?.model) || meta.value?.defaults.model || ''
   const effort = session?.overrides?.effort || (agent?.effective?.effort ?? agent?.effort) || meta.value?.defaults.effort || ''
@@ -141,6 +166,25 @@ export function Chat({ agentId, sessionId }: { agentId: string; sessionId: strin
     } catch (e) { toastError(e) } finally { setLoadingOlder(false) }
   }
 
+  // Chat map: scroll to an item; folded or unrendered items fall back to the closest earlier one on screen.
+  const jumpTo = (id: string) => {
+    const el = scroller.current
+    if (!el) return
+    const idx = items.findIndex((x) => x.id === id)
+    for (let i = idx; i >= 0; i--) {
+      const box = el.querySelector(`[data-item="${CSS.escape(items[i].id)}"]`)?.firstElementChild as HTMLElement | null
+      if (!box) continue
+      stick.current = false
+      markUser()
+      setTimeout(() => {
+        box.scrollIntoView({ block: 'start', behavior: reduceMotion ? 'auto' : 'smooth' })
+        box.classList.add('map-flash')
+        setTimeout(() => box.classList.remove('map-flash'), 1200)
+      }, 250)
+      return
+    }
+  }
+
   const jump = () => {
     const el = scroller.current
     if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
@@ -149,8 +193,10 @@ export function Chat({ agentId, sessionId }: { agentId: string; sessionId: strin
 
   const send = async (text: string, atts: Attachment[], steerNow: boolean) => {
     const client_id = uid()
+    // Only messages sent into a running turn are steers; the rest start a turn and need no "Queued" tag.
+    if (busy && !steerNow) steered.current.add(client_id)
     stick.current = true
-    conn.addLocalUser(client_id, text, atts)
+    conn.addLocalUser(client_id, text, atts, busy)
     if (steerNow && busy) await conn.send({ type: 'interrupt' })
     const err = await conn.send({ type: 'send', client_id, text, attachments: atts.map((a) => a.id) })
     if (err) {
@@ -248,10 +294,12 @@ export function Chat({ agentId, sessionId }: { agentId: string; sessionId: strin
   }
 
   // Group subagent output under its Task tool card; render top-level items in order.
-  const { top, children, replies } = useMemo(() => {
+  const { top, children, replies, rows } = useMemo(() => {
     const children = new Map<string, Item[]>()
     const top: Item[] = []
     for (const it of items) {
+      // Messages waiting in the CLI queue live in the queue tray until Claude takes them in.
+      if (it.kind === 'user' && it.pending && it.queued) continue
       if (it.parent_tool_use_id) {
         const l = children.get(it.parent_tool_use_id) || []
         l.push(it)
@@ -270,12 +318,65 @@ export function Chat({ agentId, sessionId }: { agentId: string; sessionId: strin
       else if (it.kind === 'result') { if (buf.length) replies.set(it.id, buf.join('\n\n')); buf = []; lastText = null }
     }
     if (!busy) flush()
-    return { top, children, replies }
+    // Finished turns fold their process (thinking, tools, interim text) behind one row and show only the final answer.
+    type Row = { it: Item } | { fold: string; items: Item[]; tools: number; ms: number }
+    const rows: Row[] = []
+    // A steer (sent into a running turn) splits segments but not the turn: the segments above it stay live until the turn ends.
+    // After a reload the steered set is empty, so a user message that lands right after a tool or thinking item counts as a steer too.
+    const turns: Item[][] = [[]]
+    const group: number[] = [0]
+    let g = 0
+    for (const it of top) {
+      if (it.kind === 'user') {
+        const prev = turns[turns.length - 1].at(-1)
+        const steer = (!!it.client_id && steered.current.has(it.client_id)) || prev?.kind === 'tool' || prev?.kind === 'thinking'
+        if (!steer) g++
+        turns.push([it], []); group.push(g, g)
+      } else turns[turns.length - 1].push(it)
+    }
+    turns.forEach((turn, ti) => {
+      const folded = (group[ti] !== g || !busy) && !(turn[0]?.kind === 'user')
+      if (!folded) { for (const it of turn) rows.push({ it }); return }
+      // Each run of thinking/tool items folds on its own; text between them stays visible.
+      let run: Item[] = []
+      const close = (next?: Item) => {
+        if (!run.length) return
+        const t0 = Date.parse(run[0].ts || ''), t1 = Date.parse(next?.ts || run.at(-1)!.ts || '')
+        rows.push({ fold: run[0].id, items: run, tools: run.filter((x) => x.kind === 'tool').length, ms: t1 - t0 })
+        run = []
+      }
+      for (const it of turn) {
+        if (it.kind === 'tool' || it.kind === 'thinking') run.push(it)
+        else { close(it); rows.push({ it }) }
+      }
+      close()
+    })
+    return { top, children, replies, rows }
   }, [items, busy])
+  const [unfolded, setUnfolded] = useState<Set<string>>(new Set())
+  const toggleFold = (id: string) => {
+    // Keep the toggle row where it is; following the bottom would yank the expanded content away.
+    stick.current = false
+    markUser()
+    setUnfolded((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n })
+  }
+  useEffect(() => () => { subagentView.value = null }, [sessionId])
+  const watchedTask = subagentView.value ? conn.tasks.value.find((t) => t.tool_use_id === subagentView.value) : undefined
+  // The Agent call can sit before the loaded page (e.g. after coming back to a long chat); stand in a stub from its task.
+  const watched = !subagentView.value ? undefined
+    : (items.find((x) => x.kind === 'tool' && x.id === subagentView.value) as ToolItem | undefined)
+      || (watchedTask ? { kind: 'tool', id: watchedTask.tool_use_id!, tool_use_id: watchedTask.tool_use_id!, name: 'Agent', streaming: false, result: null,
+        input: { description: watchedTask.description, subagent_type: watchedTask.subagent_type } } as unknown as ToolItem : undefined)
 
   const lastTop = top[top.length - 1]
   const lastThinking = !!lastTop && lastTop.kind === 'thinking' && (lastTop as ThinkingItem).streaming
+  // Only show the loading row when a sent message is waiting on the CLI, not while it just warms up.
+  const waiting = top.some((it) => it.kind === 'user' && it.pending)
   const lastIsStreamingText = top.length > 0 && top[top.length - 1].kind === 'text' && (top[top.length - 1] as TextItem).streaming
+  // Like Claude Code, an in-progress todo's activeForm replaces the spinner verb.
+  const lastTodo = [...top].reverse().find((x) => x.kind === 'tool' && x.name === 'TodoWrite') as ToolItem | undefined
+  const todoForm: string = (lastTodo?.input?.todos || []).find((t: any) => t.status === 'in_progress')?.activeForm || ''
+  const background = conn.tasks.value.filter((t) => t.kind !== 'cron' && t.status === 'running').length
   const ctx = session?.context
   const status = conn.conn.value
 
@@ -284,7 +385,7 @@ export function Chat({ agentId, sessionId }: { agentId: string; sessionId: strin
       <TopBar
         left={<BackButton label="" onClick={() => back(parentOf(route.value))} />}
         right={<div class="topbar-actions">
-          {artifactsOn && <button class="icon-btn" aria-label="Artifacts" onClick={() => setArtifacts(true)}><IconLayers /></button>}
+          <button class="icon-btn" aria-label="Artifacts and chat map" onClick={() => setArtifacts(true)}>{artifactsOn ? <IconLayers /> : <IconMap />}</button>
           <button class="icon-btn" aria-label="New conversation" disabled={creating} onClick={newChat}><IconNewChat /></button>
           <button class="icon-btn" aria-label="Session controls" onClick={() => setControls(true)}><IconMore /></button>
         </div>}>
@@ -294,7 +395,7 @@ export function Chat({ agentId, sessionId }: { agentId: string; sessionId: strin
             <span class="t1">{session?.title || 'New conversation'}</span>
             <span class="t2">
               {session?.cwd ? shortPath(session.cwd) : agent?.name}
-              {state === 'queued' ? ' · waiting for a free slot' : state === 'starting' ? ' · loading' : ''}
+              {state === 'queued' ? ' · waiting for a free slot' : state === 'starting' ? <> · <Spark size={11} /> loading</> : ''}
               {ctx ? ` · ${Math.round(ctx.percent)}% context` : ''}
             </span>
           </span>
@@ -304,6 +405,8 @@ export function Chat({ agentId, sessionId }: { agentId: string; sessionId: strin
         <div class="conn-banner"><span class="spinner" style={{ width: '14px', height: '14px' }} /> Reconnecting. Claude keeps working on the server.</div>
       )}
 
+      {watched && <SubagentPanel conn={conn} tool={watched} items={children.get(watched.id) || []}
+        task={watchedTask} />}
       <div class="chat-scroll" ref={scroller} onScroll={onScroll}
         onTouchStart={markUser} onTouchMove={markUser} onTouchEnd={markUser} onWheel={markUser} onKeyDown={markUser} onMouseDown={markUser}>
         <div class="chat-inner">
@@ -320,17 +423,29 @@ export function Chat({ agentId, sessionId }: { agentId: string; sessionId: strin
               <p>{session?.cwd || agent?.cwd}</p>
             </div>
           )}
-          {top.map((it) => (
-            <ItemView key={it.id} it={it} sid={sessionId} children={it.kind === 'tool' ? children.get(it.id) : undefined}
+          {rows.map((r) => {
+            const one = (it: Item) => <ItemView key={it.id} it={it} sid={sessionId} children={it.kind === 'tool' ? children.get(it.id) : undefined}
               reply={replies.get(it.id)} onUserMenu={setMsgMenu} onImage={openChatImage}
-              steering={state === 'running' || state === 'interrupting'} />
-          ))}
+              steering={busy && it.kind === 'user' && !!it.client_id && steered.current.has(it.client_id)} />
+            if ('it' in r) return <div key={r.it.id} data-item={r.it.id} style={{ display: 'contents' }}>{one(r.it)}</div>
+            const open = unfolded.has(r.fold)
+            const secs = r.ms > 0 ? fmtDuration(r.ms) : ''
+            return (
+              <div key={'fold-' + r.fold} class={`fold ${open ? 'open' : ''}`}>
+                <button class="fold-head" onClick={() => toggleFold(r.fold)} aria-expanded={open}>
+                  <span>{pastVerb(r.fold)}{secs ? ` for ${secs}` : ''}{r.tools ? ` · ${r.tools} step${r.tools > 1 ? 's' : ''}` : ''}</span>
+                  <IconChevron class="fold-chev" width={14} height={14} />
+                </button>
+                {open && <div class="fold-body">{r.items.map(one)}</div>}
+              </div>
+            )
+          })}
           {perms.map((p) => <PermissionCard key={p.id} req={p} conn={conn} />)}
-          {busy && !lastIsStreamingText && perms.length === 0 && <Working state={state} activity={conn.activity.value} effort={effort} thinking={lastThinking} />}
+          {busy && !lastIsStreamingText && perms.length === 0 && <Working state={state} activity={conn.activity.value} effort={effort} thinking={lastThinking} todo={todoForm} background={background} />}
           {state === 'queued' && (
             <div class="working"><span class="spinner" /> Waiting for a free slot{conn.queuePos.value ? ` (position ${conn.queuePos.value})` : ''}</div>
           )}
-          {state === 'starting' && <div class="working"><Spark size={18} /> <span class="shimmer-text">Loading Claude</span></div>}
+          {state === 'starting' && waiting && <div class="working"><Spark size={18} /> <span class="shimmer-text">Loading Claude</span></div>}
           <div style={{ height: '8px' }} />
         </div>
       </div>
@@ -341,15 +456,18 @@ export function Chat({ agentId, sessionId }: { agentId: string; sessionId: strin
 
       <div class="chat-bottom">
         <TaskTray conn={conn} />
+        <QueueTray items={items} conn={conn} onEdit={(text) => setFill((f) => ({ text, n: f.n + 1 }))} />
         <Composer sid={sessionId} state={state} mode={mode} model={model} slash={init?.slash_commands || []}
           onSend={send} onInterrupt={() => conn.send({ type: 'interrupt' })} onMode={setMode}
-          onOpenModel={openModel} disabled={status === 'closed'} />
+          onOpenModel={openModel} disabled={status === 'closed'} fill={fill.n ? fill : undefined}
+          onBtw={(q) => setBtw((b) => ({ open: true, q, n: b.n + 1 }))} />
       </div>
+      <BtwSheet sid={sessionId} open={btw.open} question={btw.q} nonce={btw.n} onClose={() => setBtw((b) => ({ ...b, open: false }))} />
 
       <ControlsSheet open={controls} onClose={() => setControls(false)} conn={conn} agent={agent} mode={mode}
         onMode={setMode} onModel={applyModel} onRename={rename} onFork={() => { setControls(false); forkAt(null) }} />
 
-      {artifactsOn && <ArtifactsSheet open={artifacts} onClose={() => setArtifacts(false)} sid={sessionId} items={items} />}
+      {<ArtifactsSheet open={artifacts} onClose={() => setArtifacts(false)} sid={sessionId} items={items} onJump={jumpTo} />}
       <Sheet open={modelOpen} onClose={() => closeModel()} title="Model">
         <ModelPicker value={draft.model ?? (session?.overrides?.model || agentModel)} onChange={(m) => closeModel({ ...draft, model: m })} />
         {init?.model && <div class="fhint" style={{ margin: '10px 4px 0' }}>Running: {init.model}</div>}
@@ -408,15 +526,17 @@ function activityNote(a: Activity | null, now: number): { text: string; warn?: b
   return null
 }
 
-function Working({ state, activity, effort, thinking }: { state: string; activity: Activity | null; effort: string; thinking: boolean }) {
-  const [verb, setVerb] = useState(() => VERBS[Math.floor(Math.random() * VERBS.length)])
+function Working({ state, activity, effort, thinking, todo, background }: {
+  state: string; activity: Activity | null; effort: string; thinking: boolean; todo: string; background: number
+}) {
+  // Like the CLI, the verb is picked once per turn and does not rotate.
+  const [verb] = useState(() => VERBS[Math.floor(Math.random() * VERBS.length)])
   const [now, setNow] = useState(Date.now())
   const t0 = useRef(Date.now())
   const thinkStart = useRef<number | null>(null)
   useEffect(() => {
     const a = setInterval(() => setNow(Date.now()), 1000)
-    const b = setInterval(() => setVerb(VERBS[Math.floor(Math.random() * VERBS.length)]), 7000)
-    return () => { clearInterval(a); clearInterval(b) }
+    return () => clearInterval(a)
   }, [])
   if (thinking) { if (thinkStart.current === null) thinkStart.current = Date.now() } else thinkStart.current = null
   const secs = Math.floor((now - t0.current) / 1000)
@@ -426,14 +546,44 @@ function Working({ state, activity, effort, thinking }: { state: string; activit
   if (secs > 1) parts.push(secs >= 60 ? `${Math.floor(secs / 60)}m ${secs % 60}s` : `${secs}s`)
   if (tokens) parts.push(`${fmtTokens(tokens)} tokens`)
   if (thinking) parts.push(`${thinkingPhrase(now - (thinkStart.current ?? now))}${effort ? ` with ${effort} effort` : ''}`)
+  if (background) parts.push(`${background} in background`)
   return (
     <div class="working fade-in" aria-live="polite">
       <Spark size={18} />
       <span class="working-text">
-        <span class="shimmer-text">{state === 'interrupting' ? 'Stopping' : verb}...</span>
+        <span class="shimmer-text">{state === 'interrupting' ? 'Stopping' : todo || verb}...</span>
         {parts.length > 0 && <span class="working-meta"> ({parts.join(' · ')})</span>}
         {note && <span class={`working-note ${note.warn ? 'warn' : ''}`}>{note.text}</span>}
       </span>
+    </div>
+  )
+}
+
+/** Messages sent while Claude works wait here until the CLI takes them in at its next step. */
+function QueueTray({ items, conn, onEdit }: { items: Item[]; conn: ChatConn; onEdit: (text: string) => void }) {
+  const queued = items.filter((x): x is UserItem => x.kind === 'user' && x.pending && !!x.queued && !x.parent_tool_use_id)
+  if (!queued.length) return null
+  const local = (u: UserItem) => (u as any)._local
+  const edit = async (u: UserItem) => {
+    const err = await conn.send({ type: 'cancel_queued', id: u.id })
+    if (err) return toast('Claude already read this message', 'error')
+    onEdit(u.text)
+  }
+  const now = async (u: UserItem) => {
+    haptic()
+    const err = await conn.send({ type: 'send_now', id: u.id })
+    if (err) toast(err, 'error')
+  }
+  return (
+    <div class="queue-tray">
+      {queued.map((u) => (
+        <div key={u.id} class="queue-row pop">
+          <span class="queue-label">Queued</span>
+          <span class="queue-text">{u.text || (u.attachments.length ? `${u.attachments.length} file${u.attachments.length > 1 ? 's' : ''}` : '')}</span>
+          <button class="icon-btn" aria-label="Edit queued message" title="Edit" disabled={local(u)} onClick={() => edit(u)}><IconEdit width={16} height={16} /></button>
+          <button class="icon-btn steer-btn" aria-label="Interrupt and send now" title="Interrupt and send now" disabled={local(u)} onClick={() => now(u)}><IconSteer /></button>
+        </div>
+      ))}
     </div>
   )
 }
@@ -569,11 +719,14 @@ function AssistantText({ it, sid, onImage }: { it: TextItem; sid: string; onImag
 function Thinking({ it }: { it: ThinkingItem }) {
   const [open, setOpen] = useState(false)
   if (!it.text && !it.streaming) return null
+  // Claude Code echoes "thought for Ns" once thinking ends; history from disk has no timing.
+  const secs = Math.round((it.duration_ms || 0) / 1000)
+  const label = it.streaming ? 'Thinking' : secs > 0 ? `Thought for ${secs}s` : 'Thought process'
   return (
     <div class={`thinking ${open ? 'open' : ''} ${it.streaming ? 'streaming' : ''}`}>
       <button class="thinking-head" onClick={() => setOpen(!open)}>
         <IconBrain width={15} height={15} />
-        <span class={it.streaming ? 'shimmer-text' : ''}>{it.streaming ? 'Thinking' : 'Thought process'}</span>
+        <span class={it.streaming ? 'shimmer-text' : ''}>{label}</span>
         <IconChevronDown class="thinking-chev" width={15} height={15} />
       </button>
       {open && <div class="thinking-body">{it.text}</div>}

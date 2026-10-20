@@ -1,12 +1,13 @@
 // CLI-style tool call cards: Bash, Read, Edit/Write (diff), Grep/Glob, TodoWrite, Task, Web, MCP.
 
 import { AnsweredQuestionCard } from './cards'
-import { useState } from 'preact/hooks'
+import { useEffect, useState } from 'preact/hooks'
 import type { Item, ToolItem } from '../lib/types'
 import { highlightCode, langFromPath, escapeHtml } from './markdown'
 import { Spark } from '../components/crab'
 import { IconChevron, IconCheck, IconClose } from '../components/icons'
 import { shortPath } from '../lib/util'
+import { subagentView } from './Subagent'
 
 function short(s: unknown, n = 90): string {
   const t = typeof s === 'string' ? s : JSON.stringify(s ?? '')
@@ -91,9 +92,11 @@ export function ToolCard({ it, children }: { it: ToolItem; children?: Item[] }) 
       {!expanded && (
         <div class="tool-sub">
           {running
-            ? <span class="tool-wait">{it.streaming ? 'Preparing' : isTask ? `Working${children?.length ? ` (${children.filter((c) => c.kind === 'tool').length} steps)` : ''}` : 'Running'}</span>
+            ? <span class="tool-wait">{it.streaming ? 'Preparing' : isTask ? `Working${children?.length ? ` (${children.filter((c) => c.kind === 'tool').length} steps)` : ''}` : 'Running'}{!it.streaming && <Elapsed ts={it.ts} />}</span>
             : <span>{resultSummary(it)}</span>}
+          {!running && (it.duration_ms || 0) >= 1000 && <span class="tool-time">{fmtSecs(it.duration_ms!)}</span>}
           {autoOpenable && !running && !err && <DiffStat it={it} />}
+          {isTask && <ViewAgent id={it.tool_use_id} />}
         </div>
       )}
       {!expanded && isTask && running && children && children.length > 0 && (
@@ -115,6 +118,24 @@ export function ToolCard({ it, children }: { it: ToolItem; children?: Item[] }) 
       )}
     </div>
   )
+}
+
+function fmtSecs(ms: number) {
+  const s = Math.round(ms / 1000)
+  return s >= 60 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${s}s`
+}
+
+/** "for Ns" while a tool runs, like Claude Code's "running tool for Ns"; hidden for the first 2s. */
+function Elapsed({ ts }: { ts?: string }) {
+  const [now, setNow] = useState(Date.now())
+  useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t) }, [])
+  const ms = ts ? now - Date.parse(ts) : 0
+  return ms >= 2000 ? <> for {fmtSecs(ms)}</> : null
+}
+
+function ViewAgent({ id }: { id: string }) {
+  return <button class="tool-view" onClick={() => { subagentView.value = subagentView.value === id ? null : id }}>
+    {subagentView.value === id ? 'Hide' : 'Watch'}</button>
 }
 
 function DiffStat({ it }: { it: ToolItem }) {
