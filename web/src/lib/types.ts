@@ -148,6 +148,8 @@ export interface ThinkingItem extends ItemBase {
   kind: 'thinking'
   text: string
   streaming: boolean
+  /** Live sessions only: server epoch ms when the block started streaming. */
+  started_at?: number
   /** Live sessions only: set when the block stops. */
   duration_ms?: number
 }
@@ -283,7 +285,8 @@ export interface ConfigForm {
 }
 
 export type Activity =
-  | { kind: 'requesting' | 'compacting'; at: string }
+  | { kind: 'requesting'; at: string }
+  | { kind: 'compacting'; at: string; manual?: boolean }
   | { kind: 'retry'; at: string; attempt: number; max_retries: number; retry_delay_ms: number; error_status: number | null; error: string; no_response?: { waited_ms: number; retry_wait_ms: number } }
   | { kind: 'thinking_tokens'; at: string; estimated_tokens: number }
 

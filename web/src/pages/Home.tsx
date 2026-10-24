@@ -69,14 +69,20 @@ export function Home() {
       : [{ title: '', items: list }])
     : [{ title: '', items: active === '' ? ungrouped : list.filter((a) => a.group === active) }]
 
-  const startSort = () => { setOrder(list); setSorting(true) }
+  // Sorting works on what the current filter shows; the new order is written back into the same
+  // slots of the full list, so agents outside the filter keep their places.
+  const shown = sections.flatMap((x) => x.items)
+  const startSort = () => { setOrder(active === null ? list : shown); setSorting(true) }
   const finishSort = async () => {
-    const ids = order.map((a) => a.id)
+    const picked = new Set(order.map((a) => a.id))
+    let k = 0
+    const full = list.map((a) => picked.has(a.id) ? order[k++] : a)
+    const ids = full.map((a) => a.id)
     if (ids.join() === list.map((a) => a.id).join()) { setSorting(false); return }
     setSaving(true)
     try {
       await api.reorderAgents(ids)
-      agents.value = order
+      agents.value = full
       setSorting(false)
     } catch (e) { toastError(e) } finally { setSaving(false) }
   }
@@ -89,7 +95,7 @@ export function Home() {
         ) : (
           <div class="topbar-actions">
             {list.length > 0 && <button class="icon-btn" aria-label="Manage groups" onClick={() => setManaging(true)}><IconTag /></button>}
-            {list.length > 1 && <button class="icon-btn" aria-label="Reorder agents" onClick={startSort}><IconSort /></button>}
+            {(active === null ? list : shown).length > 1 && <button class="icon-btn" aria-label="Reorder agents" onClick={startSort}><IconSort /></button>}
             <button class="icon-btn" aria-label="Settings" onClick={() => navigate({ name: 'settings' })}><IconSettings /></button>
           </div>
         )}>

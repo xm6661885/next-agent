@@ -346,6 +346,8 @@ export function Chat({ agentId, sessionId }: { agentId: string; sessionId: strin
         run = []
       }
       for (const it of turn) {
+        // Blank text (it renders nothing) must not split a run, or every tool call gets its own fold.
+        if (it.kind === 'text' && !it.text.trim() && !it.streaming) { if (run.length) run.push(it); continue }
         if (it.kind === 'tool' || it.kind === 'thinking') run.push(it)
         else { close(it); rows.push({ it }) }
       }
@@ -441,7 +443,7 @@ export function Chat({ agentId, sessionId }: { agentId: string; sessionId: strin
             )
           })}
           {perms.map((p) => <PermissionCard key={p.id} req={p} conn={conn} />)}
-          {busy && !lastIsStreamingText && perms.length === 0 && <Working state={state} activity={conn.activity.value} effort={effort} thinking={lastThinking} todo={todoForm} background={background} />}
+          {busy && !lastIsStreamingText && perms.length === 0 && <Working state={state} start={conn.turnStart.value} activity={conn.activity.value} effort={effort} thinking={lastThinking} thinkingAt={lastThinking ? (lastTop as ThinkingItem).started_at : undefined} todo={todoForm} background={background} />}
           {state === 'queued' && (
             <div class="working"><span class="spinner" /> Waiting for a free slot{conn.queuePos.value ? ` (position ${conn.queuePos.value})` : ''}</div>
           )}
@@ -462,7 +464,7 @@ export function Chat({ agentId, sessionId }: { agentId: string; sessionId: strin
           onOpenModel={openModel} disabled={status === 'closed'} fill={fill.n ? fill : undefined}
           onBtw={(q) => setBtw((b) => ({ open: true, q, n: b.n + 1 }))} />
       </div>
-      <BtwSheet sid={sessionId} open={btw.open} question={btw.q} nonce={btw.n} onClose={() => setBtw((b) => ({ ...b, open: false }))} />
+      <BtwSheet sid={sessionId} model={model} open={btw.open} question={btw.q} nonce={btw.n} onClose={() => setBtw((b) => ({ ...b, open: false }))} />
 
       <ControlsSheet open={controls} onClose={() => setControls(false)} conn={conn} agent={agent} mode={mode}
         onMode={setMode} onModel={applyModel} onRename={rename} onFork={() => { setControls(false); forkAt(null) }} />
@@ -503,6 +505,9 @@ export function Chat({ agentId, sessionId }: { agentId: string; sessionId: strin
   )
 }
 
+// Set when the user presses Compact, so the indicator can tell manual from auto compaction.
+const fmtSecs = (s: number) => s >= 60 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${Math.max(0, s)}s`
+
 // Claude Code's own thinking phrases, by time spent thinking.
 function thinkingPhrase(ms: number) {
   if (ms >= 45000) return 'deep in thought'
@@ -514,7 +519,6 @@ function thinkingPhrase(ms: number) {
 
 function activityNote(a: Activity | null, now: number): { text: string; warn?: boolean } | null {
   if (!a) return null
-  if (a.kind === 'compacting') return { text: 'compacting conversation' }
   if (a.kind === 'retry') {
     const left = Math.max(0, Math.ceil((Date.parse(a.at) + (a.retry_delay_ms || 0) - now) / 1000))
     const attempt = a.max_retries ? ` (attempt ${a.attempt}/${a.max_retries})` : ''
@@ -526,8 +530,8 @@ function activityNote(a: Activity | null, now: number): { text: string; warn?: b
   return null
 }
 
-function Working({ state, activity, effort, thinking, todo, background }: {
-  state: string; activity: Activity | null; effort: string; thinking: boolean; todo: string; background: number
+function Working({ state, start, activity, effort, thinking, thinkingAt, todo, background }: {
+  state: string; start: number | null; activity: Activity | null; effort: string; thinking: boolean; thinkingAt?: number; todo: string; background: number
 }) {
   // Like the CLI, the verb is picked once per turn and does not rotate.
   const [verb] = useState(() => VERBS[Math.floor(Math.random() * VERBS.length)])
@@ -538,8 +542,22 @@ function Working({ state, activity, effort, thinking, todo, background }: {
     const a = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(a)
   }, [])
-  if (thinking) { if (thinkStart.current === null) thinkStart.current = Date.now() } else thinkStart.current = null
-  const secs = Math.floor((now - t0.current) / 1000)
+  if (thinking) { if (thinkStart.current === null) thinkStart.current = Math.min(thinkingAt ?? Date.now(), Date.now()) } else thinkStart.current = null
+  // The server times the turn, so leaving and reopening the chat keeps counting.
+  const secs = Math.max(0, Math.floor((now - (start ?? t0.current)) / 1000))
+  if (activity?.kind === 'compacting') {
+    const auto = !activity.manual
+    return (
+      <div class="working compacting fade-in" aria-live="polite">
+        <Spark size={18} />
+        <span class="working-text">
+          <span class="shimmer-text">{auto ? 'Auto-compacting conversation' : 'Compacting conversation'}...</span>
+          <span class="working-meta"> ({fmtSecs(Math.floor((now - Date.parse(activity.at)) / 1000))})</span>
+          <span class="compact-bar" role="progressbar" aria-label="Compacting"><span /></span>
+        </span>
+      </div>
+    )
+  }
   const note = activityNote(activity, now)
   const tokens = activity?.kind === 'thinking_tokens' && activity.estimated_tokens ? activity.estimated_tokens : 0
   const parts: string[] = []
@@ -815,6 +833,11 @@ function ControlsSheet({ open, onClose, conn, agent, mode, onMode, onModel, onRe
         <div class="menu" style={{ padding: '10px 0 0' }}>
           <button onClick={() => { close(); onRename() }}><IconEdit /> Rename</button>
           <button onClick={onFork}><IconFork /> Fork conversation</button>
+          <button disabled={!session?.sdk_session_id} onClick={async () => {
+            close()
+            const err = await conn.send({ type: 'send', client_id: crypto.randomUUID(), text: '/compact', attachments: [] })
+            if (err) toast(err, 'error')
+          }}><IconLayers /> Compact context</button>
         </div>
         {init && (
           <div class="init-info">

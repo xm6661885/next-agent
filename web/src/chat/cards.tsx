@@ -153,6 +153,7 @@ function PlanCard({ req, reply, busy }: { req: PermissionRequest; reply: Reply; 
           <button class="btn small primary" disabled={busy} onClick={() => reply({ decision: 'allow', mode: 'acceptEdits' })}>
             <IconCheck width={16} height={16} /> Approve, {MODE_LABELS.acceptEdits.toLowerCase()}
           </button>
+          <button class="btn small" disabled={busy} onClick={() => reply({ decision: 'allow', mode: 'bypassPermissions' })}>Approve, {MODE_LABELS.bypassPermissions.toLowerCase()}</button>
           <button class="btn small" disabled={busy} onClick={() => reply({ decision: 'allow', mode: 'default' })}>Approve, ask first</button>
           <button class="btn small ghost" disabled={busy} onClick={() => setRevising(true)}><IconClose width={16} height={16} /> Keep planning</button>
         </div>

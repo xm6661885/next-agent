@@ -38,3 +38,37 @@ def test_compaction_keeps_earlier_messages(tmp_path,monkeypatch):
     monkeypatch.setattr('server.transcript.transcript_path',lambda *a:path)
     items=load_items({'id':'s2','sdk_session_id':'s'},Agent(id='a',name='A',cwd=str(tmp_path)))
     assert [i.get('text') for i in items]==['before','Context compacted','after']
+
+def test_compact_boundary_keeps_pre_compaction_history():
+    from server.transcript import main_chain
+    # Newer CLIs point logicalParentUuid at the preserved tail, which comes after the boundary.
+    entries=[{'type':'user','uuid':'u1','parentUuid':None},
+             {'type':'assistant','uuid':'a1','parentUuid':'u1'},
+             {'type':'system','subtype':'compact_boundary','uuid':'b','parentUuid':None,'logicalParentUuid':'t'},
+             {'type':'user','uuid':'s','parentUuid':'b','isCompactSummary':True},
+             {'type':'attachment','uuid':'t','parentUuid':'s'},
+             {'type':'user','uuid':'u2','parentUuid':'t'}]
+    assert [e['uuid'] for e in main_chain(entries)]==['u1','a1','b','s','t','u2']
+
+def test_live_compact_summary_hidden():
+    from claude_agent_sdk import UserMessage
+    from server.items import ItemBuilder
+    text='This session is being continued from a previous conversation that ran out of context. Summary: ...'
+    assert ItemBuilder().consume(UserMessage(content=text,uuid='u1'))==[]
+
+def test_page_replaces_inline_images():
+    from server.history import page
+    tool={'id':'t1','kind':'tool','result':{'content':'','is_error':False,'images':['data:image/png;base64,AAAA']}}
+    out=page([tool],sid='s')['items'][0]
+    assert out['result']['images']==['/api/sessions/s/images/t1/0'] and tool['result']['images'][0].startswith('data:')
+
+def test_subagent_queued_message(tmp_path,monkeypatch):
+    import server.transcript as tr
+    d=tmp_path/'sid'/'subagents'; d.mkdir(parents=True)
+    (d/'agent-x.jsonl').write_text('\n'.join(__import__('json').dumps(e) for e in [
+        {'type':'user','uuid':'u1','parentUuid':None,'isSidechain':True,'message':{'content':'go'}},
+        {'type':'attachment','uuid':'q','parentUuid':'u1','isSidechain':True,'attachment':{'type':'queued_command','prompt':'also fix X'}},
+        {'type':'assistant','uuid':'a1','parentUuid':'q','isSidechain':True,'message':{'content':[{'type':'text','text':'ok'}]}}]))
+    monkeypatch.setattr(tr,'project_dir',lambda cwd:tmp_path)
+    msgs=tr.subagent_messages('sid','/x','x')
+    assert [m.message['content'] for m in msgs if m.type=='user']==['go','also fix X']

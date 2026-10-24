@@ -570,6 +570,11 @@ svg.crab .eyes { animation: blink 4.5s infinite; transform-origin: center 3px; t
 
 .chip.dashed { border-style: dashed; color: var(--text-2); font-family: var(--font-sans); }
 .chip.removable { padding-right: 4px; }
+.chip.removable button {
+  display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%;
+  color: var(--text-3); background: transparent; cursor: pointer;
+}
+.chip.removable button:hover { color: var(--danger, #c0392b); background: var(--line); }
 .chip.removable .mono { font-family: var(--font-mono); font-size: 12.5px; }
 .chip.removable button { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; color: var(--text-3); }
 .chip.removable button:active { background: var(--line); }

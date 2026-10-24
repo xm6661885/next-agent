@@ -456,14 +456,15 @@ class ConfigStore:
         # The generative UI prompt used to hold every widget; it is now a base prompt plus per-widget prompts.
         for entry in [defaults, *doc.get('agents',[]), *([doc['temp_agent']] if 'temp_agent' in doc else [])]:
             if '- ask: a question card' in str(entry.get('genui_prompt','')): entry['genui_prompt'] = ''; changed = True
-        # Every model ID typed anywhere joins the one shared custom model list.
-        known = {'opus','sonnet','haiku','opus[1m]','claude-opus-5-5','claude-sonnet-5-5','claude-fable-5-1'}
-        customs = list(defaults.get('custom_models',[]))
-        for entry in [defaults, *doc.get('agents',[]), *([doc['temp_agent']] if 'temp_agent' in doc else [])]:
-            for key in ('model','fallback_model'):
-                m = str(entry.get(key) or '').strip()
-                if m and m not in known and m not in customs: customs.append(m)
-        if customs != list(defaults.get('custom_models',[])):
+        # One-time: seed the shared custom model list from model IDs already in use.
+        # Later loads must not re-add them, or removing a model in Settings never sticks.
+        if 'custom_models' not in defaults:
+            known = {'opus','sonnet','haiku','opus[1m]','claude-opus-5-5','claude-sonnet-5-5','claude-fable-5-1'}
+            customs = []
+            for entry in [defaults, *doc.get('agents',[]), *([doc['temp_agent']] if 'temp_agent' in doc else [])]:
+                for key in ('model','fallback_model'):
+                    m = str(entry.get(key) or '').strip()
+                    if m and m not in known and m not in customs: customs.append(m)
             defaults['custom_models'] = customs; changed = True
         values = Defaults.model_validate(defaults.unwrap() if hasattr(defaults,'unwrap') else dict(defaults))
         tables = list(doc.get('agents',[])) + ([doc['temp_agent']] if 'temp_agent' in doc else [])

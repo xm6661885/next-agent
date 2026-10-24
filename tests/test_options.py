@@ -107,3 +107,11 @@ def test_btw_options_strip_tools(tmp_path):
     assert opts.tools==[] and opts.max_turns==1 and opts.mcp_servers=={} and opts.can_use_tool is None
     assert opts.resume=='old' and opts.fork_session
     assert 'no-session-persistence' in opts.extra_args and 'replay-user-messages' not in opts.extra_args
+    assert isinstance(opts.system_prompt,str) and 'side question' in opts.system_prompt
+    assert btw_options(agent,{},'old',Defaults(genui=False),ServerConfig(password_hash='***'),model='haiku').model=='haiku'
+
+def test_btw_prompt_history():
+    from server.btw import prompt
+    assert prompt('hi')=='hi'
+    p=prompt('next',[{'q':'first','a':'ans'}])
+    assert p.index('first')<p.index('ans')<p.index('next')

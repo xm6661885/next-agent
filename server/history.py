@@ -3,9 +3,8 @@ import json
 import re
 from pathlib import Path
 from .transcript import transcript_path, session_messages, subagent_messages
-from .items import task_notification, task_notice, item, user_text, normalize_result, is_synthetic_user
+from .items import system_prompt_notice, task_notification, task_notice, item, user_text, normalize_result, is_synthetic_user
 
-_cache = {}
 
 def transcript_parent(sdk_id, cwd, uuid):
     path=transcript_path(sdk_id,cwd)
@@ -61,10 +60,6 @@ def load_items(session, agent, uploads=None):
     sdk_id = session.get('sdk_session_id')
     if not sdk_id:
         return []
-    path = transcript_path(sdk_id,agent.cwd)
-    mtime = path.stat().st_mtime_ns if path and path.exists() else 0
-    key = (session['id'],sdk_id,mtime)
-    if key in _cache: return [dict(x) for x in _cache[key]]
     converted = []
     tools = {}
     agents = set()
@@ -86,6 +81,8 @@ def load_items(session, agent, uploads=None):
                 # A tool_use_id that is not a main-thread tool belongs to a subagent's shell; it is not main-chat news.
                 if parent or not note['tool_use_id'] or note['tool_use_id'] in tools or note['task_id'] in agents:
                     converted.append(task_notice(parent,note))
+            elif (notice := system_prompt_notice(content)):
+                converted.append(item('notice',parent,level='info',text=notice))
             elif not is_synthetic_user(content):
                 text, attachments = user_text(content,uploads)
                 converted.append(item('user',parent,text=text,attachments=attachments,uuid=message.uuid,pending=False,client_id=None))
@@ -102,16 +99,22 @@ def load_items(session, agent, uploads=None):
                     value['id']=iid
                     converted.append(value)
                     tools[iid]=value
-    for old_key in list(_cache):
-        if old_key[0] == session['id'] and old_key != key:
-            del _cache[old_key]
-    _cache[key]=converted
-    return [dict(x) for x in converted]
+    # History is only read when no CLI is mid-turn on it, so a tool without a result was cut off (interrupt, crash, restart).
+    for value in tools.values():
+        if value['result'] is None: value['result']={'content':'Interrupted','is_error':True,'images':[]}
+    return converted
 
-def page(items,before=None,limit=200):
+def slim(value, sid):
+    """Inline tool-result images can be hundreds of KB each; send URLs instead (see /api/sessions/{sid}/images)."""
+    images = (value.get('result') or {}).get('images') if value.get('kind')=='tool' else None
+    if not sid or not images or not any(x.startswith('data:') for x in images): return value
+    urls = [f'/api/sessions/{sid}/images/{value["id"]}/{n}' if x.startswith('data:') else x for n,x in enumerate(images)]
+    return {**value,'result':{**value['result'],'images':urls}}
+
+def page(items,before=None,limit=200,sid=None):
     limit = max(1,min(limit,200))
     end = next((i for i,x in enumerate(items) if x['id']==before),len(items)) if before else len(items)
-    return {'items':items[max(0,end-limit):end], 'has_more':end>limit}
+    return {'items':[slim(x,sid) for x in items[max(0,end-limit):end]], 'has_more':end>limit}
 
 def _texts(entry):
     """User and assistant prose from one transcript line (tool calls and results are skipped)."""

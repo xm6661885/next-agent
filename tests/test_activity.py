@@ -20,7 +20,8 @@ def test_activity_status_retry_thinking_and_clear(monkeypatch):
     clock[0]=11.1
     assert builder.consume(system('thinking_tokens',estimated_tokens=300))[0]['activity']['estimated_tokens']==300
     assert builder.consume(StreamEvent(uuid='s',session_id='s',event={'type':'message_start','message':{'id':'m'}}))[0]=={'type':'activity','activity':None}
-    assert builder.consume(system('status',status='compacting'))[0]['activity']['kind']=='compacting'
+    ev=builder.consume(system('status',status='compacting'))[0]['activity']
+    assert ev['kind']=='compacting' and ev['manual'] is False
     assert builder.consume(system('status',status='idle'))==[{'type':'activity','activity':None}]
     builder.consume(system('status',status='requesting'))
     result=ResultMessage(subtype='success',duration_ms=1,duration_api_ms=1,is_error=False,num_turns=1,session_id='s')
@@ -52,3 +53,16 @@ def test_split_assistant_messages_match_streamed_blocks():
     items=list(b.items)
     assert [x['kind'] for x in items]==['thinking','text','tool']
     assert items[0]['text']=='hm' and items[1]['text']=='hi' and items[2]['input']=={'command':'ls'}
+
+
+def test_aborted_stream_drops_ghost_tool_and_cut_off_prompt_is_notice():
+    from claude_agent_sdk.types import StreamEvent, UserMessage
+    from server.items import ItemBuilder
+    b = ItemBuilder()
+    ev = lambda e: StreamEvent(uuid='u', session_id='s', event=e, parent_tool_use_id=None)
+    b.consume(ev({'type':'message_start','message':{'id':'m1'}}))
+    b.consume(ev({'type':'content_block_start','index':0,'content_block':{'type':'tool_use','id':'t1','name':'Bash'}}))
+    out = b.consume(UserMessage(content='Your response above was cut off mid-stream. Resume directly'))
+    assert {'type':'patch','id':'t1','patch':{'cancelled':True}} in out
+    assert not any(x['kind']=='tool' for x in b.items)
+    assert [x['kind'] for x in b.items] == ['notice'] and not any(x['kind']=='user' for x in b.items)

@@ -1,4 +1,5 @@
 """FastAPI application factory."""
+import base64
 import asyncio
 import os
 import mimetypes
@@ -6,7 +7,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 import hmac
 from fastapi import FastAPI, Request, HTTPException, Depends, UploadFile, File, WebSocket
-from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, StreamingResponse
+from fastapi.responses import Response, FileResponse, JSONResponse, PlainTextResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from claude_agent_sdk import list_sessions
 from .paths import DataDir, atomic_write
@@ -311,16 +312,19 @@ def create_app(data_dir=None):
     @app.post('/api/sessions/{sid}/btw')
     async def session_btw(sid:str,request:Request,_:None=Depends(require)):
         s=session(sid)
-        question=str((await request.json()).get('question') or '').strip()
+        req=await request.json()
+        question=str(req.get('question') or '').strip()
+        model=str(req.get('model') or '').strip() or None
+        history=[{'q':str(h.get('q') or ''),'a':str(h.get('a') or '')} for h in (req.get('history') or [])[-20:] if isinstance(h,dict)]
         if not question: raise HTTPException(422,'Empty question')
         fork=s.get('fork_of')
         resume=s.get('sdk_session_id') or (index.sessions.get(fork['session_id'],{}).get('sdk_session_id') if fork else None)
         if not resume: raise HTTPException(409,'Nothing to ask about yet')
         opts=btw.btw_options(manager.session_agent(s),s,resume,config.config.defaults,config.config.server,
-                             custom_md_path=paths.agents/s['agent_id']/'CLAUDE.md')
+                             custom_md_path=paths.agents/s['agent_id']/'CLAUDE.md',model=model)
         async def body():
             try:
-                async for chunk in btw.ask(opts,question): yield chunk
+                async for chunk in btw.ask(opts,question,history): yield chunk
             except Exception as exc:
                 yield f'\n\n[error] {exc}'
         return StreamingResponse(body(),media_type='text/plain; charset=utf-8',headers={'Cache-Control':'no-store','X-Accel-Buffering':'no'})
@@ -330,8 +334,22 @@ def create_app(data_dir=None):
         runtime=manager.get_or_create(sid)
         snap=await runtime.snapshot()
         if before or limit!=200:
-            return page(await runtime.all_items(),before,limit)
+            return page(await runtime.all_items(),before,limit,sid)
         return {'items':snap['items'],'has_more':snap['has_more']}
+    @app.get('/api/sessions/{sid}/images/{item_id}/{n}')
+    async def tool_image(sid:str,item_id:str,n:int,_:None=Depends(require)):
+        """One inline image from a tool result; pages carry these URLs instead of base64."""
+        session(sid)
+        items=await manager.get_or_create(sid).all_items()
+        tool=next((x for x in reversed(items) if x['kind']=='tool' and x['id']==item_id),None)
+        images=((tool or {}).get('result') or {}).get('images') or []
+        if not 0<=n<len(images) or not images[n].startswith('data:'): raise HTTPException(404,'Image not found')
+        head,_,data=images[n].partition(',')
+        mime=head[5:].split(';')[0]
+        if not mime.startswith('image/') or mime=='image/svg+xml': mime='application/octet-stream'
+        try: raw=base64.b64decode(data)
+        except ValueError: raise HTTPException(404,'Image not found')
+        return Response(raw,media_type=mime,headers={'Cache-Control':'private, max-age=86400'})
     @app.get('/api/sessions/{sid}/subagents/{tool_use_id}')
     async def subagent_get(sid:str,tool_use_id:str,_:None=Depends(require)):
         """A subagent's transcript, read from its own JSONL file (history only has the main thread)."""

@@ -5,7 +5,7 @@ import logging
 import time
 from uuid import uuid4
 from collections import deque
-from claude_agent_sdk import ClaudeSDKClient, ResultMessage, UserMessage
+from claude_agent_sdk import AssistantMessage, ClaudeSDKClient, ResultMessage, StreamEvent, UserMessage
 from .config import TEMP_AGENT, temp_agent, effective
 from .history import load_items, page, transcript_parent
 from .items import ItemBuilder, is_synthetic_message
@@ -72,7 +72,7 @@ class SessionRuntime:
         self.session = manager.index.sessions[sid]
         self.state = 'offline'
         self.seq = 0
-        self.ring = deque(maxlen=2000)
+        self.ring = deque(maxlen=500)
         self.subscribers = set()
         self.commands = asyncio.Queue()
         self.items = ItemBuilder(manager.index.uploads)
@@ -87,6 +87,7 @@ class SessionRuntime:
         self.restart_needed = False
         self.options_key = None
         self.queue_position = 0
+        self.running_since = None  # time.monotonic() when the current turn started
         self.resume_at = None
         self.truncate_uuid = None
         self.fresh_session_id = None
@@ -112,9 +113,11 @@ class SessionRuntime:
         return event
 
     def state_change(self,state):
+        if state=='running' and self.running_since is None: self.running_since = time.monotonic()
+        elif state not in ('running','interrupting'): self.running_since = None
         self.state = state
         self.last_activity = time.monotonic()
-        self.emit({'type':'state','state':state,'queue_position':self.queue_position})
+        self.emit({'type':'state','state':state,'queue_position':self.queue_position,'elapsed_ms':self.elapsed_ms()})
         self.manager.session_state(self)
 
     def persist_override(self,key,value):
@@ -155,12 +158,16 @@ class SessionRuntime:
             if end is not None: history=history[:end]
         return history + list(self.items.items)
 
+    def elapsed_ms(self):
+        """How long the current turn has run; relative so client clock skew does not matter."""
+        return int((time.monotonic()-self.running_since)*1000) if self.running_since is not None else None
+
     async def snapshot(self):
-        data = page(await self.all_items())
+        data = page(await self.all_items(),sid=self.sid)
         return {'type':'snapshot','seq':self.seq,'session':self.manager.view(self.sid),'state':self.state,
                 **data,'permissions':[p.request for p in self.permissions.pending.values()],
                 'init':self.items.init,'tasks':list(self.items.tasks.values()),'queue_position':self.queue_position,
-                'activity':self.items.activity}
+                'activity':self.items.activity,'elapsed_ms':self.elapsed_ms()}
 
     def _build_options_for_key(self):
         agent = self.manager.session_agent(self.session)
@@ -231,6 +238,17 @@ class SessionRuntime:
             self.client=None
             self.state_change('offline')
             return False
+
+    async def _force_stop(self):
+        # Queued messages die with the process; mark them cancelled before _disconnect resets the item builder.
+        for iid in list(self.items.pending): self.emit(self.items.drop_pending(iid))
+        self.written=0
+        kill_cli(self.client)
+        try: await asyncio.wait_for(self._disconnect(),timeout=5)
+        except BaseException:
+            self.client=None
+            self.release_slot()
+            if self.state!='offline': self.state_change('offline')
 
     async def _disconnect(self):
         self.permissions.cancel_all()
@@ -418,8 +436,22 @@ class SessionRuntime:
             elif typ=='interrupt':
                 self.permissions.cancel_all()
                 self.state_change('interrupting')
-                await self.client.interrupt()
+                try: await asyncio.wait_for(self.client.interrupt(),timeout=10)
+                except Exception as exc:
+                    # The CLI can ignore interrupts (e.g. compaction retrying a dead API); kill it so stop always stops.
+                    log.warning('Interrupt failed (%s); killing CLI',exc)
+                    await self._force_stop()
+                    self.emit(self.items.notice('warn','CLI did not respond to interrupt; process stopped'))
+                    return
                 self.emit(self.items.notice('info','Interrupted'))
+                # After an API error the CLI can ack the interrupt yet never end the turn; don't stay "Stopping".
+                client=self.client
+                asyncio.get_running_loop().call_later(8,lambda: self.client is client and self.state=='interrupting' and self.submit(('interrupt_check',client)))
+            elif typ=='interrupt_check':
+                if self.client is command[1] and self.state=='interrupting':
+                    log.warning('No result after interrupt; killing CLI')
+                    await self._force_stop()
+                    self.emit(self.items.notice('warn','CLI did not finish the turn after interrupt; process stopped'))
             elif typ=='set_mode':
                 self.persist_override('permission_mode',command[1])
                 await self.client.set_permission_mode(command[1])
@@ -459,9 +491,14 @@ class SessionRuntime:
             self._reply_error(command,f'{typ} failed: {exc}')
 
     async def _message(self,msg):
+        # The CLI starts turns on its own (e.g. a background task or subagent finished); show them as running.
+        if self.state=='idle' and isinstance(msg,(AssistantMessage,StreamEvent)): self.state_change('running')
         if isinstance(msg,UserMessage) and not is_synthetic_message(msg) and not (isinstance(msg.content,list) and any(getattr(x,'tool_use_id',None) for x in msg.content)):
             self.written=max(0,self.written-1)
         events=self.items.consume(msg)
+        if self.items.delivered_commands:
+            self.written=max(0,self.written-self.items.delivered_commands)
+            self.items.delivered_commands=0
         if self.truncate_uuid and isinstance(msg,UserMessage) and any(e.get('type')=='patch' and e.get('patch',{}).get('uuid')==msg.uuid for e in events):
             self.truncate_uuid=None
             self.fresh_session_id=None

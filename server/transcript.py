@@ -61,10 +61,23 @@ def _parent(entry):
     # compact_boundary has parentUuid null; logicalParentUuid keeps the pre-compaction history attached.
     return entry.get('parentUuid') or (entry.get('logicalParentUuid') if entry.get('subtype')=='compact_boundary' else None)
 
+def _link_boundaries(entries, order):
+    """Point each compact_boundary at the pre-compaction history.
+    Newer CLIs set logicalParentUuid to the preserved tail, which sits after the boundary (a cycle);
+    then the nearest earlier main-thread message is the real predecessor."""
+    last = None
+    for i,e in enumerate(entries):
+        if e.get('subtype')=='compact_boundary':
+            logical = e.get('logicalParentUuid')
+            if not (logical and order.get(logical,i)<i) and last: e['logicalParentUuid'] = last
+        elif e.get('type') in ('user','assistant') and not (e.get('isSidechain') or e.get('teamName')):
+            last = e['uuid']
+
 def main_chain(entries):
     """Walk back from the newest main-thread user/assistant leaf to the root."""
     by_uuid = {e['uuid']:e for e in entries}
     order = {e['uuid']:i for i,e in enumerate(entries)}
+    _link_boundaries(entries, order)
     parents = {p for e in entries if (p := _parent(e))}
     leaves = []
     for terminal in (e for e in entries if e['uuid'] not in parents):
@@ -113,4 +126,10 @@ def subagent_messages(sdk_id, cwd, aid):
         if isinstance(meta,dict) and isinstance(meta.get('toolUseId'),str): parent = meta['toolUseId']
     except (OSError,ValueError):
         pass
-    return [_message(e,parent) for e in main_chain(read_entries(path)) if e.get('type') in ('user','assistant')]
+    out = []
+    for e in main_chain(read_entries(path)):
+        if e.get('type') in ('user','assistant'): out.append(_message(e,parent))
+        elif (e.get('attachment') or {}).get('type')=='queued_command' and isinstance(e['attachment'].get('prompt'),str):
+            # SendMessage from the main agent arrives as a queued command at the subagent's next tool round.
+            out.append(Message('user',e['uuid'],{'role':'user','content':e['attachment']['prompt']},parent))
+    return out

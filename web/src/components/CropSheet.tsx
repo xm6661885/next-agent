@@ -70,7 +70,7 @@ export function CropSheet({ file, onDone, onCancel }: { file: File | null; onDon
 
   const pct = (v: number) => `${v * 100}%`
   return (
-    <Sheet open={!!file} onClose={onCancel} title="Crop photo"
+    <Sheet open={!!file} onClose={onCancel} title="Crop photo" lock
       actions={<button class="btn primary small" disabled={busy || !url} onClick={confirm}>{busy ? <span class="spinner" /> : 'Use photo'}</button>}>
       {url && (
         <div class="crop-wrap">

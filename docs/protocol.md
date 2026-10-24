@@ -120,7 +120,7 @@ subagent running under that Task tool item).
 |---|---|
 | `user` | `text`, `attachments: [Attachment]`, `uuid` (CLI message uuid, used for rewind/fork; null while pending), `pending: bool` (sent but not yet consumed by the CLI, i.e. queued steer), `queued?: true` (sent while a turn was running; clients show it in the queue tray instead of the transcript until `pending` turns false), `cli_uuid` (uuid written to the CLI for cancel), `client_id` |
 | `text` | `text`, `streaming: bool` |
-| `thinking` | `text`, `streaming: bool`, `duration_ms?` (live only: set when the streamed block stops) |
+| `thinking` | `text`, `streaming: bool`, `duration_ms?` (live only: set when the streamed block stops), `started_at?` (live only: server epoch ms when streaming began) |
 | `tool` | `tool_use_id` (== id), `name`, `input` (object; `{}` while streaming), `input_partial` (string while streaming), `streaming: bool`, `result: null \| {content: string, is_error: bool, images: [dataurl]}`, `duration_ms?` (live only: tool call to result, sent in the same patch as `result`) |
 | `notice` | `level: info\|warn\|error`, `text` (e.g. "Interrupted", "Model switched to sonnet", API errors). Background task completion notices also carry `task: {task_id, tool_use_id, status, summary}` (from the `task_notification` system message or the CLI's `<task-notification>` user turn, deduped per task; history rebuilds them from the transcript) |
 | `result` | `subtype`, `is_error`, `duration_ms`, `num_turns`, `cost_usd` (this turn), `total_cost_usd` (session), `usage`, `terminal_reason` |
@@ -129,7 +129,7 @@ subagent running under that Task tool item).
 Not an item. Sent as the `activity` event and included in `snapshot.activity`. `null` means nothing to show.
 ```jsonc
 {"kind": "requesting", "at": "..."}                       // SystemMessage status=requesting (an API request started)
-{"kind": "compacting", "at": "..."}                       // status=compacting
+{"kind": "compacting", "at": "...", "manual": bool}       // status=compacting (manual: started by a /compact send); cleared by the compact_boundary notice
 {"kind": "retry", "at": "...", "attempt": 2, "max_retries": 10, "retry_delay_ms": 4000,
  "error_status": 529,                                      // HTTP status or null (network error / no response)
  "error": "overloaded",                                    // CLI error category string
@@ -188,7 +188,7 @@ Requests never time out. They stay open until a device answers, the user interru
 | POST | `/api/sessions/{sid}/read` | | `Session` with `unread:false` (also emits `session_state`). Opening the session socket does the same. |
 | POST | `/api/sessions/{sid}/warm` | | `Session`. Starts the CLI now without sending anything (no-op when not offline). Only does work with `idle_mode = "adaptive"`; otherwise returns the session unchanged. |
 | POST | `/api/sessions/{sid}/fork` | `{at_uuid?: string}` | new `Session` (`fork_of` set, `cwd` copied) |
-| POST | `/api/sessions/{sid}/btw` | `{question: string}` | side question: streamed `text/plain` reply (one tool-less turn on a throwaway, unpersisted fork of the transcript; never touches the runtime or items). `422` empty question, `409` session has no transcript yet. Errors mid-stream end with `\n\n[error] <msg>` |
+| POST | `/api/sessions/{sid}/btw` | `{question: string, model?: string, history?: [{q, a}]}` | side question: streamed `text/plain` reply. `model` overrides the session model for this reply only; `history` (last 20 kept) is earlier side Q/A the client still shows, sent back as context. Uses its own btw system prompt (one tool-less turn on a throwaway, unpersisted fork of the transcript; never touches the runtime or items). `422` empty question, `409` session has no transcript yet. Errors mid-stream end with `\n\n[error] <msg>` |
 | GET | `/api/temp/sessions` | | `Session[]` with `agent_id: "_temp"`, newest first |
 | POST | `/api/temp/sessions` | `{cwd: string}` (must exist; `~` expanded) | `Session`; 422 for a missing folder |
 | GET | `/api/fs/dirs?path=&hidden=0\|1` | | `{path, parent\|null, home, dirs: [{name, path, git}], recent: string[]}`; empty path = home |
@@ -283,11 +283,11 @@ Every event carries `seq` (monotonic per session runtime and per server process)
 
 | type | payload |
 |---|---|
-| `snapshot` | `{session, state, items, has_more, permissions: [PermissionRequest], init, tasks, queue_position, activity}`. Sent on connect, or after a `resume` the server cannot satisfy. `items` holds at most the last 200 items. |
+| `snapshot` | `{session, state, items, has_more, permissions: [PermissionRequest], init, tasks, queue_position, activity, elapsed_ms}`. `elapsed_ms` is how long the current turn has run (null when not running). Sent on connect, or after a `resume` the server cannot satisfy. `items` holds at most the last 200 items. |
 | `item` | `{item}` appends a new item, or replaces one with the same id |
 | `patch` | `{id, patch}` shallow-merges fields into an existing item (e.g. tool `result`, `streaming:false`, `uuid`, `pending:false`) |
 | `delta` | `{id, field, text}` appends `text` to `item[field]` (`text` for text/thinking, `input_partial` for tool) |
-| `state` | `{state, queue_position}` |
+| `state` | `{state, queue_position, elapsed_ms}` (`elapsed_ms` as in snapshot; the server keeps the turn clock) |
 | `permission` | `{request}` |
 | `permission_resolved` | `{id, decision}` (allow / deny / cancelled) |
 | `session` | `{session}` (title, cost, overrides, or context changed) |
@@ -304,7 +304,7 @@ Every message has `type` and may carry `req_id`. Any command that fails gets an 
 
 | type | payload | effect |
 |---|---|---|
-| `resume` | `{seq}` | Must be the first message. With `seq` = 0 or null, the server sends a `snapshot`. Otherwise it replays buffered events after `seq` (ring buffer of 2000 per session), or sends a `snapshot` when they are gone. |
+| `resume` | `{seq}` | Must be the first message. With `seq` = 0 or null, the server sends a `snapshot`. Otherwise it replays buffered events after `seq` (ring buffer of 500 per session), or sends a `snapshot` when they are gone. |
 | `send` | `{client_id, text, attachments: [attachment_id]}` | Starts the CLI if it's offline (it may queue). In idle state this starts a turn. In running state this is a **steer**: the message is written now and the CLI picks it up at the next tool boundary. The server emits a `user` item with `pending:true` right away, then a `patch {pending:false, uuid}` once the CLI echoes it. |
 | `cancel_queued` | `{id}` | Withdraw a queued user item (`queued:true`, still `pending`) from the CLI queue via `cancel_async_message`. Success: `patch {cancelled:true}` (client drops the item). Already consumed: `error`. |
 | `send_now` | `{id}` | Interrupt the running turn; queued messages stay in the CLI queue and start the next turn. |
@@ -393,3 +393,9 @@ path. Deleting a session or agent deletes its uploaded files.
 ## REST additions
 - `PUT /api/models` `{custom_models: [str]}` -> `{custom_models, models}`. The one shared custom model list (global settings, agent settings and the in-chat picker all edit it). Saved immediately, independent of `PATCH /api/config`.
 - `GET /api/sessions/{sid}/subagents/{tool_use_id}` -> `{agent_id|null, items: [Item]}`. A subagent's transcript from its own JSONL (falls back to live items).
+
+## Tool result images
+
+Item pages (snapshot and `GET /api/sessions/{sid}/items`) replace inline `data:` images in `result.images`
+with `/api/sessions/{sid}/images/{item_id}/{n}` URLs. Live `item`/`patch` events still carry `data:` URLs.
+Manual compaction is a plain `send` with text `/compact`.

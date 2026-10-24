@@ -12,6 +12,8 @@ export class ChatConn {
   hasMore = signal(false)
   session = signal<Session | null>(null)
   state = signal<SessionState>('offline')
+  /** Local Date.now() at which the current turn started, from the server's elapsed_ms. */
+  turnStart = signal<number | null>(null)
   queuePos = signal(0)
   perms = signal<PermissionRequest[]>([])
   init = signal<InitInfo | null>(null)
@@ -164,6 +166,7 @@ export class ChatConn {
         this.hasMore.value = !!msg.has_more
         if (msg.session) this.session.value = msg.session
         this.state.value = msg.state || 'offline'
+        this.turnStart.value = typeof msg.elapsed_ms === 'number' ? Date.now() - msg.elapsed_ms : null
         this.queuePos.value = msg.queue_position || 0
         this.perms.value = msg.permissions || []
         this.init.value = msg.init || null
@@ -180,6 +183,7 @@ export class ChatConn {
       case 'delta': this.delta(msg.id, msg.field, msg.text); break
       case 'state':
         this.state.value = msg.state
+        this.turnStart.value = typeof msg.elapsed_ms === 'number' ? Date.now() - msg.elapsed_ms : null
         if (msg.state !== 'running' && msg.state !== 'interrupting') this.activity.value = null
         this.queuePos.value = msg.queue_position || 0
         if (this.conn.value !== 'open') { this.conn.value = 'open'; this.retry = 0; this.flush() }

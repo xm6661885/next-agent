@@ -93,12 +93,13 @@ export function useScrolled() {
  * Bottom sheet on phones, centered dialog on wide screens. Closing animates out first.
  * Swipe the grip area down to dismiss.
  */
-export function Sheet({ open, onClose, title, children, actions }: {
+export function Sheet({ open, onClose, title, children, actions, lock }: {
   open: boolean
   onClose: () => void
   title?: ComponentChildren
   children: ComponentChildren
   actions?: ComponentChildren
+  lock?: boolean  // no scrim-tap or swipe dismiss (for sheets with drag gestures inside)
 }) {
   const [mounted, setMounted] = useState(open)
   const [closing, setClosing] = useState(false)
@@ -120,9 +121,10 @@ export function Sheet({ open, onClose, title, children, actions }: {
     return () => window.removeEventListener('keydown', onKey)
   }, [open])
 
+  const scrimDown = useRef(false)
   // Drag-to-dismiss from the header.
   const drag = useRef({ y: 0, dy: 0, on: false })
-  const onTouchStart = (e: TouchEvent) => { drag.current = { y: e.touches[0].clientY, dy: 0, on: true } }
+  const onTouchStart = (e: TouchEvent) => { if (lock) return; drag.current = { y: e.touches[0].clientY, dy: 0, on: true } }
   const onTouchMove = (e: TouchEvent) => {
     if (!drag.current.on || !ref.current) return
     const dy = Math.max(0, e.touches[0].clientY - drag.current.y)
@@ -141,7 +143,9 @@ export function Sheet({ open, onClose, title, children, actions }: {
   if (!mounted) return null
   return createPortal(
     <>
-      <div class={`scrim ${closing ? 'closing' : ''}`} onClick={onClose} />
+      <div class={`scrim ${closing ? 'closing' : ''}`}
+        onPointerDown={(e) => { scrimDown.current = e.target === e.currentTarget }}
+        onClick={(e) => { if (!lock && scrimDown.current && e.target === e.currentTarget) onClose(); scrimDown.current = false }} />
       <div ref={ref} class={`sheet ${closing ? 'closing' : ''}`} role="dialog" aria-modal="true">
         <div onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}>
           <div class="sheet-grip" />

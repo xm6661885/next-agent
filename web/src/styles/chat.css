@@ -1057,8 +1057,12 @@
 .fold-body { display: flex; flex-direction: column; gap: inherit; border-left: 2px solid var(--line); padding-left: 12px; }
 
 .btw { display: flex; flex-direction: column; gap: 10px; }
-.btw-q { align-self: flex-end; max-width: 85%; background: var(--pink-soft); color: var(--on-pink); padding: 8px 12px; border-radius: 14px; white-space: pre-wrap; }
-.btw-a { max-height: 50vh; overflow-y: auto; }
+.btw-q { align-self: flex-end; max-width: 85%; background: var(--pink); color: var(--on-pink); padding: 8px 12px; border-radius: 14px; white-space: pre-wrap; }
+.btw-log { display: flex; flex-direction: column; gap: 10px; max-height: 55vh; overflow-y: auto; }
+.btw-log:empty { display: none; }
+.btw-model { align-self: flex-start; display: inline-flex; align-items: center; gap: 4px; }
+.btw-model svg { width: 14px; height: 14px; }
+.btw-picker { display: flex; flex-direction: column; gap: 6px; }
 .btw-wait, .btw-hint { color: var(--text-2); font-size: 14px; }
 .btw-input { display: flex; gap: 8px; align-items: center; }
 .btw-input input { flex: 1; min-width: 0; padding: 9px 12px; border-radius: 999px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--text); font: inherit; }
@@ -1077,3 +1081,15 @@
 .map-text { font-size: 12.5px; color: var(--text-2); max-width: 100%; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .map-flash { animation: map-flash 1.2s ease-out; border-radius: 12px; }
 @keyframes map-flash { 0%, 40% { box-shadow: 0 0 0 3px var(--pink); } 100% { box-shadow: 0 0 0 3px transparent; } }
+
+@media (prefers-color-scheme: dark) {
+  .btw-q { background: color-mix(in srgb, var(--pink) 88%, #000); }
+}
+
+/* Compaction, after Claude Code's purple "Compacting conversation" line. */
+.working.compacting { --compact: #a78bfa; }
+.working.compacting .shimmer-text { background-image: linear-gradient(90deg, var(--compact) 0%, #ddd0ff 45%, var(--compact) 90%); }
+.compact-bar { flex-basis: 100%; height: 3px; margin-top: 6px; max-width: 240px; border-radius: 3px; overflow: hidden; background: color-mix(in srgb, var(--compact) 22%, transparent); }
+.compact-bar span { display: block; width: 35%; height: 100%; border-radius: 3px; background: var(--compact); animation: compact-bar 1.6s ease-in-out infinite; }
+@keyframes compact-bar { from { transform: translateX(-100%); } to { transform: translateX(290%); } }
+@media (prefers-reduced-motion: reduce) { .compact-bar span { animation: none; width: 100%; opacity: 0.6; } }

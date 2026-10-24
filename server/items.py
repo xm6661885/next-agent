@@ -95,6 +95,23 @@ def task_notice(parent, note):
     level = 'warn' if status in ('failed','killed','stopped') else 'info'
     return item('notice',parent,level=level,text=text,task=note)
 
+COMPACT_SUMMARY = 'This session is being continued from a previous conversation'
+
+def is_compact_summary(content):
+    """The summary the CLI injects as a user turn after compaction (isCompactSummary is not exposed live)."""
+    if isinstance(content,list):
+        content = next((getattr(b,'text',None) if not isinstance(b,dict) else b.get('text') for b in content),None)
+    return isinstance(content,str) and content.startswith(COMPACT_SUMMARY)
+
+CUT_OFF = 'Your response above was cut off mid-stream'
+
+def system_prompt_notice(content):
+    """CLI-injected continuation prompts render as a centered notice, not a user bubble."""
+    if isinstance(content,list):
+        content = next((getattr(b,'text',None) if not isinstance(b,dict) else b.get('text') for b in content),None)
+    if isinstance(content,str) and content.startswith(CUT_OFF): return 'Response was cut off; resuming'
+    return None
+
 def is_synthetic_message(msg):
     return is_synthetic_user(msg.content)
 
@@ -103,20 +120,21 @@ def is_synthetic_user(content):
     if isinstance(content,list):
         texts=[getattr(b,'text',None) if not isinstance(b,dict) else b.get('text') for b in content]
         # Image reads replay a meta turn: "[Image: source: <path>, original WxH]" plus the image block.
-        if texts and isinstance(texts[0],str) and texts[0].startswith('[Image: source:'): return True
+        if texts and isinstance(texts[0],str) and texts[0].startswith('[Image:'): return True
         if len(texts)!=1 or not isinstance(texts[0],str): return False
         content=texts[0]
     if not isinstance(content,str): return False
     # Slash-command echoes the CLI replays as user turns, e.g. set_model -> <local-command-stdout>.
     # Skill bodies are replayed as user turns when a skill loads (the SDK parser drops isSynthetic).
-    return content.startswith(('[Request interrupted by user','<local-command-','<command-name>','<command-message>',
-                               'Base directory for this skill:','[Image: source:'))
+    return content.startswith((COMPACT_SUMMARY,'[Request interrupted by user','<local-command-','<command-name>','<command-message>',
+                               'Base directory for this skill:','[Image:',CUT_OFF))
 
 class ItemBuilder:
     def __init__(self, uploads=None):
         self.items = deque(maxlen=2000)
         self.streamed = {}
         self.pending = deque()
+        self.delivered_commands = 0
         self.init = None
         self.tasks = {}
         self.sdk_session_id = None
@@ -125,8 +143,10 @@ class ItemBuilder:
         self.uploads = uploads or {}
         self.notified = set()
         self.started = {}  # item id -> monotonic start, for thinking/tool duration_ms
+        self.turn_content = False  # anything but notices since the last result
 
     def add(self, value):
+        if value['kind'] not in ('notice','result'): self.turn_content = True
         self.items.append(value)
         return {'type':'item','item':value}
 
@@ -157,6 +177,20 @@ class ItemBuilder:
         if found: self.items.remove(found)
         return {'type':'patch','id':iid,'patch':{'cancelled':True,'pending':False}}
 
+    def drop_stale_streams(self):
+        """Blocks from an aborted stream (API error, retry) never get content_block_stop: drop tools, settle text."""
+        out = []
+        for key, iid in list(self.streamed.items()):
+            found = self.find(iid)
+            if not found or not found.get('streaming'): continue
+            self.streamed.pop(key)
+            self.started.pop(iid,None)
+            if found['kind']=='tool':
+                self.items.remove(found)
+                out.append({'type':'patch','id':iid,'patch':{'cancelled':True}})
+            else: out.append(self.patch(iid,{'streaming':False}))
+        return out
+
     def find(self, iid):
         return next((x for x in reversed(self.items) if x['id']==iid), None)
 
@@ -186,6 +220,7 @@ class ItemBuilder:
             task['parent_tool_use_id'] = owner
         if isinstance(data.get('usage'),dict): task['usage'] = data['usage']
         if subtype=='task_notification' and data.get('status'): task['status'] = data['status']
+        elif subtype=='task_started': task['status'] = 'running'  # a stopped subagent can be resumed
 
         elif subtype=='task_updated':
             patch = data.get('patch') if isinstance(data.get('patch'),dict) else {}
@@ -219,6 +254,7 @@ class ItemBuilder:
             if kind == 'message_start':
                 changed=self.set_activity(None)
                 if changed: out.append(changed)
+                out.extend(self.drop_stale_streams())
                 self.stream_message_id = event.get('message',{}).get('id',msg.uuid)
             elif kind == 'content_block_start':
                 index = event.get('index',0)
@@ -230,7 +266,9 @@ class ItemBuilder:
                                  **({'text':'','streaming':True} if btype!='tool_use' else
                                     {'tool_use_id':iid,'name':block.get('name',''),'input':{},'input_partial':'','streaming':True,'result':None}))
                     value['id'] = iid
-                    if btype=='thinking': self.started[iid] = time.monotonic()
+                    if btype=='thinking':
+                        self.started[iid] = time.monotonic()
+                        value['started_at'] = int(time.time()*1000)  # lets a reopened chat keep the "thinking for" clock
                     self.streamed[(getattr(self,'stream_message_id',msg.uuid),index)] = iid
                     out.append(self.add(value))
             elif kind == 'content_block_delta':
@@ -304,6 +342,9 @@ class ItemBuilder:
                 if note['task_id'] not in self.notified:
                     self.notified.add(note['task_id'])
                     out.append(self.add(task_notice(self.note_parent(note,parent),note)))
+            elif (text := system_prompt_notice(msg.content)):
+                out.extend(self.drop_stale_streams())
+                out.append(self.notice('info',text))
             elif is_synthetic_message(msg):
                 pass
             else:
@@ -316,7 +357,13 @@ class ItemBuilder:
             if msg.subtype=='status':
                 status=msg.data.get('status')
                 if status in ('requesting','compacting'):
-                    changed=self.set_activity({'kind':status,'at':now()})
+                    # Slash commands are never echoed back as user turns; compaction starting is the delivery signal.
+                    head=self.find(self.pending[0]) if status=='compacting' and self.pending else None
+                    manual=bool(head and (head.get('text') or '').strip().startswith('/compact'))
+                    changed=self.set_activity({'kind':status,'at':now(),**({'manual':manual} if status=='compacting' else {})})
+                    if manual:
+                        out.append(self.patch(self.pending.popleft(),{'pending':False,'queued':False}))
+                        self.delivered_commands+=1
                 elif self.activity and self.activity['kind']=='compacting':
                     changed=self.set_activity(None)
                 else: changed=None
@@ -352,15 +399,22 @@ class ItemBuilder:
                     note={'task_id':tid,'tool_use_id':msg.data.get('tool_use_id') or '',
                           'status':msg.data.get('status') or '','summary':msg.data.get('summary') or ''}
                     out.append(self.add(task_notice(self.note_parent(note),note)))
-            elif 'compact' in msg.subtype.lower(): out.append(self.notice('info','Conversation compacted'))
+            elif 'compact' in msg.subtype.lower():
+                changed=self.set_activity(None) if self.activity and self.activity['kind']=='compacting' else None
+                if changed: out.append(changed)
+                meta=msg.data.get('compact_metadata') or msg.data.get('compactMetadata') or {}
+                out.append(self.notice('info','Conversation compacted' if meta.get('trigger')!='auto' else 'Conversation auto-compacted'))
             else: log.debug('Ignoring system message subtype: %s', msg.subtype)
         elif isinstance(msg, ResultMessage):
             changed=self.set_activity(None)
             if changed: out.append(changed)
+            out.extend(self.drop_stale_streams())
             result = item('result',subtype=msg.subtype,is_error=msg.is_error,duration_ms=msg.duration_ms,
                           num_turns=msg.num_turns,cost_usd=0,total_cost_usd=0,
                           usage=msg.usage or {},terminal_reason=msg.terminal_reason)
-            out.append(self.add(result))
+            # Background-task notifications wake the CLI for empty turns; don't render a bare "Done" for each.
+            if self.turn_content or msg.is_error: out.append(self.add(result))
+            self.turn_content = False
             for error in msg.errors or []:
                 if not str(error).startswith('[ede_diagnostic]'): out.append(self.notice('error',error))
             self.sdk_session_id = msg.session_id or self.sdk_session_id

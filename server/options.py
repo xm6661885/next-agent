@@ -44,7 +44,8 @@ def build_options(agent, session, defaults, server_cfg, can_use_tool, resume=Non
                   add_dirs=agent.add_dirs,env=env,mcp_servers=agent.mcp_servers,
                   agents=definitions or None,max_turns=agent.max_turns or None,
                   max_budget_usd=agent.max_budget_usd or None,fallback_model=eff['fallback_model'] or None,
-                  cli_path=server_cfg.cli_path or None,stderr=stderr)
+                  cli_path=server_cfg.cli_path or None,stderr=stderr,
+                  max_buffer_size=64*1024*1024)
     if '*' not in agent.tools: kwargs['tools']=agent.tools
     if resume:
         kwargs['resume']=resume
