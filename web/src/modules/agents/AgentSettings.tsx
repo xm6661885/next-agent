@@ -8,7 +8,7 @@ import { Avatar, CRAB_COLORS, Crab } from '../../components/crab'
 import { BackButton, Segmented, Switch, TopBar, confirmDialog, useScrolled } from '../../components/ui'
 import { IconChevronDown, IconTrash } from '../../components/icons'
 import { FileOutputFields, GenUIFields, IdleFields, ModelFields, OverrideCard, PermissionFields, SystemPromptFields } from '../../components/SettingGroups'
-import type { Agent, Effective, OverrideGroup } from '../../lib/types'
+import type { Agent, ConfigForm, Effective, OverrideGroup } from '../../lib/types'
 
 const GROUP_FIELDS: Record<OverrideGroup, (keyof Effective)[]> = {
   model: ['model', 'effort', 'fallback_model', 'thinking', 'thinking_budget'], permissions: ['permission_mode'], system_prompt: ['system_prompt_mode', 'system_prompt'],
@@ -21,7 +21,7 @@ const BLANK: Partial<Agent> = {
   claude_md: 'inherit', setting_sources: ['user', 'project', 'local'], tools: ['*'], auto_memory: true, allowed_tools: [], disallowed_tools: [],
   add_dirs: [], max_turns: 0, max_budget_usd: 0, env: {}, mcp_servers: {}, agents: {}, enable_file_checkpointing: true,
   file_output: true, file_output_prompt: '', genui: true, genui_prompt: '', genui_widgets: {}, idle_mode: 'timer', idle_timeout_min: 10, adaptive_keep: 1,
-  override_groups: [], extra_args: {},
+  override_groups: [], extra_args: {}, builtin_mcp: {}, as_subagent: false,
 }
 
 const lines = (v: string) => v.split('\n').map((s) => s.trim()).filter(Boolean)
@@ -61,6 +61,9 @@ export function AgentSettings({ agentId }: { agentId?: string }) {
       // The CLAUDE.md location depends on the mode; reload once the mode is saved.
     }
   }, [a?.claude_md])
+
+  const [form, setForm] = useState<ConfigForm | null>(null)
+  useEffect(() => { api.config().then(setForm).catch(() => {}) }, [])
 
   if (!a) {
     return (
@@ -301,6 +304,27 @@ export function AgentSettings({ agentId }: { agentId?: string }) {
             <div class="row">
               <span class="label">File checkpoints<span class="hint">Lets you rewind file changes from a message.</span></span>
               <Switch on={!!a.enable_file_checkpointing} onChange={(v) => set('enable_file_checkpointing', v)} label="File checkpoints" />
+            </div>
+          </div>
+
+          <div class="group-title">Built-in tools</div>
+          <div class="group">
+            {([['enabled', 'Built-in tools'], ['schedules', 'Schedules'], ['history', 'History'], ['collab', 'Collaboration']] as const).map(([k, label]) => {
+              const cur = a.builtin_mcp?.[k]
+              const g = form?.builtin_mcp?.[k]
+              return (
+                <div class="field" key={k}><span class="flabel">{label}</span>
+                  <Segmented value={cur === undefined ? 'inherit' : cur ? 'on' : 'off'} onChange={(x) => {
+                    const next = { ...(a.builtin_mcp || {}) }
+                    if (x === 'inherit') delete next[k]; else next[k] = x === 'on'
+                    set('builtin_mcp', next)
+                  }} options={[{ value: 'inherit', label: `Global (${g ? 'on' : 'off'})` }, { value: 'on', label: 'On' }, { value: 'off', label: 'Off' }]} />
+                </div>
+              )
+            })}
+            <div class="row">
+              <span class="label">Available as a subagent<span class="hint">Other agents with collaboration on can hand tasks to this one.</span></span>
+              <Switch on={!!a.as_subagent} onChange={(v) => set('as_subagent', v)} label="Available as a subagent" />
             </div>
           </div>
 

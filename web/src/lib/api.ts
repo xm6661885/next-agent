@@ -118,7 +118,7 @@ export const api = {
 
   status: () => get<{ live: number; max_concurrent: number; queued: number; memory_mb: number }>('/api/status'),
   config: () => get<ConfigForm>('/api/config'),
-  updateConfig: (p: Partial<{ server: Partial<ConfigForm['server']>; defaults: Partial<ConfigForm['defaults']>; pricing: ConfigForm['pricing'] }>) =>
+  updateConfig: (p: Partial<{ server: Partial<ConfigForm['server']>; defaults: Partial<ConfigForm['defaults']>; pricing: ConfigForm['pricing']; builtin_mcp: Partial<ConfigForm['builtin_mcp']> }>) =>
     patch<ConfigForm>('/api/config', p),
   fileUrl: (sid: string, path: string, download = false) =>
     `/api/sessions/${enc(sid)}/files?path=${enc(path)}${download ? '&download=1' : ''}`,

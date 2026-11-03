@@ -222,7 +222,7 @@ async def test_config_assistants_uploads_and_delete(chat):
     assert m.core.modules['raw_configs']['chat'] is m.config
     assert (await c.get('/api/chat/assistants')).json()==[]
     default = (await c.get('/api/chat/assistants/_default')).json()
-    assert default['name']=='Chat' and default['avatar']=='crab:gray'
+    assert default['name']=='Temporary chat' and default['avatar']=='crab:gray'
     assert (await c.delete('/api/chat/assistants/_default')).status_code==400
     config = (await c.get('/api/chat/config')).json()
     provider = config['providers'][0]

@@ -177,7 +177,8 @@ class SessionRuntime:
     def _build_options_for_key(self):
         agent = self.manager.session_agent(self.session)
         return build_options(agent,self.session,self.manager.config.config.defaults,self.manager.config.config.server,
-                             None,custom_md_path=self.manager.paths.agents/agent.id/'CLAUDE.md')
+                             None,custom_md_path=self.manager.paths.agents/agent.id/'CLAUDE.md',
+                             builtin=self.manager.core.modules.get('builtin') if self.manager.core else None)
 
     async def _connect(self):
         self.queue_position = self.manager.queue_position()
@@ -215,7 +216,8 @@ class SessionRuntime:
                                  resume_session_at=self.resume_at,
                                  new_session_id=self.fresh_session_id or self.sid if not resume else None,
                                  stderr=self.stderr_tail.append,
-                                 custom_md_path=self.manager.paths.agents/agent.id/'CLAUDE.md')
+                                 custom_md_path=self.manager.paths.agents/agent.id/'CLAUDE.md',
+                                 builtin=self.manager.core.modules.get('builtin') if self.manager.core else None)
             self.options_key = options_key(opts)
             self.client = ClaudeSDKClient(opts)
             await self.client.connect()
@@ -556,6 +558,7 @@ class SessionRuntime:
 class RuntimeManager:
     def __init__(self,paths,config,index,extensions):
         self.paths,self.config,self.index,self.extensions=paths,config,index,extensions
+        self.core=None
         self.runtimes={}
         self.semaphore=ResizableSemaphore(config.config.server.max_concurrent)
         self.global_subscribers=set()

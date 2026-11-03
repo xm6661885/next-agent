@@ -59,6 +59,8 @@ All JSON. Timestamps are ISO-8601 UTC strings. IDs are strings.
   "max_budget_usd": 0,          // 0 = unlimited
   "env": {},
   "mcp_servers": {},            // passed straight to ClaudeAgentOptions.mcp_servers
+  "builtin_mcp": {},            // optional enabled/schedules/history/collab booleans override the global switches
+  "as_subagent": false,         // collaboration tools may start tasks on this agent
   "agents": {},                 // subagent definitions: name -> {description, prompt, tools?, model?}
   "enable_file_checkpointing": true,
   "extra_args": {},
@@ -101,7 +103,7 @@ prefill the fields from `effective`. Unknown group names, or `file_output`/`genu
   "overrides": {"model": null, "effort": null, "permission_mode": null},
   "context": null,              // last get_context_usage() summary {used, max, percent} or null
   "origin": "ui",               // ui | workflow | schedule | subagent | external. Absent on old entries = "ui"
-  "parent": null,               // {module, session_id, task_id} for subagent sessions; {run_id, block_id} for workflow
+  "parent": null,               // {module, session_id, task_id} for subagent sessions; {module: "workflow", run_id, block_id} for workflow
   "extra": null,                // per-session launch options set by AgentBridge, applied on top of the agent:
                                 // {append_system_prompt, allowed_tools, disallowed_tools, max_turns, max_budget_usd,
                                 //  add_dirs, env, output_schema (JSON schema -> output_format), setting_sources}

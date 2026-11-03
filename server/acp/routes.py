@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field, ValidationError
 from ..paths import atomic_write
 from .client import AcpConnection
 from .store import page
+from .config import AcpServer
 
 
 class Title(BaseModel):
@@ -148,6 +149,16 @@ def router(core, manager):
 
     @api.put('/api/acp/groups')
     async def set_groups(body: Groups): return {'groups': manager.set_groups(body.groups, body.renames)}
+
+    @api.get('/api/acp/settings')
+    async def settings(): return manager.config.data.server.model_dump()
+
+    @api.patch('/api/acp/settings')
+    async def set_settings(body: AcpServer):
+        if 'server' not in manager.config.doc: manager.config.doc['server'] = {}
+        manager.config.doc['server']['idle_timeout_min'] = body.idle_timeout_min
+        manager.config.save()
+        return manager.config.data.server.model_dump()
 
     @api.get('/api/acp/agents/{aid}')
     async def agent(aid: str): return manager.agent_view(manager.agent(aid))

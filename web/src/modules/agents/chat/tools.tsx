@@ -8,6 +8,7 @@ import { Spark } from '../../../components/crab'
 import { IconChevron, IconCheck, IconClose } from '../../../components/icons'
 import { shortPath } from '../../../lib/util'
 import { subagentView } from './Subagent'
+import { remoteTaskView, taskOf } from './RemoteTask'
 
 function short(s: unknown, n = 90): string {
   const t = typeof s === 'string' ? s : JSON.stringify(s ?? '')
@@ -38,6 +39,13 @@ export function toolSummary(it: ToolItem): { verb: string; arg: string } {
     case 'ExitPlanMode': return { verb: 'Plan ready', arg: '' }
     case 'Skill': return { verb: 'Skill', arg: short(i.skill || i.command) }
     case 'SlashCommand': return { verb: 'Command', arg: short(i.command) }
+  }
+  if (n.startsWith('mcp__next__')) {
+    const t = n.slice(11)
+    const label: Record<string, string> = { schedule_create: 'Schedule', schedule_list: 'Schedules', schedule_delete: 'Delete schedule',
+      history_list: 'History', history_search: 'Search history', history_read: 'Read history', agents_list: 'List agents',
+      task_create: 'Delegate', task_status: 'Task status', task_send: 'Message task', task_stop: 'Stop task', task_list: 'Tasks' }
+    return { verb: label[t] || t, arg: short(i.title || i.prompt || i.query || i.agent_id || i.task_id || i.session_id || '', 70) }
   }
   if (n.startsWith('mcp__')) {
     const [, server, ...rest] = n.split('__')
@@ -75,6 +83,7 @@ export function ToolCard({ it, children }: { it: ToolItem; children?: Item[] }) 
   const running = !it.result
   const err = !!it.result?.is_error
   const isTask = it.name === 'Task' || it.name === 'Agent'
+  const remote = taskOf(it)
 
   if (it.name === 'TodoWrite') return <TodoCard it={it} />
   if (it.name === 'AskUserQuestion' && it.result && it.input?.questions?.length) return <AnsweredQuestionCard it={it} />
@@ -97,6 +106,7 @@ export function ToolCard({ it, children }: { it: ToolItem; children?: Item[] }) 
           {!running && (it.duration_ms || 0) >= 1000 && <span class="tool-time">{fmtSecs(it.duration_ms!)}</span>}
           {autoOpenable && !running && !err && <DiffStat it={it} />}
           {isTask && <ViewAgent id={it.tool_use_id} />}
+          {remote && <button class="tool-view" onClick={() => { remoteTaskView.value = remoteTaskView.value?.task_id === remote.task_id ? null : remote }}>{remoteTaskView.value?.task_id === remote.task_id ? 'Hide' : 'Watch'}</button>}
         </div>
       )}
       {!expanded && isTask && running && children && children.length > 0 && (

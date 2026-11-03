@@ -34,8 +34,9 @@ class AgentBridge:
         return session['id']
 
     async def run_claude(self, agent_id, prompt, *, session_id=None, title='', origin='workflow', parent=None,
-                         cwd=None, overrides=None, extra=None):
+                         cwd=None, overrides=None, extra=None, on_session=None):
         sid=self._session(agent_id,session_id,title,origin,parent,cwd,overrides,extra)
+        if on_session: on_session(sid)
         return await self.manager.run_turn(sid,prompt)
 
     def start_claude(self, agent_id, prompt, *, session_id=None, title='', origin='workflow', parent=None,
@@ -54,8 +55,9 @@ class AgentBridge:
         if module is None: raise RuntimeError('ACP module unavailable')
         return module
 
-    async def run_acp(self, agent_id, prompt, *, session_id=None, title='', origin='workflow', parent=None):
-        return await self.acp().run_turn(agent_id,prompt,session_id=session_id,title=title,origin=origin,parent=parent)
+    async def run_acp(self, agent_id, prompt, *, session_id=None, title='', origin='workflow', parent=None, on_session=None):
+        callback={'on_session':on_session} if on_session is not None else {}
+        return await self.acp().run_turn(agent_id,prompt,session_id=session_id,title=title,origin=origin,parent=parent,**callback)
 
     def start_acp(self, agent_id, prompt, *, session_id=None, title='', origin='workflow', parent=None):
         return self.acp().start_turn(agent_id,prompt,session_id=session_id,title=title,origin=origin,parent=parent)

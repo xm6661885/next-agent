@@ -56,6 +56,8 @@ export interface Agent {
   /** Groups whose fields this agent sets itself; the rest follow [defaults]. */
   override_groups: OverrideGroup[]
   extra_args: Record<string, string | null>
+  builtin_mcp: Partial<BuiltinSwitches>
+  as_subagent: boolean
   created_at: string
   order: number
   status?: AgentStatus
@@ -284,6 +286,7 @@ export interface ConfigForm {
   default_file_output_prompt: string
   default_genui_prompt: string
   default_genui_widgets: Record<string, string>
+  builtin_mcp: BuiltinSwitches
 }
 
 export type Activity =
@@ -326,3 +329,5 @@ export interface MemoryListing {
   global: MemoryFile | null
   projects: { id: string; cwd: string | null; mtime: number; files: MemoryFile[] }[]
 }
+
+export interface BuiltinSwitches { enabled: boolean; schedules: boolean; history: boolean; collab: boolean }

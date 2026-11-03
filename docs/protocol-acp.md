@@ -105,6 +105,7 @@ patched at most once per second and at turn end). The remote replay during `sess
 | POST | `/api/acp/agents` | partial AcpAgent (`name`, `host`, `port` required; `id` optional, derived like Claude agents) | `AcpAgent` (`409` id exists, `422` invalid) |
 | GET/PATCH/DELETE | `/api/acp/agents/{id}` | partial AcpAgent | `AcpAgent` / `{ok}` (DELETE stops sessions and removes their index entries and items) |
 | POST | `/api/acp/agents/reorder` | `{ids}` | `{ok}` |
+| GET/PATCH | `/api/acp/settings` | `{idle_timeout_min}` | `{idle_timeout_min}` (`[server]` of acp.toml) |
 | GET/PUT | `/api/acp/groups` | `{groups, renames?}` | `{groups}` same rules as `/api/groups` |
 | GET/POST | `/api/acp/agents/{id}/avatar` | multipart `file` | bytes / `AcpAgent` |
 | POST | `/api/acp/agents/{id}/test` | | `{ok, info, config_options, error?}`: connect, initialize, `session/new`, read options, close. Never `5xx` for a connection failure: `{ok:false, error}` |

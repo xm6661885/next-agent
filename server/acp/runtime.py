@@ -369,15 +369,16 @@ class AcpManager:
         self.session_state(session['id'])
         return self.view(session['id'])
 
-    def _turn(self, aid, prompt, session_id=None, title='', origin='workflow', parent=None):
+    def _turn(self, aid, prompt, session_id=None, title='', origin='workflow', parent=None, on_session=None):
         self.agent(aid)
         if session_id:
             if self.session(session_id)['agent_id']!=aid: raise ValueError('Session belongs to another agent')
         else: session_id = self.create_session(aid, title, origin, parent)['id']
+        if on_session: on_session(session_id)
         return session_id, self.runtime(session_id).enqueue(prompt)
 
-    async def run_turn(self, agent_id, prompt, *, session_id=None, title='', origin='workflow', parent=None):
-        sid, future = self._turn(agent_id, prompt, session_id, title, origin, parent)
+    async def run_turn(self, agent_id, prompt, *, session_id=None, title='', origin='workflow', parent=None, on_session=None):
+        sid, future = self._turn(agent_id, prompt, session_id, title, origin, parent, on_session)
         return await asyncio.shield(future)
 
     def start_turn(self, agent_id, prompt, *, session_id=None, title='', origin='subagent', parent=None):

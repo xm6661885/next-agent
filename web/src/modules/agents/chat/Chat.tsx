@@ -13,6 +13,7 @@ import { Composer } from './Composer'
 import { BtwSheet } from './Btw'
 import { TaskTray } from './Tasks'
 import { SubagentPanel, subagentView } from './Subagent'
+import { RemoteTaskPanel, remoteTaskView } from './RemoteTask'
 import { PermissionCard } from './cards'
 import { ToolCard } from './tools'
 import { mathVersion, renderMarkdown, renderStreaming, setCodeCards } from './markdown'
@@ -361,7 +362,7 @@ export function Chat({ agentId, sessionId }: { agentId: string; sessionId: strin
     markUser()
     setUnfolded((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n })
   }
-  useEffect(() => () => { subagentView.value = null }, [sessionId])
+  useEffect(() => () => { subagentView.value = null; remoteTaskView.value = null }, [sessionId])
   const watchedTask = subagentView.value ? conn.tasks.value.find((t) => t.tool_use_id === subagentView.value) : undefined
   // The Agent call can sit before the loaded page (e.g. after coming back to a long chat); stand in a stub from its task.
   const watched = !subagentView.value ? undefined
@@ -408,6 +409,7 @@ export function Chat({ agentId, sessionId }: { agentId: string; sessionId: strin
 
       {watched && <SubagentPanel conn={conn} tool={watched} items={children.get(watched.id) || []}
         task={watchedTask} />}
+      {!watched && remoteTaskView.value && <RemoteTaskPanel key={remoteTaskView.value.task_id} task={remoteTaskView.value} />}
       <div class="chat-scroll" ref={scroller} onScroll={onScroll}
         onTouchStart={markUser} onTouchMove={markUser} onTouchEnd={markUser} onWheel={markUser} onKeyDown={markUser} onMouseDown={markUser}>
         <div class="chat-inner">

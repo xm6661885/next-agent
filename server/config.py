@@ -107,6 +107,7 @@ def claude_code_defaults():
 
 EFFORT_VALUES = ('low', 'medium', 'high', 'xhigh', 'max')
 THINKING_VALUES = ('adaptive', 'enabled', 'disabled')
+BUILTIN_DEFAULTS = dict(enabled=False, schedules=True, history=True, collab=True)
 
 def now():
     return datetime.now(timezone.utc).isoformat()
@@ -217,6 +218,8 @@ class AgentSettings(BaseModel):
     max_budget_usd: float = Field(default=0, ge=0)
     env: dict[str, str] = Field(default_factory=dict)
     mcp_servers: dict[str, Any] = Field(default_factory=dict)
+    builtin_mcp: dict[Literal['enabled','schedules','history','collab'], StrictBool] = Field(default_factory=dict)
+    as_subagent: StrictBool = False
     agents: dict[str, dict[str, Any]] = Field(default_factory=dict)
     enable_file_checkpointing: bool = True
     file_output: StrictBool = True
@@ -335,7 +338,14 @@ class Config(BaseModel):
     agents: list[Agent] = Field(default_factory=list)
     temp_agent: TempAgent | None = None
     extensions: dict[str, Any] = Field(default_factory=dict)
-    builtin_mcp: dict[str, Any] = Field(default_factory=dict)
+    builtin_mcp: dict[str, Any] = Field(default_factory=lambda: dict(BUILTIN_DEFAULTS))
+
+    @field_validator('builtin_mcp')
+    @classmethod
+    def builtin_switches(cls, value):
+        if any(key in value and type(value[key]) is not bool for key in BUILTIN_DEFAULTS):
+            raise ValueError('builtin_mcp switches must be booleans')
+        return {**BUILTIN_DEFAULTS, **value} if not value or value.keys() & BUILTIN_DEFAULTS.keys() else value
 
 DEFAULT_CORE = '''# next-agent core settings: login, external API, and the Claude CLI shared by Agents and Workflow
 [server]
@@ -368,6 +378,12 @@ idle_mode = "timer"         # timer | adaptive | never
 idle_timeout_min = 10       # 0 disables timer sleep
 adaptive_keep = 1           # live CLIs kept per agent in adaptive mode
 artifacts = true            # show conversation artifacts in the client
+
+[builtin_mcp]
+# enabled = false
+# schedules = true
+# history = true
+# collab = true
 
 [[agents]]
 id = "claude"

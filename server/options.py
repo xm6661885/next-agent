@@ -8,7 +8,8 @@ from .config import effective, genui_text
 log = logging.getLogger(__name__)
 
 def build_options(agent, session, defaults, server_cfg, can_use_tool, resume=None, fork=False,
-                  resume_at=None, resume_session_at=None, new_session_id=None, stderr=None, custom_md_path=None):
+                  resume_at=None, resume_session_at=None, new_session_id=None, stderr=None, custom_md_path=None,
+                  builtin=None):
     overrides = session.get('overrides',{})
     extra = session.get('extra') or {}
     eff = effective(agent, defaults)
@@ -51,6 +52,10 @@ def build_options(agent, session, defaults, server_cfg, can_use_tool, resume=Non
                   max_buffer_size=64*1024*1024)
     for key in ('allowed_tools','disallowed_tools','add_dirs','setting_sources'):
         if extra.get(key) is not None: kwargs[key]=extra[key]
+    categories = builtin.categories_for(agent,session) if builtin else ()
+    if categories:
+        kwargs['mcp_servers']={**kwargs['mcp_servers'],**builtin.servers_for(agent,session)}
+        kwargs['allowed_tools']=list(dict.fromkeys([*kwargs['allowed_tools'],*builtin.allowed_tools(categories)]))
     for key in ('max_turns','max_budget_usd'):
         if extra.get(key): kwargs[key]=extra[key]
     if isinstance(extra.get('output_schema'),dict):
@@ -65,11 +70,16 @@ def build_options(agent, session, defaults, server_cfg, can_use_tool, resume=Non
             kwargs['resume_session_at']=resume_session_at
     elif new_session_id:
         kwargs['session_id']=new_session_id
-    return ClaudeAgentOptions(**kwargs)
+    opts = ClaudeAgentOptions(**kwargs)
+    if categories: opts._builtin_categories=categories
+    return opts
 
 # Fields that only describe how to attach to the session, not how the CLI behaves.
 _SESSION_FIELDS = {'can_use_tool','stderr','resume','fork_session','resume_session_at','session_id'}
 
 def options_key(opts):
     """Comparable fingerprint of the settings a running CLI was launched with."""
-    return repr({k:v for k,v in vars(opts).items() if k not in _SESSION_FIELDS})
+    values = {k:v for k,v in vars(opts).items() if k not in _SESSION_FIELDS}
+    if getattr(opts,'_builtin_categories',None):
+        values['mcp_servers']={**values['mcp_servers'],'next':opts._builtin_categories}
+    return repr(values)

@@ -41,7 +41,7 @@ export function tabOf(r: Route): Tab {
   if (r.name === 'more' || r.name === 'about' || r.name.startsWith('settings') || r.name === 'memory') return 'more'
   return 'agents'
 }
-export const isTabRoot = (r: Route) => r.name === 'home' || r.name === 'chats' || r.name === 'workflows' || r.name === 'more'
+export const isTabRoot = (r: Route) => r.name === 'home' || r.name === 'chats' || r.name === 'workflows' || r.name === 'wf-console' || r.name === 'wf-runs' || r.name === 'more'
 export const tabRoot = (t: Tab): Route => ({ chat: { name: 'chats' }, agents: { name: 'home' }, workflow: { name: 'workflows' }, more: { name: 'more' } } as const)[t]
 
 export function parse(path: string): Route {

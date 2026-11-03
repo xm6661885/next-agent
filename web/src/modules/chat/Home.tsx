@@ -44,7 +44,7 @@ export function ChatHome() {
   const noModels = meta && !meta.models.length
 
   return (
-    <div class="page with-tabbar">
+    <div class="page">
       <TopBar scrolled={scrolled}
         right={<div class="topbar-actions"><button class="icon-btn" aria-label="Chat settings" onClick={() => navigate({ name: 'settings-section', section: 'chat-providers' })}><IconSettings /></button></div>}>
         {scrolled && <span class="fade-in">Chat</span>}
@@ -53,11 +53,6 @@ export function ChatHome() {
         <div class="container">
           <h1 class="large-title rise">Chat</h1>
           <p class="subtitle rise" style={{ '--i': 1 }}>{noModels ? 'Add a model provider to start chatting.' : 'Talk to a model directly.'}</p>
-          {noModels && (
-            <button class="btn primary rise" style={{ '--i': 1, marginBottom: '14px' }} onClick={() => navigate({ name: 'settings-section', section: 'chat-providers' })}>
-              <IconPlus width={18} height={18} /> Add a provider
-            </button>
-          )}
           <DefaultCard meta={meta} />
           <div class="group-title">Assistants</div>
           {list === null ? (
@@ -81,18 +76,19 @@ function DefaultCard({ meta }: { meta: ChatMeta | null }) {
   const stamp = Object.values(moduleSessions.value).filter((s) => s.module === 'chat' && s.assistant_id === DEFAULT_ASSISTANT).map((s) => `${s.id}${s.title}${s.updated_at}${s.state}`).join()
   useEffect(() => { chatApi.assistant(DEFAULT_ASSISTANT).then(setA).catch(() => {}) }, [chatVersion.value])
   useEffect(() => { chatApi.sessions(DEFAULT_ASSISTANT).then(setList).catch(() => {}) }, [stamp, chatVersion.value])
-  const shown = a || { id: DEFAULT_ASSISTANT, name: 'Chat', avatar: 'crab:gray', order: 0 } as Assistant
+  const shown = a || { id: DEFAULT_ASSISTANT, name: 'Temporary chat', avatar: 'crab:gray', order: 0 } as Assistant
   const model = a?.model || meta?.defaults.model || meta?.models[0]?.id || ''
   const rows = (list || []).slice(0, 5)
   const start = async () => { haptic(); try { await openNewChat(DEFAULT_ASSISTANT) } catch (e) { toastError(e) } }
   return (
     <section class="temp-section rise" style={{ '--i': 2, marginTop: 0 }}>
+      <div class="group-title">Temporary</div>
       <div class="temp-card">
         <button class="temp-card-top press" onClick={() => navigate({ name: 'assistant', assistantId: DEFAULT_ASSISTANT })}>
           <AssistantAvatar a={shown} size={52} busy={live.running > 0} />
           <div class="agent-card-name">
             <div class="n">{shown.name}{live.unread > 0 && <span class="unread-dot" aria-label="Unread" />}</div>
-            <div class="p">{list?.length ? `${list.length} chat${list.length > 1 ? 's' : ''}` : 'Quick chats'}{model ? ` · ${modelLabel(model)}` : ''}</div>
+            <div class="p">{list?.length ? `${list.length} chat${list.length > 1 ? 's' : ''}` : 'One-off chats with the defaults'}{model ? ` · ${modelLabel(model)}` : ''}</div>
           </div>
         </button>
         {rows.length > 0 && <div class="temp-card-list">{rows.map((s) => <SessionRow key={s.id} s={s} />)}</div>}

@@ -25,6 +25,7 @@ export const moduleSessions = signal<Record<string, LiveSession & { module: stri
 export const acpVersion = signal(0)
 export const chatVersion = signal(0)
 export const workflowVersion = signal(0)
+export const schedulesVersion = signal(0)
 
 /** Per-tab count of sessions that need the user (pending requests), for the tab bar dot. */
 export const attention = computed(() => {
@@ -100,6 +101,7 @@ export function connectEvents() {
     } else if (msg.type === 'session_state' && msg.module && msg.module !== 'agents') {
       moduleSessions.value = { ...moduleSessions.value, [msg.session_id]: { ...moduleSessions.value[msg.session_id], ...msg, id: msg.session_id } }
     } else if (msg.type === 'acp_agents_changed') { acpVersion.value++
+    } else if (msg.type === 'schedules_changed') { schedulesVersion.value++
     } else if (msg.type === 'chat_changed') { chatVersion.value++
     } else if (msg.type === 'workflow_changed' || msg.type === 'run_state') { workflowVersion.value++
     } else if (msg.type === 'session_state') {

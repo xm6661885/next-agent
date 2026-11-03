@@ -5,6 +5,7 @@ import os
 import mimetypes
 from contextlib import asynccontextmanager
 from pathlib import Path
+from types import SimpleNamespace
 import hmac
 import tomlkit
 from datetime import datetime, timezone
@@ -62,6 +63,7 @@ def create_app(data_dir=None):
     raw_configs={name:RawConfig(config,name,config_changed) for name in ('core','agents')}
     core.modules['raw_configs']=raw_configs
     core.bridge=AgentBridge(core,manager)
+    manager.core=core
     @asynccontextmanager
     async def lifespan(app):
         manager.reaper_task=asyncio.create_task(manager.reaper())
@@ -498,6 +500,9 @@ def create_app(data_dir=None):
     @app.websocket('/ws/events')
     async def ws_events(ws:WebSocket): await events_socket(ws,auth,manager,agents,core)
     # Modules register their own routes; order matters only for the SPA catch-all below, which must stay last.
+    core.modules['agents']=SimpleNamespace(settings=lambda:config.config.builtin_mcp,
+        agents=lambda:[*config.config.agents,manager.agent(TEMP_AGENT)],
+        sessions=lambda:list(index.sessions.values()),search=agent_search)
     for module in (acp, builtin, chat, workflow): module.mount(app,core)
     dist=Path(__file__).resolve().parents[1]/'web'/'dist'
     if dist.exists():

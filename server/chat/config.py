@@ -26,7 +26,7 @@ class Defaults(Settings):
 
 
 class DefaultAssistant(Settings):
-    name: str = Field(default='Chat', min_length=1)
+    name: str = Field(default='Temporary chat', min_length=1)
     avatar: str = 'crab:gray'
     description: str = ''
     mcp: list[str] = Field(default_factory=list)
@@ -92,7 +92,7 @@ mcp = []
 title_model = ""
 
 [default_assistant]
-name = "Chat"
+name = "Temporary chat"
 avatar = "crab:gray"
 description = ""
 model = ""

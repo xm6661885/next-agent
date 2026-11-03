@@ -339,6 +339,10 @@ async def test_rest_config_sessions_uploads_and_auth(acp):
     await c.put('/api/acp/groups', json={'groups': ['Renamed'], 'renames': {'Work': 'Renamed'}})
     assert m.agent('phone').group=='Renamed'
     assert (await c.put('/api/acp/groups', json={'groups': ['x', 'x']})).status_code==422
+    assert (await c.patch('/api/acp/settings', json={'idle_timeout_min': 3})).json()=={'idle_timeout_min': 3}
+    assert m.config.data.server.idle_timeout_min==3
+    assert (await c.patch('/api/acp/settings', json={'idle_timeout_min': -1})).status_code==422
+    await c.patch('/api/acp/settings', json={'idle_timeout_min': 10})
     assert (await c.post('/api/acp/agents/reorder', json={'ids': []})).status_code==400
     assert (await c.post('/api/acp/agents/reorder', json={'ids': ['phone']})).status_code==200
     tested = (await c.post('/api/acp/agents/phone/test')).json()

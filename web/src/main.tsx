@@ -4,6 +4,7 @@ import './styles/base.css'
 import './styles/components.css'
 import './styles/pages.css'
 import './styles/chat.css'
+import './styles/workflow.css'
 
 // Track the visual viewport so the composer sits right above the iOS keyboard.
 function syncViewport() {
