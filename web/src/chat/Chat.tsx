@@ -194,11 +194,10 @@ export function Chat({ agentId, sessionId }: { agentId: string; sessionId: strin
   const send = async (text: string, atts: Attachment[], steerNow: boolean) => {
     const client_id = uid()
     // Only messages sent into a running turn are steers; the rest start a turn and need no "Queued" tag.
-    if (busy && !steerNow) steered.current.add(client_id)
+    if (busy) steered.current.add(client_id)
     stick.current = true
-    conn.addLocalUser(client_id, text, atts, busy)
-    if (steerNow && busy) await conn.send({ type: 'interrupt' })
-    const err = await conn.send({ type: 'send', client_id, text, attachments: atts.map((a) => a.id) })
+    conn.addLocalUser(client_id, text, atts, busy && !steerNow)
+    const err = await conn.send({ type: 'send', client_id, text, attachments: atts.map((a) => a.id), ...(steerNow && busy ? { now: true } : {}) })
     if (err) {
       conn.removeLocal(client_id)
       toast(err, 'error')
@@ -505,7 +504,6 @@ export function Chat({ agentId, sessionId }: { agentId: string; sessionId: strin
   )
 }
 
-// Set when the user presses Compact, so the indicator can tell manual from auto compaction.
 const fmtSecs = (s: number) => s >= 60 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${Math.max(0, s)}s`
 
 // Claude Code's own thinking phrases, by time spent thinking.
@@ -599,7 +597,7 @@ function QueueTray({ items, conn, onEdit }: { items: Item[]; conn: ChatConn; onE
           <span class="queue-label">Queued</span>
           <span class="queue-text">{u.text || (u.attachments.length ? `${u.attachments.length} file${u.attachments.length > 1 ? 's' : ''}` : '')}</span>
           <button class="icon-btn" aria-label="Edit queued message" title="Edit" disabled={local(u)} onClick={() => edit(u)}><IconEdit width={16} height={16} /></button>
-          <button class="icon-btn steer-btn" aria-label="Interrupt and send now" title="Interrupt and send now" disabled={local(u)} onClick={() => now(u)}><IconSteer /></button>
+          <button class="icon-btn steer-btn" aria-label="Send now" title="Send now" disabled={local(u)} onClick={() => now(u)}><IconSteer /></button>
         </div>
       ))}
     </div>
@@ -835,7 +833,7 @@ function ControlsSheet({ open, onClose, conn, agent, mode, onMode, onModel, onRe
           <button onClick={onFork}><IconFork /> Fork conversation</button>
           <button disabled={!session?.sdk_session_id} onClick={async () => {
             close()
-            const err = await conn.send({ type: 'send', client_id: crypto.randomUUID(), text: '/compact', attachments: [] })
+            const err = await conn.send({ type: 'compact' })
             if (err) toast(err, 'error')
           }}><IconLayers /> Compact context</button>
         </div>

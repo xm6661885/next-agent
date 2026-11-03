@@ -94,6 +94,7 @@ class SessionRuntime:
         self.file_refs_cache = None
         self.viewers = 0
         self.holds_slot = False
+        self.pending_content = {}  # queued item id -> SDK content, so send_now can re-enqueue it
 
     def release_slot(self):
         if self.holds_slot:
@@ -364,12 +365,14 @@ class SessionRuntime:
             if typ=='set_model' and self.session.get('sdk_session_id'):
                 self.emit(self.items.notice('info',f"Model switched to {command[1] or 'default'}"))
 
-    async def _query(self, content, item_id=None):
+    async def _query(self, content, item_id=None, priority=None):
         sdk_id=self.session.get('sdk_session_id') or self.fresh_session_id or self.sid
         found=self.items.find(item_id) if item_id else None
         message={'type':'user','message':{'role':'user','content':content},'parent_tool_use_id':None,'session_id':sdk_id}
         # Our own uuid lets cancel_async_message withdraw the message while it waits in the CLI queue.
         if found and found.get('cli_uuid'): message['uuid']=found['cli_uuid']
+        # priority "now" makes the CLI preempt the running turn and take this message next (Claude Code's send-now).
+        if priority: message['priority']=priority
         async def one():
             yield message
         await self.client.query(one(),session_id=sdk_id)
@@ -418,7 +421,12 @@ class SessionRuntime:
         typ=command[0]
         try:
             if typ=='send':
-                await self._query(command[1]['content'],command[1].get('item'))
+                if command[1].get('compact'): self.items.compact_requested=True
+                item_id=command[1].get('item')
+                if item_id and command[1].get('priority')=='now' and item_id in self.items.pending:
+                    self.items.pending.remove(item_id); self.items.pending.appendleft(item_id)
+                elif item_id and self.state!='idle': self.pending_content[item_id]=command[1]['content']
+                await self._query(command[1]['content'],command[1].get('item'),command[1].get('priority'))
             elif typ=='cancel_queued':
                 found=self.items.find(command[1])
                 if not found or not found.get('pending'): raise ValueError('Message was already delivered')
@@ -427,11 +435,16 @@ class SessionRuntime:
                 self.written=max(0,self.written-1)
                 self.emit(self.items.drop_pending(command[1]))
             elif typ=='send_now':
-                # Interrupt the turn; queued messages stay in the CLI queue and start the next turn.
-                if self.state=='running':
-                    self.permissions.cancel_all()
-                    self.state_change('interrupting')
-                    await self.client.interrupt()
+                # Withdraw the queued message and re-enqueue it with priority "now" so the CLI takes it right away.
+                found=self.items.find(command[1])
+                if not found or not found.get('pending'): raise ValueError('Message was already delivered')
+                response=await self.client._query._send_control_request({'subtype':'cancel_async_message','message_uuid':found['cli_uuid']})
+                if not response.get('cancelled'): raise ValueError('Message was already delivered')
+                found['cli_uuid']=str(uuid4())
+                self.written=max(0,self.written-1)
+                # The CLI takes "now" messages ahead of the rest of its queue; mirror that in the delivery order.
+                self.items.pending.remove(found['id']); self.items.pending.appendleft(found['id'])
+                await self._query(self.pending_content.pop(found['id']),found['id'],'now')
             elif typ=='edit': await self._edit(command[1],command)
             elif typ=='interrupt':
                 self.permissions.cancel_all()
@@ -522,6 +535,7 @@ class SessionRuntime:
                 self.manager.index.update(self.sid,context=self.session['context'])
             except Exception: pass
             self.state_change('running' if self.written else 'idle')
+            if not self.written: self.pending_content.clear()
             if self.restart_needed and not self.written:
                 self.restart_needed=False
                 await self._disconnect()

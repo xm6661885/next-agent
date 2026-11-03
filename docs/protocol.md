@@ -306,8 +306,10 @@ Every message has `type` and may carry `req_id`. Any command that fails gets an 
 |---|---|---|
 | `resume` | `{seq}` | Must be the first message. With `seq` = 0 or null, the server sends a `snapshot`. Otherwise it replays buffered events after `seq` (ring buffer of 500 per session), or sends a `snapshot` when they are gone. |
 | `send` | `{client_id, text, attachments: [attachment_id]}` | Starts the CLI if it's offline (it may queue). In idle state this starts a turn. In running state this is a **steer**: the message is written now and the CLI picks it up at the next tool boundary. The server emits a `user` item with `pending:true` right away, then a `patch {pending:false, uuid}` once the CLI echoes it. |
+| `send` `now:true` | | Optional on `send`: deliver with `priority:"now"` instead of queuing. |
 | `cancel_queued` | `{id}` | Withdraw a queued user item (`queued:true`, still `pending`) from the CLI queue via `cancel_async_message`. Success: `patch {cancelled:true}` (client drops the item). Already consumed: `error`. |
-| `send_now` | `{id}` | Interrupt the running turn; queued messages stay in the CLI queue and start the next turn. |
+| `send_now` | `{id}` | Withdraw the queued item and re-enqueue it with CLI `priority:"now"`: the CLI preempts the current step and reads it next, without stopping the session. |
+| `compact` | `{}` | Run `/compact` right away; no transcript item is created, the `compacting` activity shows progress. |
 | `interrupt` | `{}` | `client.interrupt()`. Open permission requests resolve as deny/cancelled. Pending (unconsumed) steer messages stay queued in the CLI. |
 | `permission_reply` | `{id, decision: "allow"\|"allow_always"\|"deny", message?, answers?, mode?}` | `answers` is for question, as `{question_text: label \| [labels]}`. `mode` is for plan approval (switch permission mode after approval, e.g. "acceptEdits"). |
 | `set_mode` | `{mode}` | `set_permission_mode` live (or stored in overrides when offline), and persists `overrides.permission_mode` |

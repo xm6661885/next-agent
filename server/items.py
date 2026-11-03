@@ -135,6 +135,7 @@ class ItemBuilder:
         self.streamed = {}
         self.pending = deque()
         self.delivered_commands = 0
+        self.compact_requested = False
         self.init = None
         self.tasks = {}
         self.sdk_session_id = None
@@ -198,6 +199,15 @@ class ItemBuilder:
         found = self.find(iid)
         if found: found.update(values)
         return {'type':'patch','id':iid,'patch':values}
+
+    def deliver(self, iid, values):
+        """Mark a pending user item consumed; queued ones move to the end, where Claude read them."""
+        found = self.find(iid)
+        if found and found.get('queued'):
+            self.items.remove(found)
+            self.items.append(found)
+            values = {**values, 'queued': False, 'moved': True}
+        return self.patch(iid, values)
 
     def set_activity(self, value):
         if value == self.activity: return None
@@ -349,7 +359,7 @@ class ItemBuilder:
                 pass
             else:
                 if self.pending:
-                    out.append(self.patch(self.pending.popleft(),{'pending':False,'uuid':msg.uuid}))
+                    out.append(self.deliver(self.pending.popleft(),{'pending':False,'uuid':msg.uuid}))
                 else:
                     text, attachments = user_text(msg.content,self.uploads)
                     out.append(self.add(item('user',parent,text=text,attachments=attachments,uuid=msg.uuid,pending=False,client_id=None)))
@@ -359,10 +369,15 @@ class ItemBuilder:
                 if status in ('requesting','compacting'):
                     # Slash commands are never echoed back as user turns; compaction starting is the delivery signal.
                     head=self.find(self.pending[0]) if status=='compacting' and self.pending else None
-                    manual=bool(head and (head.get('text') or '').strip().startswith('/compact'))
+                    typed=bool(head and (head.get('text') or '').strip().startswith('/compact'))
+                    manual=typed or (status=='compacting' and self.compact_requested)
                     changed=self.set_activity({'kind':status,'at':now(),**({'manual':manual} if status=='compacting' else {})})
-                    if manual:
-                        out.append(self.patch(self.pending.popleft(),{'pending':False,'queued':False}))
+                    if status=='compacting' and self.compact_requested and not typed:
+                        # The menu's Compact sends /compact without a transcript item.
+                        self.compact_requested=False
+                        self.delivered_commands+=1
+                    elif manual:
+                        out.append(self.deliver(self.pending.popleft(),{'pending':False,'queued':False}))
                         self.delivered_commands+=1
                 elif self.activity and self.activity['kind']=='compacting':
                     changed=self.set_activity(None)

@@ -67,10 +67,14 @@ async def session_socket(ws: WebSocket, sid, auth, manager, index, uploads):
                             runtime.session['title']=(msg.get('text') or attachments[0]['name'])[:60]
                             index.update(sid,title=runtime.session['title'])
                             manager.session_state(runtime)
+                        now=bool(msg.get('now')) and runtime.state=='running'
                         pending=runtime.emit(runtime.items.pending_user(msg.get('text',''),
                                      [{k:a[k] for k in ('id','name','mime','size','path','url','is_image')} for a in attachments],
-                                     msg.get('client_id'),queued=runtime.state in ('running','interrupting')))
-                        runtime.submit(('send',{'content':content,'item':pending['item']['id']},req_id,queue))
+                                     msg.get('client_id'),queued=runtime.state in ('running','interrupting') and not now))
+                        runtime.submit(('send',{'content':content,'item':pending['item']['id'],'priority':'now' if now else None},req_id,queue))
+                    elif typ=='compact':
+                        if not runtime.session.get('sdk_session_id'): raise ValueError('Nothing to compact yet')
+                        runtime.submit(('send',{'content':'/compact','compact':True},req_id,queue))
                     elif typ=='edit':
                         uuid=msg.get('uuid')
                         if not isinstance(uuid,str) or not uuid.strip(): raise ValueError('uuid is required')

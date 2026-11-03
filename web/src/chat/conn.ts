@@ -248,7 +248,13 @@ export class ChatConn {
       return
     }
     const list = this.items.value.slice()
-    list[i] = { ...list[i], ...p } as Item
+    const next = { ...list[i], ...p } as Item
+    if (p.moved) {
+      // A queued message Claude just read: show it where it entered the conversation, not where it was sent.
+      list.splice(i, 1)
+      list.push(next)
+      this.reindex(list)
+    } else list[i] = next
     this.items.value = list
   }
 
