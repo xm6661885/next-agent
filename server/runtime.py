@@ -95,6 +95,7 @@ class SessionRuntime:
         self.viewers = 0
         self.holds_slot = False
         self.pending_content = {}  # queued item id -> SDK content, so send_now can re-enqueue it
+        self.turn_lock = asyncio.Lock()
 
     def release_slot(self):
         if self.holds_slot:
@@ -141,13 +142,13 @@ class SessionRuntime:
         else:
             self.emit(event)
 
-    async def all_items(self):
+    def history_items(self):
         if self.history_base is None:
             source = self.session
             if not source.get('sdk_session_id') and source.get('fork_of'):
                 source = self.manager.index.sessions.get(source['fork_of']['session_id'], source)
             agent = self.manager.session_agent(source)
-            history = await asyncio.to_thread(load_items,source,agent,self.manager.index.uploads)
+            history = load_items(source,agent,self.manager.index.uploads)
             if source is not self.session and self.session['fork_of'].get('at_uuid'):
                 at = self.session['fork_of']['at_uuid']
                 end = next((i for i,x in enumerate(history) if x.get('uuid')==at),len(history)-1)
@@ -157,7 +158,10 @@ class SessionRuntime:
             end=next((i for i,x in enumerate(history) if x['kind']=='user' and
                       not x.get('parent_tool_use_id') and x.get('uuid')==self.truncate_uuid),None)
             if end is not None: history=history[:end]
-        return history + list(self.items.items)
+        return history
+
+    async def all_items(self):
+        return await asyncio.to_thread(self.history_items) + list(self.items.items)
 
     def elapsed_ms(self):
         """How long the current turn has run; relative so client clock skew does not matter."""
@@ -202,7 +206,7 @@ class SessionRuntime:
             pending = [dict(x) for x in self.items.items if x['kind']=='user' and x.get('pending')]
             self.items = ItemBuilder(self.manager.index.uploads)
             for value in pending:
-                self.items.items.append(value)
+                self.items.add(value)
                 self.items.pending.append(value['id'])
             resume = source.get('sdk_session_id') if source else self.session.get('sdk_session_id')
             opts = build_options(agent,self.session,self.manager.config.config.defaults,self.manager.config.config.server,
@@ -536,10 +540,6 @@ class SessionRuntime:
             except Exception: pass
             self.state_change('running' if self.written else 'idle')
             if not self.written: self.pending_content.clear()
-            if self.restart_needed and not self.written:
-                self.restart_needed=False
-                await self._disconnect()
-                await self._connect()
             await self.manager.extensions.emit('turn_result',session_id=self.sid,agent_id=self.session['agent_id'],
                                               result_item=next((e['item'] for e in events if e.get('item',{}).get('kind')=='result'),None))
             events.append({'type':'session','session':self.manager.view(self.sid)})
@@ -547,6 +547,10 @@ class SessionRuntime:
             self.session['sdk_session_id']=self.items.sdk_session_id
             self.manager.index.update(self.sid,sdk_session_id=self.items.sdk_session_id)
         for event in events: self.emit(event)
+        if isinstance(msg,ResultMessage) and self.restart_needed and not self.written:
+            self.restart_needed=False
+            await self._disconnect()
+            await self._connect()
         self.last_activity=time.monotonic()
 
 class RuntimeManager:
@@ -580,7 +584,7 @@ class RuntimeManager:
 
     def view(self,sid):
         runtime=self.runtimes.get(sid)
-        return {'unread':False,**self.index.sessions[sid],'state':runtime.state if runtime else 'offline',
+        return {'unread':False,'origin':'ui','parent':None,'extra':None,**self.index.sessions[sid],'state':runtime.state if runtime else 'offline',
                 'pending':len(runtime.permissions.pending) if runtime else 0}
 
     def external_send(self,aid,prompt,sid=None):
@@ -589,7 +593,7 @@ class RuntimeManager:
         if aid==TEMP_AGENT and not sid: raise KeyError(aid)
         if sid and self.index.sessions.get(sid,{}).get('agent_id')!=aid: raise KeyError(sid)
         if not sid:
-            sid=self.index.create(aid,prompt[:60])['id']
+            sid=self.index.create(aid,prompt[:60],origin='external')['id']
             self.session_state(self.get_or_create(sid))
         queue=self.external_queues.setdefault(aid,asyncio.Queue())
         queue.put_nowait((sid,prompt))
@@ -606,29 +610,74 @@ class RuntimeManager:
 
     async def _external_turn(self,sid,prompt):
         if sid not in self.index.sessions: return
+        return await self.run_turn(sid,prompt)
+
+    def send(self,sid,prompt,req_id=None,events=None):
         runtime=self.get_or_create(sid)
-        # Warm up the runtime in adaptive mode, like when a WebSocket connects
-        self.warm(runtime)
+        if not runtime.session['title']:
+            self.index.update(sid,title=prompt[:60])
+            self.session_state(runtime)
+        pending=runtime.emit(runtime.items.pending_user(prompt,[],None,queued=runtime.state in ('running','interrupting')))
+        iid=pending['item']['id']
+        runtime.submit(('send',{'content':prompt,'item':iid},req_id,events))
+        return iid
+
+    async def run_turn(self,sid,prompt):
+        runtime=self.get_or_create(sid)
+        async with runtime.turn_lock:
+            events=asyncio.Queue(maxsize=10000)
+            runtime.subscribers.add(events)
+            try:
+                self.warm(runtime)
+                while runtime.state not in ('idle','offline'): await self._next_state(runtime,events)
+                if runtime.client and runtime.options_key!=options_key(runtime._build_options_for_key()):
+                    runtime.submit(('reconfigure',))
+                    await runtime.commands.join()
+                    while runtime.state not in ('idle','offline'): await self._next_state(runtime,events)
+                baseline=runtime.seq
+                req_id='turn-'+uuid4().hex
+                iid=self.send(sid,prompt,req_id,events)
+                return await self._turn_result(runtime,events,iid=iid,req_id=req_id,baseline=baseline)
+            finally: runtime.subscribers.discard(events)
+
+    async def wait_turn(self,sid):
+        runtime=self.get_or_create(sid)
         events=asyncio.Queue(maxsize=10000)
         runtime.subscribers.add(events)
         try:
-            # Wait for any turn already running in this session (e.g. started from the web UI).
-            while runtime.state not in ('idle','offline'): await self._next_state(runtime,events)
-            if not runtime.session['title']:
-                runtime.session['title']=prompt[:60]
-                self.index.update(sid,title=prompt[:60])
-                self.session_state(runtime)
-            runtime.emit(runtime.items.pending_user(prompt,[],None))
-            req_id='external-'+sid
-            runtime.submit(('send',{'content':prompt},req_id,events))
-            started=False
-            while True:
-                event=await events.get()
-                if event.get('type')=='error' and event.get('req_id')==req_id: return
-                if event.get('type')!='state': continue
-                if event['state']=='running': started=True
-                elif event['state']=='offline' or (started and event['state']=='idle'): return
+            current=[]
+            if runtime.state in ('running','interrupting'):
+                for value in runtime.items.items:
+                    if value['kind']=='result': current=[]
+                    else: current.append(value)
+            return await self._turn_result(runtime,events,current=current)
         finally: runtime.subscribers.discard(events)
+
+    async def _turn_result(self,runtime,events,*,iid=None,req_id=None,baseline=0,current=()):
+        texts={x['id']:x for x in current if x['kind']=='text' and not x.get('parent_tool_use_id')}
+        delivered=iid is None
+        error=None
+        while True:
+            event=await events.get()
+            if event.get('seq',baseline+1)<=baseline: continue
+            typ=event['type']
+            if typ=='patch' and (iid is None or event['id']==iid) and event['patch'].get('pending') is False:
+                delivered=True
+            if typ=='item':
+                value=event['item']
+                if value.get('parent_tool_use_id'): continue
+                if value['kind']=='user' and not value.get('pending') and iid is None: delivered=True
+                if value['kind']=='text' and delivered: texts[value['id']]=value
+                if value['kind']=='notice' and value['level']=='error': error=value['text']
+                if value['kind']=='result' and (delivered or iid is None):
+                    return {'session_id':runtime.sid,'text':value.get('text') or '\n\n'.join(x['text'] for x in texts.values()),
+                            'structured':value.get('structured'),'cost_usd':value['cost_usd'],'is_error':value['is_error'],
+                            'error':(value.get('error') or error or value.get('text') or value['subtype']) if value['is_error'] else None}
+            if typ=='error' and req_id is not None and event.get('req_id')==req_id: error=event['message']
+            elif typ=='__overflow__': error='Turn event buffer overflow'
+            elif typ!='state' or event['state']!='offline': continue
+            return {'session_id':runtime.sid,'text':'\n\n'.join(x['text'] for x in texts.values()),
+                    'structured':None,'cost_usd':0,'is_error':True,'error':error or 'CLI disconnected'}
 
     async def _next_state(self,runtime,events):
         while True:

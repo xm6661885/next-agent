@@ -17,7 +17,7 @@ def main():
         second=getpass.getpass('Repeat password: ')
         if first!=second or not first:
             raise SystemExit('Passwords do not match or are empty')
-        config.doc['server']['password_hash']=bcrypt.hashpw(first.encode(),bcrypt.gensalt()).decode()
+        config.core_doc['server']['password_hash']=bcrypt.hashpw(first.encode(),bcrypt.gensalt()).decode()
         config.save()
     else:
         uvicorn.run('server.app:create_app',factory=True,host=config.config.server.host,

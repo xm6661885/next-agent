@@ -335,8 +335,9 @@ class Config(BaseModel):
     agents: list[Agent] = Field(default_factory=list)
     temp_agent: TempAgent | None = None
     extensions: dict[str, Any] = Field(default_factory=dict)
+    builtin_mcp: dict[str, Any] = Field(default_factory=dict)
 
-DEFAULT = '''# next-agent configuration. Edited by the web UI and safe to edit by hand; changes are picked up automatically.
+DEFAULT_CORE = '''# next-agent core settings: login, external API, and the Claude CLI shared by Agents and Workflow
 [server]
 host = "::"
 port = 18793
@@ -346,7 +347,9 @@ cli_path = ""                # empty = CLI bundled with claude-agent-sdk
 api_key = ""                 # key for /api/external/send; empty = external API disabled
 anthropic_base_url = ""      # ANTHROPIC_BASE_URL for every CLI; empty = CLI default
 anthropic_api_key = ""       # ANTHROPIC_API_KEY for every CLI; empty = CLI login
+'''
 
+DEFAULT_AGENTS = '''# next-agent configuration. Edited by the web UI and safe to edit by hand; changes are picked up automatically.
 [defaults]                   # used unless an agent overrides a group
 model = "MODEL"
 effort = "EFFORT"
@@ -414,20 +417,36 @@ class ConfigStore:
     def __init__(self, paths: DataDir):
         self.paths = paths
         paths.prepare()
-        if not paths.config.exists():
+        if not paths.core_config.exists() and paths.config.exists():
+            doc = tomlkit.parse(paths.config.read_text())
+            core = tomlkit.document()
+            core['server'] = doc.pop('server')
+            atomic_write(paths.core_config, tomlkit.dumps(core))
+            atomic_write(paths.agents_config, tomlkit.dumps(doc))
+            paths.config.rename(paths.config.with_suffix('.toml.v1.bak'))
+        if not paths.core_config.exists():
             password = os.environ.get('NEXT_AGENT_PASSWORD') or '100200'
-            cc = claude_code_defaults()
             password_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
             print(f'next-agent: first start, login password: {password} (change it with: uv run python -m server set-password)', flush=True)
-            atomic_write(paths.config, DEFAULT.replace('HOME_DIR', str(Path.home())).replace('HASH', password_hash).replace('CREATED_AT', now()).replace('MODEL', cc['model']).replace('EFFORT', cc['effort']))
+            atomic_write(paths.core_config, DEFAULT_CORE.replace('HASH', password_hash))
+        if not paths.agents_config.exists():
+            cc = claude_code_defaults()
+            atomic_write(paths.agents_config, DEFAULT_AGENTS.replace('HOME_DIR', str(Path.home())).replace('CREATED_AT', now()).replace('MODEL', cc['model']).replace('EFFORT', cc['effort']))
+        self.core_doc = None
         self.doc = None
         self.config = None
         self.mtime = 0
         self.load()
 
-    def parse(self, content: str):
+    def parse(self, content: str, file='agents'):
         doc = tomlkit.parse(content)
-        config = Config.model_validate(doc.unwrap())
+        core, agents = (doc, self.doc) if file=='core' else (self.core_doc, doc)
+        return doc, self.validate(core, agents)
+
+    def validate(self, core, agents):
+        if set(core) - {'server'}: raise ValueError('core.toml only contains [server]')
+        if 'server' in agents: raise ValueError('[server] belongs in core.toml')
+        config = Config.model_validate({**agents.unwrap(), **core.unwrap()})
         ids = [a.id for a in config.agents]
         if len(ids) != len(set(ids)):
             raise ValueError('duplicate agent id')
@@ -435,15 +454,15 @@ class ConfigStore:
             raise ValueError('invalid groups')
         if any(a.group and a.group not in config.groups for a in config.agents):
             raise ValueError('agent group not in groups')
-        return doc, config
+        return config
 
-    def migrate(self, doc):
+    def migrate(self, doc, core):
         changed = False
         if 'defaults' not in doc:
             doc['defaults'] = tomlkit.table()
             changed = True
         defaults = doc['defaults']
-        server = doc['server']
+        server = core.get('server', {})
         for key in ('idle_mode','idle_timeout_min','adaptive_keep'):
             if key in server:
                 if key not in defaults: defaults[key] = server[key]
@@ -481,7 +500,7 @@ class ConfigStore:
             for key in ('model','effort','thinking'):
                 if key in entry and not entry[key]:
                     entry[key] = getattr(values,key) if key != 'thinking' else 'adaptive'; changed = True
-        for entry in doc.get('agents',[]):
+        for entry in tables:
             if 'override_groups' in entry: continue
             groups = []
             if entry.get('model') or entry.get('effort'): groups.append('model')
@@ -499,52 +518,37 @@ class ConfigStore:
         return changed
 
     def load(self):
-        doc = tomlkit.parse(self.paths.config.read_text())
-        changed = self.migrate(doc)
-        doc, config = self.parse(tomlkit.dumps(doc))
-        if changed: atomic_write(self.paths.config,self.tidy(doc))
-        self.doc, self.config = doc, config
+        core = tomlkit.parse(self.paths.core_config.read_text())
+        doc = tomlkit.parse(self.paths.agents_config.read_text())
+        changed = self.migrate(doc, core)
+        config = self.validate(core, doc)
+        if changed: self.write(core, doc)
+        self.core_doc, self.doc, self.config = core, doc, config
         self.mtime = self.stamp()
 
     def tidy(self, doc):
-        # Rewrite agent tables in field order: identity first, scalars, then sub-tables, one blank line apart.
-        head = ['id','name','avatar','description','group','cwd','created_at','order']
-        order = head + [k for k in Agent.model_fields if k not in head]
-        def table(entry):
-            data = entry.unwrap() if hasattr(entry, 'unwrap') else dict(entry)
-            keys = [k for k in order if k in data] + [k for k in data if k not in order]
-            out = tomlkit.table()
-            for k in keys:
-                if not isinstance(data[k], dict): out[k] = data[k]
-            for k in keys:
-                if isinstance(data[k], dict):
-                    sub = tomlkit.table()
-                    for sk, sv in data[k].items(): sub[sk] = sv
-                    out[k] = sub
-            return out
-        if 'agents' in doc:
-            arr = tomlkit.aot()
-            for entry in doc['agents']: arr.append(table(entry))
-            doc['agents'] = arr
-        if 'temp_agent' in doc: doc['temp_agent'] = table(doc['temp_agent'])
-        content = tomlkit.dumps(doc)
-        return re.sub(r'\n{3,}', '\n\n', re.sub(r'\n(\[\[agents\]\]|\[temp_agent\]|\[pricing\])', r'\n\n\1', content))
+        return tomlkit.dumps(doc)
+
+    def write(self, core, doc):
+        for path, content in ((self.paths.core_config,tomlkit.dumps(core)), (self.paths.agents_config,self.tidy(doc))):
+            if path.read_text() != content: atomic_write(path, content)
 
     def save(self):
-        content = self.tidy(self.doc)
-        self.doc = tomlkit.parse(content)
-        _, config = self.parse(content)
-        atomic_write(self.paths.config, content)
+        config = self.validate(self.core_doc, self.doc)
+        self.write(self.core_doc, self.doc)
         self.config = config
         self.mtime = self.stamp()
 
-    def replace_raw(self, content: str):
-        doc, config = self.parse(content)
-        self.doc, self.config = doc, config
+    def replace_raw(self, content: str, file='agents'):
+        doc, config = self.parse(content, file)
+        if file=='core':
+            if config.server.password_hash=='***': doc['server']['password_hash']=self.config.server.password_hash
+            self.core_doc=doc
+        else: self.doc=doc
         self.save()
 
     def masked(self):
-        doc = tomlkit.parse(tomlkit.dumps(self.doc))
+        doc = tomlkit.parse(tomlkit.dumps(self.core_doc))
         doc['server']['password_hash'] = '***'
         return tomlkit.dumps(doc)
 
@@ -552,6 +556,7 @@ class ConfigStore:
         return {'server':self.config.server.model_dump(exclude={'password_hash'}),
                 'defaults':self.config.defaults.model_dump(),
                 'pricing':{k:v.model_dump() for k,v in self.config.pricing.items()},
+                'builtin_mcp':self.config.builtin_mcp,
                 'default_file_output_prompt':DEFAULT_FILE_OUTPUT_PROMPT,
                 'default_genui_prompt':DEFAULT_GENUI_PROMPT,
                 'default_genui_widgets':GENUI_WIDGETS}
@@ -559,6 +564,9 @@ class ConfigStore:
     def update_form(self, data):
         if not isinstance(data, dict): raise ValueError('Expected a JSON object')
         values = self.config.model_dump(mode='json')
+        if 'builtin_mcp' in data:
+            if not isinstance(data['builtin_mcp'],dict): raise ValueError('builtin_mcp must be an object')
+            values['builtin_mcp'].update(data['builtin_mcp'])
         for section, allowed in (('server',{'max_concurrent','cli_path','api_key','anthropic_base_url','anthropic_api_key'}),
                                  ('defaults',set(Defaults.model_fields))):
             if section in data:
@@ -572,15 +580,20 @@ class ConfigStore:
         except Exception as exc:
             raise ValueError(str(exc)) from exc
         doc = tomlkit.parse(tomlkit.dumps(self.doc))
+        core = tomlkit.parse(tomlkit.dumps(self.core_doc))
         for section, allowed in (('server',{'max_concurrent','cli_path','api_key','anthropic_base_url','anthropic_api_key'}),
                                  ('defaults',set(Defaults.model_fields))):
             if section in data:
-                if section not in doc: doc[section]=tomlkit.table()
+                target = core if section=='server' else doc
+                if section not in target: target[section]=tomlkit.table()
                 for key in data[section]:
                     if key in allowed:
                         value=getattr(validated,section).model_dump(mode='json')[key]
                         if section=='defaults' and key in ('file_output_prompt','genui_prompt') and data[section][key]=='': value=''
-                        doc[section][key]=value
+                        target[section][key]=value
+        if 'builtin_mcp' in data:
+            if 'builtin_mcp' not in doc: doc['builtin_mcp']=tomlkit.table()
+            for key, value in data['builtin_mcp'].items(): doc['builtin_mcp'][key]=value
         if 'pricing' in data:
             if 'pricing' in doc: del doc['pricing']
             pricing=tomlkit.table()
@@ -588,14 +601,14 @@ class ConfigStore:
                 pricing.append(SingleKey(key,KeyType.Basic),tomlkit.table())
                 for field, number in value.model_dump().items(): pricing[key][field]=number
             doc['pricing']=pricing
-        self.parse(tomlkit.dumps(doc))
-        self.doc=doc
+        self.validate(core, doc)
+        self.core_doc, self.doc = core, doc
         self.save()
 
     def stamp(self):
         # Size too: rewrites inside one timestamp tick keep the same mtime.
-        st = self.paths.config.stat()
-        return (st.st_mtime_ns, st.st_size)
+        return tuple((st.st_mtime_ns, st.st_size) for st in
+                     (self.paths.core_config.stat(), self.paths.agents_config.stat()))
 
     async def watch(self, on_change, interval=2):
         while True:
@@ -610,3 +623,15 @@ class ConfigStore:
             except Exception as exc:
                 log.warning('Invalid config reload: %s', exc)
                 self.mtime = self.stamp()
+
+class RawConfig:
+    def __init__(self, store, file, on_change):
+        self.store, self.file, self.changed = store, file, on_change
+        self.path = store.paths.core_config if file=='core' else store.paths.agents_config
+
+    @property
+    def doc(self):
+        return self.store.core_doc if self.file=='core' else self.store.doc
+
+    def replace_raw(self, content):
+        self.store.replace_raw(content, self.file)

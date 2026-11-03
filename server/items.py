@@ -426,7 +426,9 @@ class ItemBuilder:
             out.extend(self.drop_stale_streams())
             result = item('result',subtype=msg.subtype,is_error=msg.is_error,duration_ms=msg.duration_ms,
                           num_turns=msg.num_turns,cost_usd=0,total_cost_usd=0,
-                          usage=msg.usage or {},terminal_reason=msg.terminal_reason)
+                          usage=msg.usage or {},terminal_reason=msg.terminal_reason,
+                          structured=msg.structured_output, text=msg.result or '',
+                          error='\n'.join(e for e in msg.errors or [] if not e.startswith('[ede_diagnostic]')) or None)
             # Background-task notifications wake the CLI for empty turns; don't render a bare "Done" for each.
             if self.turn_content or msg.is_error: out.append(self.add(result))
             self.turn_content = False

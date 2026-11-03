@@ -1,0 +1,36 @@
+// Every settings section, grouped by module. Add a module's pages here; nothing else in settings needs to change.
+
+import type { JSX } from 'preact'
+import { IconAgents, IconBolt, IconChat, IconCode, IconGlobe, IconLayers, IconLock, IconSettings, IconTerminal, IconTool } from '../../components/icons'
+import { ClaudeCliSettings } from '../agents/settings/ClaudeCli'
+import { DefaultsSettings } from '../agents/settings/Defaults'
+import { ModelsSettings } from '../agents/settings/Models'
+import { BuiltinMcpSettings } from '../agents/settings/BuiltinMcp'
+import { AcpSettings } from '../acp/Settings'
+import { ChatProviders, ChatDefaults, ChatMcp } from '../chat/settings'
+import { WorkflowSettings } from '../workflow/settings'
+import { GeneralSettings, RawFiles } from './General'
+
+type Icon = (p: JSX.SVGAttributes<SVGSVGElement>) => JSX.Element
+export interface Section { key: string; module: string; title: string; hint: string; icon: Icon; Component: (p: { title: string }) => JSX.Element }
+
+export const MODULES = [
+  { key: 'chat', title: 'Chat' },
+  { key: 'agents', title: 'Agents' },
+  { key: 'workflow', title: 'Workflow' },
+  { key: 'general', title: 'General' },
+]
+
+export const SECTIONS: Section[] = [
+  { key: 'chat-providers', module: 'chat', title: 'Model providers', hint: 'OpenAI and Anthropic format APIs and their models', icon: IconGlobe, Component: ChatProviders },
+  { key: 'chat-defaults', module: 'chat', title: 'Chat defaults', hint: 'Default model, thinking, system prompt', icon: IconChat, Component: ChatDefaults },
+  { key: 'chat-mcp', module: 'chat', title: 'MCP servers', hint: 'Tools available to chat assistants', icon: IconTool, Component: ChatMcp },
+  { key: 'claude-cli', module: 'agents', title: 'Claude Code CLI', hint: 'CLI path, API, concurrency. Shared with Workflow', icon: IconTerminal, Component: ClaudeCliSettings },
+  { key: 'agent-defaults', module: 'agents', title: 'Agent defaults', hint: 'Model, permissions, prompts, sleep', icon: IconAgents, Component: DefaultsSettings },
+  { key: 'agent-models', module: 'agents', title: 'Models and pricing', hint: 'Custom model IDs and token prices', icon: IconCode, Component: ModelsSettings },
+  { key: 'builtin-mcp', module: 'agents', title: 'Built-in tools', hint: 'Schedules, conversation history, agent collaboration', icon: IconBolt, Component: BuiltinMcpSettings },
+  { key: 'acp', module: 'agents', title: 'ACP agents', hint: 'External agents over the Agent Client Protocol', icon: IconGlobe, Component: AcpSettings },
+  { key: 'workflow', module: 'workflow', title: 'Workflow', hint: 'Run history, plugins, environment, API keys', icon: IconLayers, Component: WorkflowSettings },
+  { key: 'general', module: 'general', title: 'Account and API', hint: 'External API key, sign out', icon: IconLock, Component: GeneralSettings },
+  { key: 'raw', module: 'general', title: 'Config files', hint: 'Edit the TOML files directly', icon: IconSettings, Component: RawFiles },
+]

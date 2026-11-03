@@ -1,18 +1,18 @@
 import { useEffect, useRef } from 'preact/hooks'
 import { api } from './lib/api'
 import { authed, connectEvents, disconnectEvents } from './lib/store'
-import { direction, route, wide } from './lib/router'
+import { direction, isTabRoot, rememberTab, route, tabOf, wide } from './lib/router'
 import { Login } from './pages/Login'
-import { Home } from './pages/Home'
-import { AgentPage } from './pages/AgentPage'
-import { AgentSettings } from './pages/AgentSettings'
-import { Settings } from './pages/Settings'
-import { Memory } from './pages/Memory'
-import { Chat } from './chat/Chat'
 import { DialogHost, Toasts } from './components/ui'
 import { Crab } from './components/crab'
 import { ImageViewerHost } from './components/ImageViewer'
-import { CodeViewerHost } from './chat/Artifacts'
+import { TabBar } from './components/TabBar'
+import { AgentsRoute, agentsSplit } from './modules/agents/routes'
+import { AcpRoute, acpSplit } from './modules/acp/routes'
+import { ChatRoute, chatSplit } from './modules/chat/routes'
+import { WorkflowRoute } from './modules/workflow/routes'
+import { MoreRoute } from './modules/more/routes'
+import { CodeViewerHost } from './modules/agents/chat/Artifacts'
 
 export function App() {
   useEffect(() => {
@@ -31,7 +31,8 @@ export function App() {
 
   return (
     <>
-      <Routed />
+      <div class="app-shell"><Routed /></div>
+      {(isTabRoot(route.value) || wide.value) && <TabBar />}
       <DialogHost />
       <ImageViewerHost /><CodeViewerHost />
       <Toasts />
@@ -41,20 +42,11 @@ export function App() {
 
 function Routed() {
   const r = route.value
+  useEffect(() => { rememberTab(tabOf(r)) }, [r])
   // Desktop: conversation list on the left, chat on the right, like WeChat for the web.
-  if (wide.value && (r.name === 'agent' || r.name === 'chat' || r.name === 'agent-settings')) {
-    return (
-      <div class="split">
-        <div class="split-side" key={`side:${r.agentId}`}><AgentPage agentId={r.agentId} /></div>
-        <div class="split-main">
-          {r.name === 'chat'
-            ? <div key={r.sessionId} class="route enter-fade"><Chat agentId={r.agentId} sessionId={r.sessionId} /></div>
-            : r.name === 'agent-settings'
-              ? <div key="settings" class="route enter-fade"><AgentSettings agentId={r.agentId} /></div>
-              : <div class="split-empty">Pick a conversation</div>}
-        </div>
-      </div>
-    )
+  if (wide.value) {
+    const split = agentsSplit(r) || acpSplit(r) || chatSplit(r)
+    if (split) return split
   }
   return <Single />
 }
@@ -63,20 +55,9 @@ function Single() {
   const r = route.value
   const key = JSON.stringify(r)
   const ref = useRef<HTMLDivElement>(null)
-
-
-  let page
-  switch (r.name) {
-    case 'home': page = <Home />; break
-    case 'agent': page = <AgentPage agentId={r.agentId} />; break
-    case 'agent-settings': page = <AgentSettings agentId={r.agentId} />; break
-    case 'new-agent': page = <AgentSettings />; break
-    case 'chat': page = <Chat agentId={r.agentId} sessionId={r.sessionId} />; break
-    case 'settings': page = <Settings />; break
-    case 'memory': page = <Memory />; break
-  }
+  const page = AgentsRoute(r) || AcpRoute(r) || ChatRoute(r) || WorkflowRoute(r) || MoreRoute(r)
   return (
-    <div key={key} ref={ref} class={`route enter-${direction.value}`}>
+    <div key={key} ref={ref} class={`route enter-${direction.value} ${isTabRoot(r) ? 'with-tabbar' : ''}`}>
       {page}
     </div>
   )

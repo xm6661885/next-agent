@@ -103,6 +103,8 @@ export interface Session {
   pending: number
   /** A turn finished while no client had the chat open. */
   unread?: boolean
+  origin?: 'ui' | 'workflow' | 'schedule' | 'subagent' | 'external'
+  parent?: Record<string, string> | null
 }
 
 export interface SearchHit {

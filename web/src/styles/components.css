@@ -703,3 +703,46 @@ svg.crab .eyes { animation: blink 4.5s infinite; transform-origin: center 3px; t
 .group + .group { margin-top: 12px; }
 /* Divider between the "Override global" row and the first field inside the fieldset */
 .row + .group-fields > :first-child { border-top: 1px solid var(--line); }
+
+/* ---------- Bottom tab bar ---------- */
+
+:root { --tabbar-h: 56px; }
+.tabbar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
+  display: flex; justify-content: space-around;
+  height: calc(var(--tabbar-h) + var(--safe-b)); padding: 0 var(--safe-r) var(--safe-b) var(--safe-l);
+  background: color-mix(in srgb, var(--bg) 84%, transparent);
+  -webkit-backdrop-filter: saturate(1.6) blur(18px); backdrop-filter: saturate(1.6) blur(18px);
+  border-top: 1px solid var(--line);
+}
+.kb-open .tabbar { display: none; }
+.tabbar-item {
+  flex: 1; max-width: 120px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  border: 0; background: none; color: var(--text-3); font: inherit; font-size: 11px; font-weight: 600; cursor: pointer;
+  -webkit-tap-highlight-color: transparent; transition: color 0.2s var(--ease-out);
+}
+.tabbar-item.on { color: var(--pink-ink); }
+.tabbar-icon { position: relative; display: grid; place-items: center; width: 44px; height: 28px; border-radius: 999px; transition: background 0.25s var(--ease-out), transform 0.2s var(--ease-spring); }
+.tabbar-item.on .tabbar-icon { background: var(--pink-soft); }
+.tabbar-item:active .tabbar-icon { transform: scale(0.9); }
+.tabbar-icon svg { width: 22px; height: 22px; }
+.tabbar-badge { position: absolute; top: 2px; right: 8px; width: 8px; height: 8px; border-radius: 50%; background: var(--warn); box-shadow: 0 0 0 2px var(--bg); }
+.with-tabbar { bottom: calc(var(--tabbar-h) + var(--safe-b)) !important; }
+.with-tabbar .page-scroll { padding-bottom: 24px; }
+.with-tabbar .fab { bottom: 18px; }
+.kb-open .with-tabbar { bottom: 0 !important; }
+
+/* Desktop: the tab bar becomes a slim rail on the left. */
+@media (min-width: 1000px) and (hover: hover) {
+  .tabbar { top: 0; right: auto; width: 76px; height: auto; flex-direction: column; justify-content: flex-start; gap: 8px;
+    padding: calc(var(--safe-t) + 18px) 0 0; border-top: 0; border-right: 1px solid var(--line); }
+  .tabbar-item { flex: none; height: 64px; max-width: none; }
+  .app-shell { position: absolute; inset: 0 0 0 76px; }
+  .with-tabbar { bottom: 0 !important; }
+}
+.field-row { display: flex; gap: 0; }
+.field-row > .field + .field { border-left: 1px solid var(--line); }
+.link-btn { border: 0; background: none; padding: 0; color: var(--pink-ink); font: inherit; text-decoration: underline; cursor: pointer; }
+.fhint.err { color: var(--danger); }
+.empty-icon { color: var(--text-3); display: grid; place-items: center; margin-bottom: 4px; }
+.settings-icon { width: 30px; height: 30px; flex: none; display: grid; place-items: center; border-radius: 9px; background: var(--pink-soft); color: var(--pink-ink); }

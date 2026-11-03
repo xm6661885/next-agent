@@ -470,3 +470,27 @@
 .icon-btn:disabled { opacity: 0.35; }
 .group-add { display: flex; gap: 8px; }
 .group-add .input { flex: 1; min-width: 0; }
+
+/* ---------- More tab ---------- */
+
+.more-grid { display: grid; gap: 12px; margin-top: 18px; grid-template-columns: 1fr; }
+@media (min-width: 700px) { .more-grid { grid-template-columns: 1fr 1fr; } }
+.more-card { display: flex; align-items: center; gap: 14px; padding: 16px; border-radius: var(--r-l); background: var(--surface);
+  border: 1px solid var(--line); box-shadow: var(--shadow-1); text-align: left; width: 100%; color: inherit; }
+.more-icon { width: 46px; height: 46px; flex: none; border-radius: 14px; display: grid; place-items: center; background: var(--pink-soft); color: var(--pink-ink); }
+.more-icon svg { width: 24px; height: 24px; }
+.more-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.more-text .n { font-weight: 650; font-size: 16px; }
+.more-text .p { font-size: 13px; color: var(--text-2); }
+.more-chev { width: 18px; height: 18px; color: var(--text-3); flex: none; }
+.about-crab { width: 46px; height: 46px; flex: none; border-radius: 14px; display: grid; place-items: center; background: var(--pink-soft); }
+.about-crab svg { width: 32px; }
+.about-hero { display: flex; flex-direction: column; align-items: center; text-align: center; padding: 34px 0 26px; }
+.about-clawd { width: 120px; height: 120px; border-radius: 34px; display: grid; place-items: center; background: var(--pink-soft); margin-bottom: 18px; box-shadow: var(--shadow-2); }
+.about-clawd svg { width: 84px; }
+.about-hero h1 { font-size: 30px; margin: 0; }
+.about-version { color: var(--text-2); margin: 6px 0 0; font-variant-numeric: tabular-nums; }
+.about-made { text-align: center; margin-top: 26px; font-size: 13px; color: var(--text-3); letter-spacing: 0.02em; }
+.kind-switch { margin: 4px 0 12px; max-width: 260px; }
+.origin-tag { display: inline-block; margin-right: 6px; padding: 0 6px; border-radius: 6px; font-size: 11px; font-weight: 600; line-height: 18px;
+  vertical-align: 1px; background: var(--bg-2); color: var(--text-2); }

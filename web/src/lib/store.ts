@@ -1,6 +1,6 @@
 // Global app state (signals) and the /ws/events live feed.
 
-import { signal } from '@preact/signals'
+import { computed, signal } from '@preact/signals'
 import type { Agent, Meta, SessionState } from './types'
 
 export const authed = signal<boolean | null>(null)
@@ -20,6 +20,20 @@ export interface LiveSession {
 
 /** Session states pushed by /ws/events, keyed by session id. */
 export const liveSessions = signal<Record<string, LiveSession>>({})
+/** Live states of the other modules' sessions (ACP, Chat), keyed by session id. Same shape plus `module`. */
+export const moduleSessions = signal<Record<string, LiveSession & { module: string; assistant_id?: string }>>({})
+export const acpVersion = signal(0)
+export const chatVersion = signal(0)
+export const workflowVersion = signal(0)
+
+/** Per-tab count of sessions that need the user (pending requests), for the tab bar dot. */
+export const attention = computed(() => {
+  const out = { chat: 0, agents: 0, workflow: 0, more: 0 }
+  for (const s of Object.values(liveSessions.value)) if (s.pending) out.agents++
+  for (const s of Object.values(moduleSessions.value)) if (s.pending && s.module === 'acp') out.agents++
+  return out
+})
+
 /** Bumped whenever the server says agent config changed; pages refetch on change. */
 export const agentsVersion = signal(0)
 export const sessionsVersion = signal(0)
@@ -76,8 +90,18 @@ export function connectEvents() {
       const map: Record<string, LiveSession> = {}
       for (const s of msg.sessions || []) map[s.id] = s
       liveSessions.value = map
+      const mods: Record<string, any> = {}
+      for (const s of msg.acp_sessions || []) mods[s.id] = { ...s, module: 'acp' }
+      for (const s of msg.chat_sessions || []) mods[s.id] = { ...s, module: 'chat' }
+      moduleSessions.value = mods
+      acpVersion.value++; chatVersion.value++; workflowVersion.value++
       agentsVersion.value++
       sessionsVersion.value++
+    } else if (msg.type === 'session_state' && msg.module && msg.module !== 'agents') {
+      moduleSessions.value = { ...moduleSessions.value, [msg.session_id]: { ...moduleSessions.value[msg.session_id], ...msg, id: msg.session_id } }
+    } else if (msg.type === 'acp_agents_changed') { acpVersion.value++
+    } else if (msg.type === 'chat_changed') { chatVersion.value++
+    } else if (msg.type === 'workflow_changed' || msg.type === 'run_state') { workflowVersion.value++
     } else if (msg.type === 'session_state') {
       const prev = liveSessions.value[msg.session_id]
       liveSessions.value = {

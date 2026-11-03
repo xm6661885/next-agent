@@ -6,12 +6,14 @@ import mimetypes
 from contextlib import asynccontextmanager
 from pathlib import Path
 import hmac
+import tomlkit
+from datetime import datetime, timezone
 from fastapi import FastAPI, Request, HTTPException, Depends, UploadFile, File, WebSocket
 from fastapi.responses import Response, FileResponse, JSONResponse, PlainTextResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from claude_agent_sdk import list_sessions
 from .paths import DataDir, atomic_write
-from .config import GENUI_WIDGETS, ConfigStore, TEMP_AGENT
+from .config import GENUI_WIDGETS, ConfigStore, RawConfig, TEMP_AGENT
 from .store import SessionIndex
 from .auth import Auth, COOKIE, AGE
 from .agents import AgentService
@@ -24,6 +26,7 @@ from . import memory
 from . import artifacts
 from . import btw
 from .core import Core
+from .bridge import AgentBridge
 from . import acp, chat, workflow, builtin
 
 VERSION='0.2.0'
@@ -56,6 +59,9 @@ def create_app(data_dir=None):
         manager.reconfigure()
     core=Core(paths=paths,auth=auth,require=auth.require_auth,emit=manager.global_emit,
               claude=lambda: config.config.server,version=VERSION)
+    raw_configs={name:RawConfig(config,name,config_changed) for name in ('core','agents')}
+    core.modules['raw_configs']=raw_configs
+    core.bridge=AgentBridge(core,manager)
     @asynccontextmanager
     async def lifespan(app):
         manager.reaper_task=asyncio.create_task(manager.reaper())
@@ -74,6 +80,7 @@ def create_app(data_dir=None):
     app.state.agents=agents
     app.state.uploads=uploads
     app.state.core=core
+    app.state.raw_configs=raw_configs
     require=auth.require_auth
 
     @app.post('/api/login')
@@ -443,19 +450,38 @@ def create_app(data_dir=None):
         await config_changed()
         return config.form()
     @app.get('/api/config/raw')
-    async def raw_get(_:None=Depends(require)): return {'content':config.masked()}
+    async def raw_get(file:str='agents',_:None=Depends(require)): return raw_view(file)
+    def raw_config(file):
+        if file not in raw_configs: raise HTTPException(400,'Unknown config file')
+        return raw_configs[file]
+    def raw_view(file):
+        obj=raw_config(file)
+        return {'content':config.masked() if file=='core' else obj.text if hasattr(obj,'text') else tomlkit.dumps(obj.doc),
+                'file':file,'path':str(obj.path)}
     @app.put('/api/config/raw')
-    async def raw_put(request:Request,_:None=Depends(require)):
-        content=(await request.json()).get('content','')
+    async def raw_put(request:Request,file:str='agents',_:None=Depends(require)):
+        obj=raw_config(file)
         try:
-            doc,model=config.parse(content)
-            if model.server.password_hash=='***':
-                doc['server']['password_hash']=config.config.server.password_hash
-                content=__import__('tomlkit').dumps(doc)
-            config.replace_raw(content)
+            body=await request.json()
+            if not isinstance(body,dict) or not isinstance(body.get('content'),str):
+                raise ValueError('content must be a string')
+            obj.replace_raw(body['content'])
         except Exception as exc: raise HTTPException(400,str(exc)) from exc
-        await config_changed()
-        return {'content':config.masked()}
+        await obj.changed()
+        return raw_view(file)
+    @app.get('/api/settings/overview')
+    async def settings_overview(_:None=Depends(require)):
+        def counts(name):
+            fn=core.modules.get('overview_'+name)
+            return fn() if fn else {}
+        acp_counts=counts('acp')
+        return {'version':VERSION,
+                'files':[{'file':name,'path':str(obj.path),
+                          'mtime':datetime.fromtimestamp(obj.path.stat().st_mtime,timezone.utc).isoformat()}
+                         for name,obj in raw_configs.items()],
+                'modules':{'agents':{'agents':len(config.config.agents),'acp_agents':acp_counts.get('acp_agents',0),
+                                     'sessions':len(index.sessions)+acp_counts.get('sessions',0)},
+                           'chat':counts('chat'),'workflow':counts('workflow')}}
     @app.get('/api/memory')
     async def memory_list(_:None=Depends(require)): return await asyncio.to_thread(memory.listing)
     @app.get('/api/memory/file')

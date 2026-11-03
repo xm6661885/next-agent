@@ -42,7 +42,7 @@ def test_temp_agent_settings_and_routes(logged,app,tmp_path):
     assert patched['name']=='Scratch' and patched['effective']['permission_mode']=='plan'
     assert patched['id']=='_temp' and patched['cwd']==first['cwd'] and patched['order']==0
     assert app.state.config.config.temp_agent.name=='Scratch'
-    assert '[temp_agent]' in app.state.config.paths.config.read_text()
+    assert '[temp_agent]' in app.state.config.paths.agents_config.read_text()
     assert logged.patch(url,json={'override_groups':['bogus']}).status_code==422
     assert logged.patch(url,json={'genui':'on'}).status_code==422
     assert logged.post(url+'/avatar',files={'file':('a.png',b'PNG','image/png')}).json()['avatar']=='file'

@@ -33,7 +33,7 @@ git clone https://github.com/xm6661885/next-agent.git
 cd next-agent
 uv sync                          # backend dependencies
 cd web && npm ci && npm run build && cd ..   # frontend, served from web/dist
-uv run python -m server          # first start uses the default password 100200 (or set NEXT_AGENT_PASSWORD) and writes data/config.toml
+uv run python -m server          # first start uses password 100200 (or NEXT_AGENT_PASSWORD) and writes data/config/
 ```
 
 Open `http://<host>:18793`, log in, and create agents from the home page.
@@ -57,22 +57,12 @@ cd web && npm run build                   # rebuild the frontend after changes (
 
 ## Configuration
 
-Everything lives in `data/config.toml`. The settings pages in the UI write to it. You can also edit it by hand or in Settings > config.toml; changes are reloaded within 2 seconds. Running sessions keep their current options until their CLI restarts.
+Settings live in `data/config/`. `core.toml` holds `[server]`: login, the external API and shared Claude CLI settings.
+`agents.toml` holds defaults (including idle settings), agents, temporary-agent settings, groups, pricing, built-in MCP
+and extensions. ACP, Chat and Workflow own `acp.toml`, `chat.toml` and `workflow.toml`.
 
-```toml
-[server]
-max_concurrent = 3      # simultaneous CLI processes
-idle_timeout_min = 10   # close idle CLIs after this many minutes
-cli_path = ""           # empty = CLI bundled with the SDK
-
-[defaults]              # used when an agent field is empty
-permission_mode = "bypassPermissions"
-
-[[agents]]
-id = "claude"
-name = "Claude"
-cwd = "/home/you"  # defaults to the home of the user running the server
-# model, effort, thinking, permission_mode, claude_md, system_prompt, tools, mcp_servers, agents, env, ...
-```
+Edit these files through Settings or by hand; changes reload within 2 seconds and comments are preserved. Running
+turns finish before changed launch options restart their CLI. Existing `data/config.toml` is split automatically and
+kept as `config.toml.v1.bak`. `NEXT_AGENT_DATA` moves the whole data directory.
 
 Credentials come from `~/.claude/settings.json` (the `env` block), so keep `"user"` in `setting_sources`.

@@ -9,7 +9,7 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+export async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const init: RequestInit = { method, credentials: 'same-origin', headers: {} }
   if (body instanceof FormData) {
     init.body = body
@@ -123,8 +123,8 @@ export const api = {
   fileUrl: (sid: string, path: string, download = false) =>
     `/api/sessions/${enc(sid)}/files?path=${enc(path)}${download ? '&download=1' : ''}`,
   artifacts: (sid: string) => get<Artifact[]>(`/api/sessions/${enc(sid)}/artifacts`),
-  getRawConfig: () => get<{ content: string }>('/api/config/raw'),
-  putRawConfig: (content: string) => put<{ content: string }>('/api/config/raw', { content }),
+  getRawConfig: (file = 'agents') => get<{ content: string; path?: string }>(`/api/config/raw?file=${enc(file)}`),
+  putRawConfig: (content: string, file = 'agents') => put<{ content: string; path?: string }>(`/api/config/raw?file=${enc(file)}`, { content }),
   memory: () => get<MemoryListing>('/api/memory'),
   memoryFile: (path: string) => get<MemoryFile & { content: string }>(`/api/memory/file?path=${enc(path)}`),
   putMemoryFile: (path: string, content: string, create = false) =>

@@ -1,6 +1,7 @@
 from server.config import Agent, Defaults, ServerConfig
 from server.options import build_options
 from server.config import DEFAULT_FILE_OUTPUT_PROMPT
+import pytest
 
 def test_options_and_custom_md(tmp_path):
     path=tmp_path/'CLAUDE.md'; path.write_text('Be precise')
@@ -115,3 +116,27 @@ def test_btw_prompt_history():
     assert prompt('hi')=='hi'
     p=prompt('next',[{'q':'first','a':'ans'}])
     assert p.index('first')<p.index('ans')<p.index('next')
+
+@pytest.mark.parametrize('mode',['preset','custom'])
+def test_session_extra_options(tmp_path,mode):
+    agent=Agent(id='a',name='A',cwd=str(tmp_path),allowed_tools=['Read'],disallowed_tools=['Write'],
+                add_dirs=['/agent'],env={'KEEP':'agent','CHANGE':'agent'},max_turns=8,max_budget_usd=4)
+    defaults=Defaults(system_prompt_mode=mode,system_prompt='Base',file_output_prompt='Files',genui=False)
+    cfg=ServerConfig(password_hash='***')
+    extra={'append_system_prompt':'Session instructions','allowed_tools':[],'disallowed_tools':['Bash'],
+           'add_dirs':['/session'],'env':{'CHANGE':'session','NEW':'yes'},'max_turns':2,'max_budget_usd':.5,
+           'setting_sources':[],'output_schema':{'type':'object','properties':{'answer':{'type':'string'}}},
+           'model':'ignored','cwd':'/ignored','tools':[]}
+    opts=build_options(agent,{'extra':extra},defaults,cfg,None)
+    assert (opts.system_prompt if mode=='custom' else opts.system_prompt['append'])=='Base\n\nFiles\n\nSession instructions'
+    assert opts.allowed_tools==[] and opts.disallowed_tools==['Bash'] and opts.add_dirs==['/session']
+    assert opts.env=={'CLAUDE_CODE_DISABLE_AUTO_MEMORY':'0','KEEP':'agent','CHANGE':'session','NEW':'yes'}
+    assert opts.max_turns==2 and opts.max_budget_usd==.5 and opts.setting_sources==[]
+    assert opts.output_format=={'type':'json_schema','schema':extra['output_schema']}
+    assert opts.model==defaults.model and opts.cwd==str(tmp_path) and opts.tools is None
+    assert agent.env=={'KEEP':'agent','CHANGE':'agent'} and agent.allowed_tools==['Read']
+    extra={key:None for key in extra}
+    extra.update(max_turns=0,max_budget_usd=0,output_schema=[])
+    opts=build_options(agent,{'extra':extra},defaults,cfg,None)
+    assert opts.max_turns==8 and opts.max_budget_usd==4 and opts.allowed_tools==['Read']
+    assert opts.setting_sources==agent.setting_sources and opts.output_format is None

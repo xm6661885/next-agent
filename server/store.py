@@ -24,11 +24,11 @@ class SessionIndex:
     def save(self):
         atomic_write(self.paths.sessions, json.dumps(self.data, indent=2))
 
-    def create(self, agent_id, title='', **extras):
+    def create(self, agent_id, title='', *, origin='ui', parent=None, extra=None, **extras):
         sid = str(uuid4())
         session = dict(id=sid, agent_id=agent_id, sdk_session_id=None, title=title, preview='',
                        created_at=now(), updated_at=now(), total_cost_usd=0.0, turns=0,
-                       fork_of=None, imported=False,
+                       fork_of=None, imported=False, origin=origin, parent=parent, extra=extra,
                        overrides={'model': None, 'effort': None, 'permission_mode': None}, context=None)
         session.update(extras)
         self.sessions[sid] = session

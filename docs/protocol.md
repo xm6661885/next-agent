@@ -100,6 +100,12 @@ prefill the fields from `effective`. Unknown group names, or `file_output`/`genu
   "imported": false,            // true when imported from CLI history
   "overrides": {"model": null, "effort": null, "permission_mode": null},
   "context": null,              // last get_context_usage() summary {used, max, percent} or null
+  "origin": "ui",               // ui | workflow | schedule | subagent | external. Absent on old entries = "ui"
+  "parent": null,               // {module, session_id, task_id} for subagent sessions; {run_id, block_id} for workflow
+  "extra": null,                // per-session launch options set by AgentBridge, applied on top of the agent:
+                                // {append_system_prompt, allowed_tools, disallowed_tools, max_turns, max_budget_usd,
+                                //  add_dirs, env, output_schema (JSON schema -> output_format), setting_sources}
+                                // every key optional; null/absent key = agent value
   "unread": false,              // true when a turn finished while no client had this session's socket open; shared by all clients
   // computed:
   "state": "offline",           // see Session states
@@ -205,8 +211,8 @@ Requests never time out. They stay open until a device answers, the user interru
 | GET | `/api/sessions/{sid}/artifacts` | | `[Artifact]` (see "Artifacts"), most recently touched first |
 | GET | `/api/sessions/{sid}/files/stat` | `?path=<absolute path>` | `{name, size, mime, is_image}` with the same access rule, else `404` |
 | GET | `/api/config` | | `ConfigForm` (below) |
-| PATCH | `/api/config` | partial `ConfigForm` (`server` and `defaults` merge key by key; `pricing` replaces the whole table; `host`, `port`, `default_file_output_prompt` and `default_genui_prompt` are ignored) | `ConfigForm`. `422 {detail}` on invalid values. Comments in config.toml are kept. |
-| GET/PUT | `/api/config/raw` | `?file=core\|agents\|chat\|workflow` (default `agents`); PUT `{content}` | `{content, file, path}`. Raw text of `data/config/<file>.toml`. In `core`, `password_hash` is masked as `"***"`; PUT keeps the existing hash when it sees `"***"`. PUT validates that file's schema and returns `400 {detail}` on invalid TOML or schema; the owning module reloads at once. Unknown `file`: `400`. |
+| PATCH | `/api/config` | partial `ConfigForm` (`server` and `defaults` merge key by key; `pricing` replaces the whole table; `host`, `port`, `default_file_output_prompt` and `default_genui_prompt` are ignored) | `ConfigForm`. `422 {detail}` on invalid values. Comments in the config files are kept. |
+| GET/PUT | `/api/config/raw` | `?file=core\|agents\|acp\|chat\|workflow` (default `agents`); PUT `{content}` | `{content, file, path}`. Raw text of `data/config/<file>.toml`. In `core`, `password_hash` is masked as `"***"`; PUT keeps the existing hash when it sees `"***"`. PUT validates that file's schema and returns `400 {detail}` on invalid TOML or schema; the owning module reloads at once. Unknown `file`: `400`. |
 | GET | `/api/settings/overview` | | `{version, files: [{file, path, mtime}], modules: {agents: {agents, acp_agents, sessions}, chat: {assistants, providers, sessions}, workflow: {workflows, runs}}}` counts for the settings home page |
 
 | GET/POST | `/api/external/send` | `prompt`, `agent_id`, `key` (query, form or JSON; key may also be `X-API-Key`), optional `session_id` | No cookie. Plain text `Message Sent` immediately, header `X-Session-Id`. Creates a session unless `session_id` is given. `403` when `server.api_key` is empty, `401` bad key, `404` unknown agent/session. Per agent, external messages run strictly in order: each waits until the previous turn finishes (and until the target session is idle). |
@@ -250,20 +256,22 @@ Errors use the FastAPI `{detail}` format.
 `ConfigForm` also has `"builtin_mcp": BuiltinMcp` (see `docs/builtin-mcp.md`; PATCH merges key by key).
 
 ### Config files
-Everything lives in `data/config/` as four TOML files. Each module owns one file and reloads it within 2 seconds
+Everything lives in `data/config/` as five TOML files. Each module owns one file and reloads it within 2 seconds
 when it changes on disk. Comments are kept on every write.
 
 | File | Owner | Tables |
 |---|---|---|
 | `core.toml` | core | `[server]`: `host`, `port`, `password_hash`, `api_key` (external API), and the Claude CLI setup shared by Agents and Workflow: `cli_path`, `max_concurrent`, `anthropic_base_url`, `anthropic_api_key` |
-| `agents.toml` | Agents | `groups`, `acp_groups`, `[defaults]`, `[pricing]`, `[builtin_mcp]`, `[[agents]]`, `[temp_agent]`, `[[acp_agents]]`, `[extensions]` |
+| `agents.toml` | Agents (Claude) | `groups`, `[defaults]`, `[pricing]`, `[builtin_mcp]`, `[[agents]]`, `[temp_agent]`, `[extensions]` |
+| `acp.toml` | Agents (ACP) | see `docs/protocol-acp.md` |
 | `chat.toml` | Chat | see `docs/protocol-chat.md` |
 | `workflow.toml` | Workflow | see `docs/protocol-workflow.md` |
 
-**Layout migration** (once, at startup, before anything else): when `data/config/` does not exist and
+**Layout migration** (once, at startup, before anything else): when `data/config/core.toml` does not exist and
 `data/config.toml` does, `[server]` goes to `core.toml` and every other table and key goes to `agents.toml`
-(comments kept), then `data/config.toml` is renamed to `data/config.toml.v1.bak`. Missing `chat.toml` /
-`workflow.toml` are created from their built-in templates. A fresh install writes all four templates; the first-start
+(comments kept), then `data/config.toml` is renamed to `data/config.toml.v1.bak`. Missing `acp.toml`, `chat.toml` /
+`workflow.toml` are created by their owning modules from built-in templates. A fresh install writes `core.toml` and
+`agents.toml`, plus the templates of mounted modules; the first-start
 password rule is unchanged. `NEXT_AGENT_DATA` still moves the whole `data/` directory.
 
 **Config migration** (done once at startup, written back to agents.toml): `server.idle_mode/idle_timeout_min/adaptive_keep`
@@ -276,7 +284,7 @@ model/effort/permission values are filled from `[defaults]`. Empty `defaults.mod
 `override_groups` but without `model` that set `fallback_model` or `thinking` get `model` added (model/effort copied
 from defaults), since those two fields joined the `model` group.
 
-In config.toml these live in `[defaults]` and in `[pricing."<model id>"]` tables.
+In agents.toml these live in `[defaults]` and in `[pricing."<model id>"]` tables.
 
 **Cost with pricing.** On each `ResultMessage` the server computes the CLI process's cumulative cost as the sum over
 `model_usage` entries: if the model has a pricing entry, `(inputTokens*input + outputTokens*output +
@@ -285,7 +293,7 @@ cacheCreationInputTokens*cache_write + cacheReadInputTokens*cache_read) / 1e6`, 
 `[...]` suffix (e.g. `[1m]`), then case-insensitive. Turn and session cost are deltas of that value, as before.
 
 ### Temporary sessions
-Sessions owned by the agent `_temp`. Its settings are stored in config.toml as a `[temp_agent]` table with the same
+Sessions owned by the agent `_temp`. Its settings are stored in agents.toml as a `[temp_agent]` table with the same
 fields as an agent (no `id`, `cwd`, `order`, `created_at`); a missing table means all defaults: name "Claude Code",
 avatar `crab:gray`, `override_groups: []`. It is never listed in `/api/agents`. `GET /api/agents/_temp` returns it as a
 full Agent (with `effective` and `status`, `cwd` = home directory, unused: each temporary session runs in its own

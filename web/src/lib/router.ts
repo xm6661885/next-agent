@@ -5,45 +5,120 @@ import { signal } from '@preact/signals'
 /** Agent id that owns temporary sessions. It has its own sessions page and settings, but is not in the agent list. */
 export const TEMP_AGENT = '_temp'
 
+export type Tab = 'chat' | 'agents' | 'workflow' | 'more'
+export const TABS: Tab[] = ['chat', 'agents', 'workflow', 'more']
+
 export type Route =
   | { name: 'home' }
   | { name: 'agent'; agentId: string }
   | { name: 'agent-settings'; agentId: string }
   | { name: 'new-agent' }
   | { name: 'chat'; agentId: string; sessionId: string }
-  | { name: 'settings' }
   | { name: 'memory' }
+  | { name: 'acp'; agentId: string }
+  | { name: 'acp-settings'; agentId: string }
+  | { name: 'new-acp' }
+  | { name: 'acp-chat'; agentId: string; sessionId: string }
+  | { name: 'chats' }
+  | { name: 'assistant'; assistantId: string }
+  | { name: 'assistant-settings'; assistantId: string }
+  | { name: 'new-assistant' }
+  | { name: 'llm-chat'; assistantId: string; sessionId: string }
+  | { name: 'workflows' }
+  | { name: 'wf-editor'; workflowId: string }
+  | { name: 'wf-run'; runId: string }
+  | { name: 'wf-runs'; workflowId?: string }
+  | { name: 'wf-console' }
+  | { name: 'more' }
+  | { name: 'about' }
+  | { name: 'settings' }
+  | { name: 'settings-section'; section: string }
+
+/** Which bottom tab a route belongs to; tab roots show the tab bar. */
+export function tabOf(r: Route): Tab {
+  if (r.name === 'chats' || r.name.startsWith('assistant') || r.name === 'new-assistant' || r.name === 'llm-chat') return 'chat'
+  if (r.name.startsWith('wf') || r.name === 'workflows') return 'workflow'
+  if (r.name === 'more' || r.name === 'about' || r.name.startsWith('settings') || r.name === 'memory') return 'more'
+  return 'agents'
+}
+export const isTabRoot = (r: Route) => r.name === 'home' || r.name === 'chats' || r.name === 'workflows' || r.name === 'more'
+export const tabRoot = (t: Tab): Route => ({ chat: { name: 'chats' }, agents: { name: 'home' }, workflow: { name: 'workflows' }, more: { name: 'more' } } as const)[t]
 
 export function parse(path: string): Route {
-  const p = path.replace(/\/+$/, '').split('/').filter(Boolean).map(decodeURIComponent)
+  const [pathname, qs] = path.split('?')
+  const p = pathname.replace(/\/+$/, '').split('/').filter(Boolean).map(decodeURIComponent)
+  const q = new URLSearchParams(qs || '')
   if (p[0] === 'agents' && p[1] === 'new') return { name: 'new-agent' }
   if (p[0] === 'agents' && p[1] && p[2] === 'settings') return { name: 'agent-settings', agentId: p[1] }
   if (p[0] === 'agents' && p[1] && p[2] === 's' && p[3]) return { name: 'chat', agentId: p[1], sessionId: p[3] }
   if (p[0] === 'agents' && p[1]) return { name: 'agent', agentId: p[1] }
+  if (p[0] === 'agents') return { name: 'home' }
+  if (p[0] === 'acp' && p[1] === 'new') return { name: 'new-acp' }
+  if (p[0] === 'acp' && p[1] && p[2] === 'settings') return { name: 'acp-settings', agentId: p[1] }
+  if (p[0] === 'acp' && p[1] && p[2] === 's' && p[3]) return { name: 'acp-chat', agentId: p[1], sessionId: p[3] }
+  if (p[0] === 'acp' && p[1]) return { name: 'acp', agentId: p[1] }
+  if (p[0] === 'chat' && p[1] === 'new') return { name: 'new-assistant' }
+  if (p[0] === 'chat' && p[1] && p[2] === 'settings') return { name: 'assistant-settings', assistantId: p[1] }
+  if (p[0] === 'chat' && p[1] && p[2] === 's' && p[3]) return { name: 'llm-chat', assistantId: p[1], sessionId: p[3] }
+  if (p[0] === 'chat' && p[1]) return { name: 'assistant', assistantId: p[1] }
+  if (p[0] === 'chat') return { name: 'chats' }
+  if (p[0] === 'workflow' && p[1] === 'w' && p[2]) return { name: 'wf-editor', workflowId: p[2] }
+  if (p[0] === 'workflow' && p[1] === 'r' && p[2]) return { name: 'wf-run', runId: p[2] }
+  if (p[0] === 'workflow' && p[1] === 'runs') return { name: 'wf-runs', workflowId: q.get('workflow') || undefined }
+  if (p[0] === 'workflow' && p[1] === 'console') return { name: 'wf-console' }
+  if (p[0] === 'workflow') return { name: 'workflows' }
+  if (p[0] === 'more' && p[1] === 'about') return { name: 'about' }
+  if (p[0] === 'more') return { name: 'more' }
   if (p[0] === 'settings' && p[1] === 'memory') return { name: 'memory' }
+  if (p[0] === 'settings' && p[1]) return { name: 'settings-section', section: p[1] }
   if (p[0] === 'settings') return { name: 'settings' }
+  if (p.length === 0) return tabRoot(lastTab())
   return { name: 'home' }
 }
 
 export function href(r: Route): string {
   const e = encodeURIComponent
   switch (r.name) {
-    case 'home': return '/'
+    case 'home': return '/agents'
     case 'new-agent': return '/agents/new'
     case 'agent': return `/agents/${e(r.agentId)}`
     case 'agent-settings': return `/agents/${e(r.agentId)}/settings`
     case 'chat': return `/agents/${e(r.agentId)}/s/${e(r.sessionId)}`
-    case 'settings': return '/settings'
     case 'memory': return '/settings/memory'
+    case 'new-acp': return '/acp/new'
+    case 'acp': return `/acp/${e(r.agentId)}`
+    case 'acp-settings': return `/acp/${e(r.agentId)}/settings`
+    case 'acp-chat': return `/acp/${e(r.agentId)}/s/${e(r.sessionId)}`
+    case 'chats': return '/chat'
+    case 'new-assistant': return '/chat/new'
+    case 'assistant': return `/chat/${e(r.assistantId)}`
+    case 'assistant-settings': return `/chat/${e(r.assistantId)}/settings`
+    case 'llm-chat': return `/chat/${e(r.assistantId)}/s/${e(r.sessionId)}`
+    case 'workflows': return '/workflow'
+    case 'wf-editor': return `/workflow/w/${e(r.workflowId)}`
+    case 'wf-run': return `/workflow/r/${e(r.runId)}`
+    case 'wf-runs': return `/workflow/runs${r.workflowId ? `?workflow=${e(r.workflowId)}` : ''}`
+    case 'wf-console': return '/workflow/console'
+    case 'more': return '/more'
+    case 'about': return '/more/about'
+    case 'settings': return '/settings'
+    case 'settings-section': return `/settings/${e(r.section)}`
   }
 }
+
+const TAB_KEY = 'last-tab'
+export function lastTab(): Tab {
+  const t = localStorage.getItem(TAB_KEY) as Tab | null
+  return t && TABS.includes(t) ? t : 'agents'
+}
+export const rememberTab = (t: Tab) => localStorage.setItem(TAB_KEY, t)
 
 /** Desktop split layout: wide window with a mouse. */
 const WIDE = matchMedia('(min-width: 1000px) and (hover: hover)')
 export const wide = signal(WIDE.matches)
 WIDE.addEventListener('change', () => { wide.value = WIDE.matches })
 
-export const route = signal<Route>(parse(location.pathname))
+export const route = signal<Route>(parse(location.pathname + location.search))
 export const direction = signal<'forward' | 'back' | 'fade' | 'none'>('fade')
 
 // Only a back we trigger (the top-left button) animates; system gestures and browser back already
@@ -67,7 +142,7 @@ export const entryKey = () => `${depth}:${location.pathname}`
 
 export function navigate(r: Route | string, opts: { replace?: boolean; animate?: boolean } = {}) {
   const url = typeof r === 'string' ? r : href(r)
-  if (url === location.pathname) return
+  if (url === location.pathname + location.search) return
   if (opts.replace) {
     history.replaceState({ depth }, '', url)
     scrollMemory.delete(entryKey())
@@ -85,11 +160,21 @@ export function navigate(r: Route | string, opts: { replace?: boolean; animate?:
 /** Where Back leads when there is no history entry to return to. */
 export function parentOf(r: Route): Route {
   switch (r.name) {
-    case 'chat': return { name: 'agent', agentId: r.agentId }
-    case 'agent-settings': return { name: 'agent', agentId: r.agentId }
-    case 'memory': return { name: 'settings' }
+    case 'chat': case 'agent-settings': return { name: 'agent', agentId: r.agentId }
+    case 'acp-chat': case 'acp-settings': return { name: 'acp', agentId: r.agentId }
+    case 'llm-chat': case 'assistant-settings': return { name: 'assistant', assistantId: r.assistantId }
+    case 'assistant': case 'new-assistant': return { name: 'chats' }
+    case 'wf-editor': case 'wf-run': case 'wf-runs': case 'wf-console': return { name: 'workflows' }
+    case 'memory': case 'settings-section': return { name: 'settings' }
+    case 'settings': case 'about': return { name: 'more' }
     default: return { name: 'home' }
   }
+}
+
+/** Switch bottom tab: no history entry, no slide animation. */
+export function switchTab(t: Tab) {
+  rememberTab(t)
+  navigate(tabRoot(t), { replace: true })
 }
 
 /** Go back in history if we pushed a page, otherwise to the given fallback. */
@@ -112,5 +197,5 @@ window.addEventListener('popstate', (e) => {
   direction.value = d < depth ? (ownBack ? 'back' : 'none') : 'forward'
   ownBack = false
   depth = d
-  route.value = parse(location.pathname)
+  route.value = parse(location.pathname + location.search)
 })

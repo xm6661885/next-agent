@@ -29,3 +29,24 @@ def test_search(logged,tmp_path,monkeypatch):
     assert logged.get(url,params={'q':'zebra'}).json()==[]
     hits=logged.get(url,params={'q':'login'}).json()
     assert [h['session']['id'] for h in hits]==[a] and hits[0]['snippet']==''
+
+def test_session_metadata_and_all_origins_in_lists_and_search(logged,app,tmp_path):
+    from server.store import SessionIndex
+    index=app.state.index
+    first=logged.post('/api/agents/claude/sessions',json={'title':'needle ui'}).json()
+    assert (first['origin'],first['parent'],first['extra'])==('ui',None,None)
+    parent={'run_id':'run','block_id':'block'}
+    extra={'allowed_tools':['Read']}
+    second=index.create('claude','needle workflow',origin='workflow',parent=parent,extra=extra)
+    third=index.create('_temp','needle schedule',origin='schedule',cwd=str(tmp_path))
+    fourth=logged.post('/api/temp/sessions',json={'cwd':str(tmp_path)}).json()
+    assert fourth['origin']=='ui' and fourth['extra'] is None
+    assert {s['id'] for s in logged.get('/api/agents/claude/sessions').json()}=={first['id'],second['id']}
+    assert {s['id'] for s in logged.get('/api/temp/sessions').json()}=={third['id'],fourth['id']}
+    hits=logged.get('/api/agents/claude/search?q=needle').json()
+    assert {h['session']['origin'] for h in hits}=={'ui','workflow'}
+    assert logged.get('/api/agents/_temp/search?q=needle').json()[0]['session']['origin']=='schedule'
+    saved=SessionIndex(app.state.paths).sessions[second['id']]
+    assert saved['origin']=='workflow' and saved['parent']==parent and saved['extra']==extra
+    for key in ('origin','parent','extra'): index.sessions[first['id']].pop(key)
+    assert logged.get('/api/sessions/'+first['id']).json()['origin']=='ui'

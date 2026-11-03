@@ -6,6 +6,9 @@ class DataDir:
     def __init__(self, root=None):
         self.root = Path(root or os.getenv('NEXT_AGENT_DATA') or Path(__file__).resolve().parents[1] / 'data').expanduser().resolve()
         self.config = self.root / 'config.toml'
+        self.config_dir = self.root / 'config'
+        self.core_config = self.config_dir / 'core.toml'
+        self.agents_config = self.config_dir / 'agents.toml'
         self.secret = self.root / 'secret.key'
         self.sessions = self.root / 'sessions.json'
         self.agents = self.root / 'agents'
@@ -13,7 +16,7 @@ class DataDir:
 
     def prepare(self):
         os.umask(0o077)
-        for path in (self.root, self.agents, self.uploads):
+        for path in (self.root, self.config_dir, self.agents, self.uploads):
             path.mkdir(parents=True, exist_ok=True, mode=0o700)
             path.chmod(0o700)
 

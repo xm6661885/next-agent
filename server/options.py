@@ -10,6 +10,7 @@ log = logging.getLogger(__name__)
 def build_options(agent, session, defaults, server_cfg, can_use_tool, resume=None, fork=False,
                   resume_at=None, resume_session_at=None, new_session_id=None, stderr=None, custom_md_path=None):
     overrides = session.get('overrides',{})
+    extra = session.get('extra') or {}
     eff = effective(agent, defaults)
     def choose(name):
         return overrides.get(name) or eff[name] or None
@@ -20,6 +21,7 @@ def build_options(agent, session, defaults, server_cfg, can_use_tool, resume=Non
             prompt = '\n\n'.join(filter(None,[prompt,'# Agent instructions (CLAUDE.md)\n'+path.read_text()]))
     if eff['file_output']: prompt = '\n\n'.join(filter(None,[prompt,eff['file_output_prompt']]))
     if eff['genui']: prompt = '\n\n'.join(filter(None,[prompt,genui_text(eff['genui_prompt'],eff['genui_widgets'])]))
+    if extra.get('append_system_prompt'): prompt = '\n\n'.join(filter(None,[prompt,extra['append_system_prompt']]))
     if eff['system_prompt_mode']=='custom':
         system_prompt = prompt
     else:
@@ -34,6 +36,7 @@ def build_options(agent, session, defaults, server_cfg, can_use_tool, resume=Non
     if server_cfg.anthropic_base_url: env['ANTHROPIC_BASE_URL']=server_cfg.anthropic_base_url
     if server_cfg.anthropic_api_key: env['ANTHROPIC_API_KEY']=server_cfg.anthropic_api_key
     env.update(agent.env)
+    env.update(extra.get('env') or {})
     definitions = {name:AgentDefinition(**value) for name,value in agent.agents.items()}
     kwargs = dict(cwd=agent.cwd, model=choose('model'), effort=choose('effort'),
                   permission_mode=choose('permission_mode'), system_prompt=system_prompt, thinking=thinking,
@@ -46,6 +49,12 @@ def build_options(agent, session, defaults, server_cfg, can_use_tool, resume=Non
                   max_budget_usd=agent.max_budget_usd or None,fallback_model=eff['fallback_model'] or None,
                   cli_path=server_cfg.cli_path or None,stderr=stderr,
                   max_buffer_size=64*1024*1024)
+    for key in ('allowed_tools','disallowed_tools','add_dirs','setting_sources'):
+        if extra.get(key) is not None: kwargs[key]=extra[key]
+    for key in ('max_turns','max_budget_usd'):
+        if extra.get(key): kwargs[key]=extra[key]
+    if isinstance(extra.get('output_schema'),dict):
+        kwargs['output_format']={'type':'json_schema','schema':extra['output_schema']}
     if '*' not in agent.tools: kwargs['tools']=agent.tools
     if resume:
         kwargs['resume']=resume
