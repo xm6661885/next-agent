@@ -23,6 +23,10 @@ from .ws import session_socket, events_socket
 from . import memory
 from . import artifacts
 from . import btw
+from .core import Core
+from . import acp, chat, workflow, builtin
+
+VERSION='0.2.0'
 
 MODELS=['opus','sonnet','haiku','opus[1m]','claude-opus-5-5','claude-sonnet-5-5','claude-fable-5-1']
 EFFORTS=['low','medium','high','xhigh','max']
@@ -50,11 +54,15 @@ def create_app(data_dir=None):
             manager.semaphore=asyncio.Semaphore(config.config.server.max_concurrent)
         manager.global_emit({'type':'agents_changed'})
         manager.reconfigure()
+    core=Core(paths=paths,auth=auth,require=auth.require_auth,emit=manager.global_emit,
+              claude=lambda: config.config.server,version=VERSION)
     @asynccontextmanager
     async def lifespan(app):
         manager.reaper_task=asyncio.create_task(manager.reaper())
         watcher=asyncio.create_task(config.watch(config_changed))
+        await core.start()
         yield
+        await core.stop()
         watcher.cancel()
         await manager.shutdown()
     app=FastAPI(lifespan=lifespan)
@@ -65,6 +73,7 @@ def create_app(data_dir=None):
     app.state.auth=auth
     app.state.agents=agents
     app.state.uploads=uploads
+    app.state.core=core
     require=auth.require_auth
 
     @app.post('/api/login')
@@ -412,7 +421,7 @@ def create_app(data_dir=None):
     @app.get('/api/meta')
     async def meta(_:None=Depends(require)):
         return {'models':list(dict.fromkeys(MODELS+config.config.defaults.custom_models)),
-                'efforts':EFFORTS,'permission_modes':MODES,'version':'0.1.0',
+                'efforts':EFFORTS,'permission_modes':MODES,'version':VERSION,
                 'defaults':config.config.defaults.model_dump(),'default_genui_widgets':GENUI_WIDGETS}
     @app.put('/api/models')
     async def models_put(request:Request,_:None=Depends(require)):
@@ -461,7 +470,9 @@ def create_app(data_dir=None):
     @app.websocket('/ws/sessions/{sid}')
     async def ws_session(ws:WebSocket,sid:str): await session_socket(ws,sid,auth,manager,index,uploads)
     @app.websocket('/ws/events')
-    async def ws_events(ws:WebSocket): await events_socket(ws,auth,manager,agents)
+    async def ws_events(ws:WebSocket): await events_socket(ws,auth,manager,agents,core)
+    # Modules register their own routes; order matters only for the SPA catch-all below, which must stay last.
+    for module in (acp, builtin, chat, workflow): module.mount(app,core)
     dist=Path(__file__).resolve().parents[1]/'web'/'dist'
     if dist.exists():
         assets=dist/'assets'

@@ -1,6 +1,6 @@
 [project]
 name = "next-agent"
-version = "0.1.0"
+version = "0.2.0"
 description = "Web console for persistent Claude Agent SDK agents"
 requires-python = ">=3.11"
 dependencies = [
@@ -12,10 +12,15 @@ dependencies = [
   "python-multipart==0.0.20",
   "bcrypt==4.3.0",
   "itsdangerous==2.2.0",
+  "httpx==0.28.1",
+  "mcp==1.27.2",
+  "aiosqlite>=0.22.1",
+  "simpleeval>=1.0.8",
+  "croniter>=6.0.0",
 ]
 
 [dependency-groups]
-dev = ["pytest==8.4.2", "pytest-asyncio==1.2.0", "httpx==0.28.1"]
+dev = ["pytest==8.4.2", "pytest-asyncio==1.2.0"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

@@ -107,7 +107,7 @@ async def session_socket(ws: WebSocket, sid, auth, manager, index, uploads):
         runtime.viewers-=1
         runtime.subscribers.discard(queue)
 
-async def events_socket(ws: WebSocket, auth, manager, agents):
+async def events_socket(ws: WebSocket, auth, manager, agents, core=None):
     if not await auth.require_ws(ws): return
     await ws.accept()
     queue=asyncio.Queue(maxsize=1000)
@@ -115,7 +115,8 @@ async def events_socket(ws: WebSocket, auth, manager, agents):
     try:
         await ws.send_json({'type':'hello','agents':[{'id':a['id'],'status':a['status']} for a in agents.list()],
                             'sessions':[{'id':s['id'],'agent_id':s['agent_id'],'state':manager.view(s['id'])['state'],
-                                         'pending':manager.view(s['id'])['pending'],'unread':bool(s.get('unread'))} for s in manager.index.sessions.values()]})
+                                         'pending':manager.view(s['id'])['pending'],'unread':bool(s.get('unread'))} for s in manager.index.sessions.values()],
+                            **{k:v for extra in (core.hello if core else []) for k,v in extra().items()}})
         while True:
             event_task=asyncio.create_task(queue.get())
             close_task=asyncio.create_task(ws.receive())

@@ -206,7 +206,8 @@ Requests never time out. They stay open until a device answers, the user interru
 | GET | `/api/sessions/{sid}/files/stat` | `?path=<absolute path>` | `{name, size, mime, is_image}` with the same access rule, else `404` |
 | GET | `/api/config` | | `ConfigForm` (below) |
 | PATCH | `/api/config` | partial `ConfigForm` (`server` and `defaults` merge key by key; `pricing` replaces the whole table; `host`, `port`, `default_file_output_prompt` and `default_genui_prompt` are ignored) | `ConfigForm`. `422 {detail}` on invalid values. Comments in config.toml are kept. |
-| GET/PUT | `/api/config/raw` | PUT `{content}` | `{content}`. Raw config.toml text with `password_hash` masked as `"***"`. PUT validates, keeps the existing hash when it sees `"***"`, and returns `400 {detail}` on invalid TOML or schema. |
+| GET/PUT | `/api/config/raw` | `?file=core\|agents\|chat\|workflow` (default `agents`); PUT `{content}` | `{content, file, path}`. Raw text of `data/config/<file>.toml`. In `core`, `password_hash` is masked as `"***"`; PUT keeps the existing hash when it sees `"***"`. PUT validates that file's schema and returns `400 {detail}` on invalid TOML or schema; the owning module reloads at once. Unknown `file`: `400`. |
+| GET | `/api/settings/overview` | | `{version, files: [{file, path, mtime}], modules: {agents: {agents, acp_agents, sessions}, chat: {assistants, providers, sessions}, workflow: {workflows, runs}}}` counts for the settings home page |
 
 | GET/POST | `/api/external/send` | `prompt`, `agent_id`, `key` (query, form or JSON; key may also be `X-API-Key`), optional `session_id` | No cookie. Plain text `Message Sent` immediately, header `X-Session-Id`. Creates a session unless `session_id` is given. `403` when `server.api_key` is empty, `401` bad key, `404` unknown agent/session. Per agent, external messages run strictly in order: each waits until the previous turn finishes (and until the target session is idle). |
 
@@ -245,7 +246,27 @@ Errors use the FastAPI `{detail}` format.
 - `never`: idle CLIs are never stopped by the reaper.
 - `adaptive`: the CLI is started ahead of time (on `POST /api/agents/{id}/sessions`, `POST /api/temp/sessions`, `POST /api/sessions/{sid}/warm` and when a session socket connects), so the first message does not wait for a cold start. Each agent keeps at most `adaptive_keep` (>=1) live CLIs; when another session of that agent connects, the least recently active *idle* ones beyond that are stopped (sessions with pending permissions, running background tasks or cron jobs are never stopped). `idle_timeout_min` is ignored. Temporary sessions count as one agent (`_temp`). A CLI process is bound to one session, so it is not literally handed over; the old one stops and the new one is already warm.
 
-**Config migration** (done once at startup, written back to config.toml): `server.idle_mode/idle_timeout_min/adaptive_keep`
+`ConfigForm.server` is stored in `core.toml`; `defaults` and `pricing` in `agents.toml` (see "Config files").
+`ConfigForm` also has `"builtin_mcp": BuiltinMcp` (see `docs/builtin-mcp.md`; PATCH merges key by key).
+
+### Config files
+Everything lives in `data/config/` as four TOML files. Each module owns one file and reloads it within 2 seconds
+when it changes on disk. Comments are kept on every write.
+
+| File | Owner | Tables |
+|---|---|---|
+| `core.toml` | core | `[server]`: `host`, `port`, `password_hash`, `api_key` (external API), and the Claude CLI setup shared by Agents and Workflow: `cli_path`, `max_concurrent`, `anthropic_base_url`, `anthropic_api_key` |
+| `agents.toml` | Agents | `groups`, `acp_groups`, `[defaults]`, `[pricing]`, `[builtin_mcp]`, `[[agents]]`, `[temp_agent]`, `[[acp_agents]]`, `[extensions]` |
+| `chat.toml` | Chat | see `docs/protocol-chat.md` |
+| `workflow.toml` | Workflow | see `docs/protocol-workflow.md` |
+
+**Layout migration** (once, at startup, before anything else): when `data/config/` does not exist and
+`data/config.toml` does, `[server]` goes to `core.toml` and every other table and key goes to `agents.toml`
+(comments kept), then `data/config.toml` is renamed to `data/config.toml.v1.bak`. Missing `chat.toml` /
+`workflow.toml` are created from their built-in templates. A fresh install writes all four templates; the first-start
+password rule is unchanged. `NEXT_AGENT_DATA` still moves the whole `data/` directory.
+
+**Config migration** (done once at startup, written back to agents.toml): `server.idle_mode/idle_timeout_min/adaptive_keep`
 move to `[defaults]`. Each old-style agent (no `override_groups` key) gets groups derived from its old values:
 `model` if model or effort was non-empty; `permissions` if permission_mode was non-empty and differs from the default;
 `system_prompt` if system_prompt was non-empty or the mode was custom; `file_output`/`genui` if the old value was
