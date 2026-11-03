@@ -34,6 +34,7 @@ class DefaultAssistant(Settings):
 
 class Assistant(DefaultAssistant):
     id: str = Field(pattern=r'^[a-z0-9-]{1,40}$')
+    name: str = Field(min_length=1)
     created_at: str = Field(default_factory=now)
     order: int = 0
 

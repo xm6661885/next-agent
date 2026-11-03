@@ -96,3 +96,7 @@ export const IconTag = (p: P) =>
   I(<><path d="M3 12V4a1 1 0 0 1 1-1h8l9 9-9 9-9-9Z" /><circle cx="7.5" cy="7.5" r="1.5" /></>, p)
 export const IconCheckAll = (p: P) => I(<><path d="M18 7 9.5 15.5 6 12" /><path d="m22 7-8.5 8.5-1-1" /><path d="m2 12 3.5 3.5" /></>, p)
 export const IconArrowUp = (p: P) => I(<path d="m6 15 6-6 6 6" />, p)
+export const IconPlug = (p: P) =>
+  I(<><path d="M12 22v-5" /><path d="M9 8V2" /><path d="M15 8V2" /><path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z" /></>, p)
+export const IconRefresh = (p: P) =>
+  I(<><path d="M21 12a9 9 0 0 1-15.5 6.2L3 16" /><path d="M3 12a9 9 0 0 1 15.5-6.2L21 8" /><path d="M21 3v5h-5" /><path d="M3 21v-5h5" /></>, p)
