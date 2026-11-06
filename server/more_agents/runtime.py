@@ -324,6 +324,7 @@ class MoreAgentsManager:
         self.processes = {}
         self.model_cache = {}
         self._results = {}
+        self.process_lock = asyncio.Lock()
 
     async def startup(self):
         for sid, session in self.store.sessions.items():
@@ -332,32 +333,32 @@ class MoreAgentsManager:
             self.session_state(sid)
 
     async def process_for(self, agent):
-        if agent.id in self.processes and self.processes[agent.id].alive: return self.processes[agent.id]
-        async def notification(method, params):
-            if method == '__exit__':
+        async with self.process_lock:
+            if agent.id in self.processes and self.processes[agent.id].alive: return self.processes[agent.id]
+            async def notification(method, params):
+                if method == '__exit__':
+                    for runtime in list(self.runtimes.values()):
+                        if runtime.session['agent_id'] == agent.id: await runtime.on_notification(method, params)
+                    self.processes.pop(agent.id, None); return
+                thread = params.get('threadId')
                 for runtime in list(self.runtimes.values()):
-                    if runtime.session['agent_id'] == agent.id: await runtime.on_notification(method, params)
-                self.processes.pop(agent.id, None); return
-            thread = params.get('threadId')
-            for runtime in list(self.runtimes.values()):
-                if runtime.session['agent_id'] == agent.id and runtime.thread_id == thread:
-                    await runtime.on_notification(method, params)
-        async def request(method, params):
-            thread = params.get('threadId')
-            runtime = next((r for r in self.runtimes.values() if r.session['agent_id'] == agent.id and r.thread_id == thread), None)
-            if runtime: return await runtime.on_request(method, params)
-            raise RuntimeError('Unknown Codex thread')
-        process = CodexProcess(agent, notification, request, self.core.version)
-        await process.start(); self.processes[agent.id] = process
-        try:
-            result = await process.request('model/list', {'includeHidden': False})
-            models = result.get('data') if isinstance(result, dict) else result
-            self.model_cache[agent.id] = models or []
-            path = self.store.root / 'models' / f'{agent.id}.json'
-            from ..paths import atomic_write
-            atomic_write(path, __import__('json').dumps(self.model_cache[agent.id], ensure_ascii=False, indent=2))
-        except Exception: self.model_cache.setdefault(agent.id, [])
-        return process
+                    if runtime.session['agent_id'] == agent.id and runtime.thread_id == thread:
+                        await runtime.on_notification(method, params)
+            async def request(method, params):
+                thread = params.get('threadId')
+                runtime = next((r for r in self.runtimes.values() if r.session['agent_id'] == agent.id and r.thread_id == thread), None)
+                if runtime: return await runtime.on_request(method, params)
+                raise RuntimeError('Unknown Codex thread')
+            process = CodexProcess(agent, notification, request, self.core.version)
+            await process.start(); self.processes[agent.id] = process
+            try:
+                result = await process.request('model/list', {'includeHidden': False})
+                models = result.get('data') if isinstance(result, dict) else result
+                self.model_cache[agent.id] = models or []
+                from ..paths import atomic_write
+                atomic_write(self.store.root / 'models' / f'{agent.id}.json', __import__('json').dumps(self.model_cache[agent.id], ensure_ascii=False, indent=2))
+            except Exception: self.model_cache.setdefault(agent.id, [])
+            return process
 
     def models(self, aid):
         if aid in self.model_cache: return self.model_cache[aid]

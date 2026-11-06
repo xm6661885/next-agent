@@ -142,7 +142,7 @@ class CodexRuntime:
                 else: input[0]['text'] += '\nAttached file: '+attachment['path']
             result=await self.process.request('turn/start',{'threadId':self.thread_id,'input':input,'cwd':self.session['cwd'],**self._turn_settings()})
             turn=result.get('turn') or {}; self.turn_id=turn.get('id') or result.get('turnId')
-            await future if False else self._wait_turn()
+            await self._wait_turn()
         except Exception as exc:
             self._finish('disconnected',str(exc)); return
         self._finish(self.session.pop('_last_stop_reason','completed'),None)
