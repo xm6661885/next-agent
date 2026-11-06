@@ -433,13 +433,6 @@ class ConfigStore:
     def __init__(self, paths: DataDir):
         self.paths = paths
         paths.prepare()
-        if not paths.core_config.exists() and paths.config.exists():
-            doc = tomlkit.parse(paths.config.read_text())
-            core = tomlkit.document()
-            core['server'] = doc.pop('server')
-            atomic_write(paths.core_config, tomlkit.dumps(core))
-            atomic_write(paths.agents_config, tomlkit.dumps(doc))
-            paths.config.rename(paths.config.with_suffix('.toml.v1.bak'))
         if not paths.core_config.exists():
             password = os.environ.get('NEXT_AGENT_PASSWORD') or '100200'
             password_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()

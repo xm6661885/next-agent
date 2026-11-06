@@ -8,7 +8,7 @@ from server.config import ConfigStore, DEFAULT_FILE_OUTPUT_PROMPT, DEFAULT_GENUI
 def test_first_start_roundtrip(tmp_path):
     store=ConfigStore(DataDir(tmp_path))
     assert '070827' not in store.paths.core_config.read_text()
-    assert not store.paths.config.exists()
+    assert not (tmp_path/'config.toml').exists()
     assert bcrypt.checkpw(b'070827',store.config.server.password_hash.encode())
     store.doc['defaults']['model']='sonnet'; store.save()
     assert '# next-agent configuration' in store.paths.agents_config.read_text()
@@ -130,8 +130,9 @@ file_output = "off"
 genui = "on"
 genui_prompt = "Own UI"
 '''
-    store.paths.core_config.unlink()
-    store.paths.config.write_text(old)
+    doc=tomlkit.parse(old)
+    store.paths.core_config.write_text(tomlkit.dumps({'server':doc.pop('server')}))
+    store.paths.agents_config.write_text(tomlkit.dumps(doc))
     store=ConfigStore(DataDir(tmp_path))
     agent=store.config.agents[0]
     assert agent.override_groups==['model']
@@ -184,44 +185,3 @@ def test_genui_widgets(logged,tmp_path):
     assert a['effective']['genui_widgets']['ask']=={'on':True,'prompt':'Mine'}
     assert a['effective']['genui_widgets']['chart']['prompt']==GENUI_WIDGETS['chart']
     assert logged.post('/api/agents/w/read').json()=={'ok':True,'read':[]}
-
-def test_layout_migration_preserves_values_comments_and_second_start(tmp_path):
-    from server.config import Config, DEFAULT_CORE, DEFAULT_AGENTS
-    paths=DataDir(tmp_path)
-    paths.prepare()
-    template=(DEFAULT_CORE+'\n'+DEFAULT_AGENTS).replace('HASH',bcrypt.hashpw(b'old',bcrypt.gensalt(4)).decode())
-    template=template.replace('HOME_DIR',str(tmp_path)).replace('MODEL','sonnet').replace('EFFORT','low').replace('CREATED_AT','2026-01-01')
-    old=tomlkit.parse('groups = ["Work", "Home"]\n'+template)
-    old['server']['api_key']='external-key'
-    old['server']['anthropic_base_url']='https://relay.example'
-    old['agents'][0]['override_groups']=['model']
-    old['agents'][0]['group']='Work'
-    old['agents'][0].add(tomlkit.comment('Keep the agent note'))
-    old['agents'][0]['system_prompt']=tomlkit.string('First line\n\n[pricing]\nLast line',multiline=True)
-    old['agents'][0]['env']['TOKEN']=tomlkit.string('value').comment('keep env note')
-    second=tomlkit.table()
-    for key,value in dict(id='second',name='Second',cwd=str(tmp_path),created_at='2026-02-01',
-                          override_groups=['model','permissions'],group='Home',model='haiku',effort='high',
-                          permission_mode='plan',env={'CUSTOM':'yes'},max_turns=7).items(): second[key]=value
-    old['agents'].append(second)
-    old['temp_agent']={'name':'Scratch','override_groups':['permissions'],'permission_mode':'acceptEdits',
-                       'allowed_tools':['Read'],'env':{'TEMP':'yes'}}
-    old['pricing']={'x':{'input':1.2,'output':3.4,'cache_read':.1,'cache_write':.8}}
-    old['builtin_mcp']={'custom':{'enabled':True,'names':['one','two']}}
-    old['extensions']={'hook':{'url':'https://example.test'}}
-    original=tomlkit.dumps(old)
-    paths.config.write_text(original)
-    expected=Config.model_validate(old.unwrap()).model_dump()
-    store=ConfigStore(paths)
-    assert store.config.model_dump()==expected
-    assert {**store.doc.unwrap(),**store.core_doc.unwrap()}==old.unwrap()
-    assert paths.config.with_suffix('.toml.v1.bak').read_text()==original
-    assert not paths.config.exists() and set(store.core_doc)=={'server'} and 'server' not in store.doc
-    assert 'Keep the agent note' in paths.agents_config.read_text()
-    assert '# keep env note' in paths.agents_config.read_text()
-    before=[(p.read_bytes(),p.stat().st_mtime_ns) for p in (paths.core_config,paths.agents_config)]
-    assert ConfigStore(paths).config.model_dump()==expected
-    assert before==[(p.read_bytes(),p.stat().st_mtime_ns) for p in (paths.core_config,paths.agents_config)]
-    store.update_form({'defaults':{'effort':'max'},'server':{'max_concurrent':2}})
-    assert 'Keep the agent note' in paths.agents_config.read_text() and '# keep env note' in paths.agents_config.read_text()
-    assert store.config.agents[0].system_prompt=='First line\n\n[pricing]\nLast line'

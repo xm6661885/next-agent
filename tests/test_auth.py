@@ -36,4 +36,4 @@ def test_set_password_writes_core_only(app,monkeypatch):
     cli.main()
     app.state.config.load()
     assert bcrypt.checkpw(b'new password',app.state.config.config.server.password_hash.encode())
-    assert paths.agents_config.read_bytes()==before and not paths.config.exists()
+    assert paths.agents_config.read_bytes()==before and not (paths.root/'config.toml').exists()

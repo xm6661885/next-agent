@@ -13,7 +13,7 @@ def test_crud_reorder_md(logged,tmp_path):
     assert logged.get('/api/agents').json()[0]['id']==aid
     assert logged.put(f'/api/agents/{aid}/claude-md',json={'content':'inherit'}).json()['path']==str(cwd/'CLAUDE.md')
     logged.patch(f'/api/agents/{aid}',json={'claude_md':'custom'})
-    assert logged.put(f'/api/agents/{aid}/claude-md',json={'content':'custom'}).json()['path'].endswith(f'agents/{aid}/CLAUDE.md')
+    assert logged.put(f'/api/agents/{aid}/claude-md',json={'content':'custom'}).json()['path'].endswith(f'agents/profiles/{aid}/CLAUDE.md')
     assert logged.delete(f'/api/agents/{aid}').json()=={'ok':True}
 
 def test_avatar_limits(logged,tmp_path):

@@ -590,6 +590,19 @@ class RuntimeManager:
         return {'unread':False,'origin':'ui','parent':None,'extra':None,**self.index.sessions[sid],'state':runtime.state if runtime else 'offline',
                 'pending':len(runtime.permissions.pending) if runtime else 0}
 
+    def running(self):
+        rows=[]
+        for sid,runtime in self.runtimes.items():
+            pending=len(runtime.permissions.pending)
+            if runtime.state not in ('running','interrupting') and not pending: continue
+            s=self.index.sessions[sid]
+            agent=self.agent(s['agent_id'])
+            rows.append({'module':'agents','session_id':sid,'agent_id':agent.id,'agent_name':agent.name,
+                         'avatar':agent.avatar,'title':s['title'],'state':runtime.state,'pending':pending,
+                         'unread':bool(s.get('unread')),'updated_at':s['updated_at'],'preview':s['preview'],
+                         'cwd':s.get('cwd') or ('' if agent.id==TEMP_AGENT else agent.cwd)})
+        return rows
+
     def external_send(self,aid,prompt,sid=None):
         """Queue an external message. Messages for one agent run strictly one after another."""
         self.agent(aid)
@@ -700,7 +713,7 @@ class RuntimeManager:
 
     def session_state(self,runtime):
         s=runtime.session
-        self.global_emit({'type':'session_state','session_id':runtime.sid,'agent_id':s['agent_id'],
+        self.global_emit({'type':'session_state','module':'agents','session_id':runtime.sid,'agent_id':s['agent_id'],
                           'state':runtime.state,'pending':len(runtime.permissions.pending),'unread':bool(s.get('unread')),
                           'title':s['title'],'updated_at':s['updated_at'],'preview':s['preview']})
         asyncio.create_task(self.extensions.emit('session_state',session_id=runtime.sid,agent_id=s['agent_id'],state=runtime.state))

@@ -6,10 +6,10 @@ is the core (auth, paths, TOML store helpers, global event feed) and a few narro
 
 | Module | Backend | Frontend | Config file | Data |
 |---|---|---|---|---|
-| core | `server/app.py`, `core.py`, `auth.py`, `paths.py`, `tomlstore.py`, `bridge.py` | `web/src/lib`, `web/src/components` | `data/config/core.toml` | `data/secret.key` |
-| Agents (Claude) | `server/*.py` (runtime, items, history, options, ...) | `web/src/modules/agents` | `data/config/agents.toml` | `data/sessions.json`, `data/agents/`, `data/uploads/` |
+| core | `server/app.py`, `core.py`, `auth.py`, `paths.py`, `tomlstore.py`, `bridge.py` | `web/src/lib`, `web/src/components` | `data/config/core.toml` | `data/core/secret.key` |
+| Agents (Claude) | `server/*.py` (runtime, items, history, options, ...) | `web/src/modules/agents` | `data/config/agents.toml` | `data/agents/sessions.json`, `data/agents/profiles/<agent-id>/`, `data/agents/uploads/<session-id>/` (fallback uploads) |
 | Agents (ACP) | `server/acp/` | `web/src/modules/acp` | `data/config/acp.toml` | `data/acp/` |
-| Built-in MCP | `server/builtin/` | settings pages + tool cards in the Claude chat | `data/config/agents.toml` (`builtin_mcp`) | `data/schedules.json` |
+| Built-in MCP | `server/builtin/` | settings pages + tool cards in the Claude chat | `data/config/agents.toml` (`builtin_mcp`) | `data/builtin/schedules.json` |
 | Chat | `server/chat/` | `web/src/modules/chat` | `data/config/chat.toml` | `data/chat/` |
 | Workflow | `server/workflow/` | `web/src/modules/workflow` | `data/config/workflow.toml` | `data/workflow/` |
 | Settings / More | `/api/settings/*` in `server/app.py` | `web/src/modules/settings`, `web/src/modules/more` | all of the above | |
@@ -23,6 +23,7 @@ Workflow never starts a CLI itself: its agent cards create normal Agents session
 - `server/bridge.py` `AgentBridge`: run a turn on a Claude session (temporary or a named agent) or an ACP session and
   wait for the result. Used by Workflow cards, the scheduler and the built-in collaboration tools.
 - `core.emit` (`server/core.py`, served by `/ws/events` in `app.py`): the global feed. Every module emits `session_state` events tagged with `module`.
+- `GET /api/running`: combines the synchronous `running()` providers exposed by `core.modules`, including Agents, and sorts their session rows by `updated_at` descending. See `docs/protocol.md` for the row contract.
 
 ## Frontend rule
 Each module owns a full copy of the chat UI it needs (`modules/*/chat/`). Copies may diverge; never import a chat
