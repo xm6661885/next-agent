@@ -21,7 +21,7 @@ export interface LiveSession {
 /** Session states pushed by /ws/events, keyed by session id. */
 export const liveSessions = signal<Record<string, LiveSession>>({})
 /** Live states of the other modules' sessions (more_agents, chat), keyed by session id. Same shape plus `module`. */
-export const moduleSessions = signal<Record<string, LiveSession & { module: string; assistant_id?: string }>>()
+export const moduleSessions = signal<Record<string, LiveSession & { module: string; assistant_id?: string }>>({})
 export const moreAgentsVersion = signal(0)
 /** @deprecated Use moreAgentsVersion */
 export const acpVersion = moreAgentsVersion

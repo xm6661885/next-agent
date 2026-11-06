@@ -205,6 +205,67 @@
   white-space: nowrap;
 }
 
+/* More Agent cards: recent sessions + actions */
+.agent-card-recent {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 0;
+  position: relative;
+  z-index: 1;
+}
+
+.recent-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 10px;
+  text-align: left;
+  transition: background 0.2s;
+}
+
+.recent-row:hover { background: var(--line); }
+.recent-row:active { background: var(--line-strong); }
+
+.recent-state { display: flex; align-items: center; }
+.recent-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.recent-title { font-size: 14px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.recent-title.unread { font-weight: 600; }
+
+.agent-card-actions {
+  display: flex;
+  gap: 8px;
+  padding-top: 4px;
+  position: relative;
+  z-index: 1;
+}
+
+.agent-kind-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+
+.agent-kind-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 20px 16px;
+  border: 1.5px solid var(--line);
+  border-radius: 16px;
+  text-align: center;
+  background: var(--bg);
+  transition: all 0.2s;
+}
+
+.agent-kind-card:active { transform: scale(0.98); background: var(--line); }
+
+.agent-kind-icon { color: var(--text-3); }
+.agent-kind-name { font-size: 16px; font-weight: 600; }
+.agent-kind-desc { font-size: 13px; color: var(--text-2); }
+
 .pending-chip { animation: pop 0.4s var(--ease-spring) both, nudge 2.4s ease-in-out 1s infinite; }
 
 @keyframes nudge {

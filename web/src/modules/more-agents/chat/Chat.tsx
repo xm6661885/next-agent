@@ -9,7 +9,7 @@ import { Avatar, Spark } from '../../../components/crab'
 import { BackButton, Sheet, TopBar, promptDialog } from '../../../components/ui'
 import { IconBrain, IconCheck, IconChevron, IconChevronDown, IconCopy, IconMore, IconEdit, IconSelect, IconNewChat, IconTerminal, IconMoon, IconPlug, IconRefresh } from '../../../components/icons'
 import { openViewer } from '../../../components/ImageViewer'
-import { copyText, fmtBytes, fmtDuration, haptic, uid } from '../../../lib/util'
+import { copyText, fmtBytes, fmtDuration, haptic, shortPath, uid } from '../../../lib/util'
 import type { Attachment, Item, TextItem, ThinkingItem, UserItem } from '../../../lib/types'
 import { moreAgentsApi, type MoreAgent, type ConfigOption } from '../api'
 import { MoreAgentConn } from './conn'
@@ -206,8 +206,14 @@ export function MoreAgentChat({ agentId, sessionId }: { agentId: string; session
         <button class="chat-title press" onClick={() => setOptionsOpen(true)}>
           <AvatarFor a={shown} busy={busy} size={32} />
           <span class="titles">
-            <span class="t1">{session?.title || 'New conversation'}</span>
-            <span class="t2">{agent?.name}{state === 'connecting' ? <> · <Spark size={11} /> connecting</> : ''}</span>
+            <span class="t1">
+              {session?.title || 'New conversation'}
+              {session?.context && <span class="context-badge">{session.context.used}/{session.context.max}</span>}
+            </span>
+            <span class="t2">
+              {session?.cwd && <button class="cwd-chip" onClick={(e) => { e.stopPropagation(); copyText(session.cwd); toast('Copied') }}>{shortPath(session.cwd)}</button>}
+              {state === 'connecting' && <><Spark size={11} /> connecting</>}
+            </span>
           </span>
         </button>
       </TopBar>
@@ -364,10 +370,12 @@ const ItemView = memo(function ItemView({ it, reply, onUserMenu, onImage }: {
     case 'result': {
       const r = it as any
       const stopped = r.stop_reason === 'cancelled', lost = r.stop_reason === 'disconnected'
+      const u = r.usage
       return (
         <div class={`turn-end ${lost ? 'err' : ''}`}>
-          {stopped ? 'Stopped' : lost ? 'Connection lost' : r.stop_reason && r.stop_reason !== 'end_turn' ? `Ended: ${r.stop_reason.replace(/_/g, ' ')}` : 'Done'}
-          {r.duration_ms ? ` in ${fmtDuration(r.duration_ms)}` : ''}
+          <span>{stopped ? 'Stopped' : lost ? 'Connection lost' : r.stop_reason && r.stop_reason !== 'end_turn' ? `Ended: ${r.stop_reason.replace(/_/g, ' ')}` : 'Done'}
+          {r.duration_ms ? ` in ${fmtDuration(r.duration_ms)}` : ''}</span>
+          {u && (u.input || u.output) && <span class="usage-meta"> · {u.input || 0}{u.cached_input ? `+${u.cached_input}` : ''}→{u.output || 0}{u.reasoning ? `+${u.reasoning}` : ''}</span>}
           {reply && <CopyReply text={reply} />}
         </div>
       )
@@ -412,6 +420,7 @@ function CopyReply({ text }: { text: string }) {
 function UserBubble({ it, onMenu }: { it: UserItem; onMenu: (u: UserItem) => void }) {
   const images = it.attachments?.filter((a) => a.is_image) || []
   const files = it.attachments?.filter((a) => !a.is_image) || []
+  const steered = (it as any).steered
   const press = useRef<{ timer?: number; x: number; y: number }>({ x: 0, y: 0 })
   const startPress = (e: TouchEvent) => {
     const t = e.touches[0]
@@ -424,6 +433,7 @@ function UserBubble({ it, onMenu }: { it: UserItem; onMenu: (u: UserItem) => voi
   const endPress = () => clearTimeout(press.current.timer)
   return (
     <div class={`msg-user ${it.pending ? 'pending' : ''}`}>
+      {steered && <div class="msg-label">Steered</div>}
       {images.length > 0 && (
         <div class="msg-images">
           {images.map((a, i) => (
@@ -461,8 +471,9 @@ function AssistantText({ it, onImage }: { it: TextItem; onImage: (el: HTMLImageE
       setTimeout(() => { btn.textContent = 'Copy' }, 1400)
     })
   }
+  const phase = (it as any).phase
   return (
-    <div class={`msg-assistant md ${it.streaming ? 'streaming' : ''}`} ref={ref} onClick={onClick}
+    <div class={`msg-assistant md ${it.streaming ? 'streaming' : ''} ${phase === 'commentary' ? 'commentary' : ''}`} ref={ref} onClick={onClick}
       onAnimationEnd={(e) => unwrapFade(e.target as Element)}
       dangerouslySetInnerHTML={{ __html: it.streaming ? renderStreaming(it.text) : renderMarkdown(it.text) }} />
   )

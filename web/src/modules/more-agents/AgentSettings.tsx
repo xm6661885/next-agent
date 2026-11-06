@@ -9,7 +9,7 @@ import { IconBolt, IconTrash } from '../../components/icons'
 import { moreAgentsApi, type MoreAgent, type AcpAgent, type CodexAgent, type ConfigOption, type Model } from './api'
 import { MoreAgentAvatar } from './chat/Chat'
 import { ModelPicker } from '../../components/ModelPicker'
-import { EffortSlider, EFFORTS } from '../../components/EffortSlider'
+import { EffortSlider } from '../../components/EffortSlider'
 import { DirPicker } from '../../components/DirPicker'
 
 const BLANK_ACP: Partial<AcpAgent> = { kind: 'acp', name: '', avatar: 'crab:blue', description: '', group: '', host: '', port: 8788, token: '', cwd: '/', config_defaults: {}, as_subagent: false }
@@ -18,7 +18,7 @@ const BLANK_CODEX: Partial<CodexAgent> = { kind: 'codex', name: '', avatar: 'cra
 export function MoreAgentSettings({ agentId }: { agentId?: string }) {
   const isNew = !agentId
   const { scrolled, onScroll, ref } = useScrolled()
-  const [a, setA] = useState<Partial<MoreAgent> | null>(isNew ? { ...BLANK_ACP } : null)
+  const [a, setA] = useState<Partial<MoreAgent> | null>(null)
   const [orig, setOrig] = useState(isNew ? '' : '')
   const [groups, setGroups] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
@@ -31,6 +31,12 @@ export function MoreAgentSettings({ agentId }: { agentId?: string }) {
   useEffect(() => {
     if (!isNew) {
       moreAgentsApi.agent(agentId!).then((x) => { setA(x); setOrig(JSON.stringify(x)); if (x.kind === 'codex') loadModels(agentId!) }).catch(toastError)
+    } else {
+      // Read ?kind= query param and initialize
+      const query = new URLSearchParams(window.location.search)
+      const kind = query.get('kind') as 'acp' | 'codex' | null
+      if (kind === 'codex') setA({ ...BLANK_CODEX })
+      else setA({ ...BLANK_ACP })
     }
     moreAgentsApi.groups().then((g) => setGroups(g.groups)).catch(() => {})
   }, [agentId])
@@ -93,7 +99,6 @@ export function MoreAgentSettings({ agentId }: { agentId?: string }) {
 
   // Model picker for Codex
   const currentModel = codex ? models.find((m) => m.id === codex.model) : null
-  const supportedEfforts = currentModel?.supportedReasoningEfforts.map((e) => e.reasoningEffort) || EFFORTS
   const currentEffort = codex?.effort || currentModel?.defaultReasoningEffort || ''
 
   return (

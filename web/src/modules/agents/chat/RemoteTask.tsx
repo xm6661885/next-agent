@@ -53,7 +53,8 @@ export function RemoteTaskPanel({ task }: { task: Task }) {
   useLayoutEffect(() => { const el = body.current; if (el) el.scrollTop = el.scrollHeight }, [items.length])
   const open = () => {
     remoteTaskView.value = null
-    navigate(task.module === 'more_agents' ? { name: 'more-agent-chat', agentId: task.agent_id, sessionId: task.session_id } : { name: 'chat', agentId: task.agent_id, sessionId: task.session_id })
+    if (task.module === 'more_agents') navigate({ name: 'more-agent-chat', agentId: task.agent_id, sessionId: task.session_id })
+    else navigate({ name: 'chat', agentId: task.agent_id, sessionId: task.session_id })
   }
   return (
     <div class="subview" role="dialog" aria-label={task.title || 'Task'}>

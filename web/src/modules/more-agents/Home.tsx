@@ -4,10 +4,12 @@ import { useEffect, useRef, useState } from 'preact/hooks'
 import { moreAgentsVersion, moduleSessions, toastError } from '../../lib/store'
 import { navigate } from '../../lib/router'
 import { Spark } from '../../components/crab'
-import { IconChat, IconPlus, IconGlobe } from '../../components/icons'
-import { haptic, relTime } from '../../lib/util'
-import { moreAgentsApi, type MoreAgent } from './api'
+import { IconPlus, IconGlobe, IconFolder, IconEdit, IconMoon, IconTrash } from '../../components/icons'
+import { haptic, shortPath } from '../../lib/util'
+import { moreAgentsApi, type MoreAgent, type AgentKindInfo } from './api'
 import { MoreAgentAvatar } from './chat/Chat'
+import { Sheet, confirmDialog, promptDialog } from '../../components/ui'
+import { DirPicker } from '../../components/DirPicker'
 
 const painted = () => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(r, 30))))
 let cache: MoreAgent[] | null = null
@@ -30,9 +32,12 @@ export function MoreAgents() {
   const [list, setList] = useState<MoreAgent[] | null>(cache)
   const [groups, setGroups] = useState<string[]>(groupCache)
   const [filter, setFilter] = useState<string | null>(null)
+  const [addSheet, setAddSheet] = useState(false)
+  const [kinds, setKinds] = useState<AgentKindInfo[]>([])
   useEffect(() => {
     moreAgentsApi.agents().then((a) => { cache = a; setList(a) }).catch(toastError)
     moreAgentsApi.groups().then((g) => { groupCache = g.groups; setGroups(g.groups) }).catch(() => {})
+    moreAgentsApi.kinds().then(setKinds).catch(() => {})
   }, [moreAgentsVersion.value])
   void moduleSessions.value
 
@@ -42,7 +47,18 @@ export function MoreAgents() {
       <div class="empty-icon"><IconGlobe width={40} height={40} /></div>
       <h3 class="serif">No More Agents yet</h3>
       <p>Connect ACP endpoints or run Codex agents locally.</p>
-      <button class="btn primary" style={{ marginTop: '10px' }} onClick={() => navigate({ name: 'new-more-agent' })}><IconPlus width={18} height={18} /> New agent</button>
+      <button class="btn primary" style={{ marginTop: '10px' }} onClick={() => setAddSheet(true)}><IconPlus width={18} height={18} /> New agent</button>
+      <Sheet open={addSheet} onClose={() => setAddSheet(false)} title="New agent">
+        <div class="agent-kind-grid">
+          {kinds.map((k) => (
+            <button key={k.kind} class="agent-kind-card press" onClick={() => { setAddSheet(false); navigate(`/more-agents/new?kind=${k.kind}`) }}>
+              <div class="agent-kind-icon"><IconGlobe width={32} height={32} /></div>
+              <div class="agent-kind-name">{k.name}</div>
+              <div class="agent-kind-desc">{k.description}</div>
+            </button>
+          ))}
+        </div>
+      </Sheet>
     </div>
   )
   const ungrouped = list.filter((a) => !a.group || !groups.includes(a.group))
@@ -68,6 +84,17 @@ export function MoreAgents() {
           <div class="agent-grid">{sec.items.map((a, i) => <MoreAgentCard key={a.id} agent={a} index={i} />)}</div>
         </section>
       ))}
+      <Sheet open={addSheet} onClose={() => setAddSheet(false)} title="New agent">
+        <div class="agent-kind-grid">
+          {kinds.map((k) => (
+            <button key={k.kind} class="agent-kind-card press" onClick={() => { setAddSheet(false); navigate(`/more-agents/new?kind=${k.kind}`) }}>
+              <div class="agent-kind-icon"><IconGlobe width={32} height={32} /></div>
+              <div class="agent-kind-name">{k.name}</div>
+              <div class="agent-kind-desc">{k.description}</div>
+            </button>
+          ))}
+        </div>
+      </Sheet>
     </>
   )
 }
@@ -75,23 +102,66 @@ export function MoreAgents() {
 function MoreAgentCard({ agent, index }: { agent: MoreAgent; index: number }) {
   const live = moreAgentLive(agent.id)
   const running = live.running || agent.status?.running || 0
-  const pending = live.pending || agent.status?.pending || 0
-  const last = agent.status?.last_session
   const creating = useRef(false)
-  const newChat = async (e: Event) => {
+  const [dirPicking, setDirPicking] = useState(false)
+  const [menuFor, setMenuFor] = useState<string | null>(null)
+  const recent = agent.recent || []
+  const press = useRef<{ timer?: number; fired: boolean }>({ fired: false })
+
+  const newChat = async (e: Event, cwd?: string) => {
     e.stopPropagation()
     if (creating.current) return
     creating.current = true
     try {
-      const s = await moreAgentsApi.createSession(agent.id)
+      const s = await moreAgentsApi.createSession(agent.id, cwd)
       navigate({ name: 'more-agent', agentId: agent.id }, { animate: false })
       await painted()
       navigate({ name: 'more-agent-chat', agentId: agent.id, sessionId: s.id })
     } catch (err) { toastError(err) } finally { creating.current = false }
   }
 
+  const openFolder = async (e: Event) => {
+    e.stopPropagation()
+    if (agent.kind === 'codex') {
+      setDirPicking(true)
+    } else {
+      const cwd = await promptDialog({ title: 'Open folder', value: agent.cwd || '/', confirm: 'Start chat' })
+      if (cwd?.trim()) newChat(e, cwd.trim())
+    }
+  }
+
+  const renameSession = async (sid: string, title: string) => {
+    const t = await promptDialog({ title: 'Rename conversation', value: title, confirm: 'Rename' })
+    if (t === null || !t.trim()) return
+    try {
+      await moreAgentsApi.updateSession(sid, { title: t.trim() })
+      moreAgentsVersion.value++
+    } catch (e) { toastError(e) }
+  }
+
+  const sleepSession = async (sid: string) => {
+    try {
+      await moreAgentsApi.sleep(sid)
+      moreAgentsVersion.value++
+    } catch (e) { toastError(e) }
+  }
+
+  const deleteSession = async (sid: string, title: string) => {
+    if (!await confirmDialog({ title: 'Delete conversation?', body: title || 'Untitled', confirm: 'Delete', danger: true })) return
+    try {
+      await moreAgentsApi.deleteSession(sid)
+      moreAgentsVersion.value++
+    } catch (e) { toastError(e) }
+  }
+
+  const startPress = (sid: string) => {
+    press.current.fired = false
+    press.current.timer = window.setTimeout(() => { press.current.fired = true; haptic(); setMenuFor(sid) }, 550)
+  }
+  const cancelPress = () => clearTimeout(press.current.timer)
+
   const kindTag = agent.kind === 'acp' ? 'ACP' : 'Codex'
-  const detailLine = agent.kind === 'acp' ? `${agent.host}:${agent.port}` : agent.model || 'default model'
+  const detailLine = agent.kind === 'acp' ? agent.cwd : `${shortPath(agent.cwd)} · ${agent.model || 'default'}`
 
   return (
     <div class="agent-card-wrap rise" style={{ '--i': index + 2 }}>
@@ -102,24 +172,56 @@ function MoreAgentCard({ agent, index }: { agent: MoreAgent; index: number }) {
             <div class="n">{agent.name}{live.unread > 0 && <span class="unread-dot" />}</div>
             <div class="p">{detailLine}</div>
           </div>
-          {pending > 0 ? <span class="chip warn pending-chip">Needs you</span>
-            : running > 0 ? <span class="chip pink"><Spark size={13} /> Working</span>
-              : <span class={`dot ${live.live ? 'live' : ''}`} title={live.live ? 'Connected' : 'Disconnected'} />}
-        </div>
-        <div class="agent-card-last">
-          {last ? <><span class="lt">{last.title || 'Untitled'}</span><span class="lp">{last.preview || ' '}</span></>
-            : <span class="lp">{agent.description || 'No conversations yet.'}</span>}
-        </div>
-        <div class="agent-card-foot">
           <span class="mtag">{kindTag}</span>
-          {agent.kind === 'acp' && agent.info?.name && <span class="mtag">{agent.info.name}</span>}
-          {agent.kind === 'codex' && agent.mode && <span class="mtag">{agent.mode}</span>}
-          <span class="when">{last ? relTime(last.updated_at) : ''}</span>
+        </div>
+
+        {recent.length > 0 && (
+          <div class="agent-card-recent" onClick={(e) => e.stopPropagation()}>
+            {recent.slice(0, 5).map((s) => {
+              const liveState = moduleSessions.value[s.id]
+              const state = liveState?.state || s.state || 'offline'
+              const unread = liveState?.unread ?? s.unread
+              const sRunning = state === 'running' || state === 'interrupting'
+              const sPending = liveState?.pending || 0
+              const cwdDiff = s.cwd !== agent.cwd ? shortPath(s.cwd) : null
+              return (
+                <button key={s.id} class="recent-row press"
+                  onClick={() => { if (press.current.fired) { press.current.fired = false; return } navigate({ name: 'more-agent-chat', agentId: agent.id, sessionId: s.id }) }}
+                  onContextMenu={(e) => { e.preventDefault(); setMenuFor(s.id) }}
+                  onTouchStart={() => startPress(s.id)} onTouchEnd={cancelPress} onTouchMove={cancelPress} onTouchCancel={cancelPress}>
+                  <span class="recent-state">
+                    {sPending > 0 ? <span class="dot waiting" /> : sRunning ? <Spark size={14} /> : <span class={`dot ${state !== 'offline' ? 'live' : ''}`} />}
+                  </span>
+                  <span class="recent-text">
+                    <span class={`recent-title ${unread ? 'unread' : ''}`}>{s.title || 'Untitled'}</span>
+                    {cwdDiff && <span class="hint mono-label">{cwdDiff}</span>}
+                  </span>
+                  {unread && <span class="unread-dot" aria-label="Unread" />}
+                </button>
+              )
+            })}
+          </div>
+        )}
+
+        <div class="agent-card-actions" onClick={(e) => e.stopPropagation()}>
+          <button class="btn small" onClick={openFolder}><IconFolder width={16} height={16} /> Open folder</button>
+          <button class="btn small primary" onClick={(e) => newChat(e)}><IconPlus width={16} height={16} /> New chat</button>
         </div>
       </button>
-      <button class="agent-new press" aria-label={`New chat with ${agent.name}`} onClick={newChat}>
-        <IconPlus width={16} height={16} /><IconChat width={17} height={17} />
-      </button>
+
+      <DirPicker open={dirPicking} onClose={() => setDirPicking(false)} onPick={(cwd) => { setDirPicking(false); newChat({ stopPropagation: () => {} } as Event, cwd) }} confirm="Start chat" />
+
+      {recent.find((s) => s.id === menuFor) && (
+        <Sheet open={!!menuFor} onClose={() => setMenuFor(null)} title={recent.find((s) => s.id === menuFor)?.title || 'Conversation'}>
+          <div class="menu">
+            <button onClick={() => { const s = recent.find((x) => x.id === menuFor)!; setMenuFor(null); renameSession(s.id, s.title) }}><IconEdit /> Rename</button>
+            {moduleSessions.value[menuFor!]?.state !== 'offline' && (
+              <button onClick={() => { const sid = menuFor!; setMenuFor(null); sleepSession(sid) }}><IconMoon /> Put to sleep</button>
+            )}
+            <button class="danger" onClick={() => { const s = recent.find((x) => x.id === menuFor)!; setMenuFor(null); deleteSession(s.id, s.title) }}><IconTrash /> Delete</button>
+          </div>
+        </Sheet>
+      )}
     </div>
   )
 }
