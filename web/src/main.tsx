@@ -6,6 +6,8 @@ import './styles/pages.css'
 import './styles/chat.css'
 import './styles/workflow.css'
 import './styles/automations.css'
+import './styles/asr.css'
+import './styles/imagegen.css'
 
 // Track the visual viewport so the composer sits right above the iOS keyboard. Events are coalesced to one
 // update per frame; layout is read before anything is written, and a CSS variable or class is only touched

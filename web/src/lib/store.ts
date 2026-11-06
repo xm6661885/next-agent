@@ -27,6 +27,10 @@ export const chatVersion = signal(0)
 export const workflowVersion = signal(0)
 export const schedulesVersion = signal(0)
 export const automationsVersion = signal(0)
+export const asrVersion = signal(0)
+export const imagegenVersion = signal(0)
+/** Id from the latest asr_changed event (empty when unknown); the detail page ignores events for other recordings. */
+export const lastAsrId = signal('')
 /** Bumped on every session state change in any module (and agents_changed); the Running view refetches on it. */
 export const runningVersion = signal(0)
 
@@ -98,7 +102,7 @@ export function connectEvents() {
       for (const s of msg.acp_sessions || []) mods[s.id] = { ...s, module: 'acp' }
       for (const s of msg.chat_sessions || []) mods[s.id] = { ...s, module: 'chat' }
       moduleSessions.value = mods
-      acpVersion.value++; chatVersion.value++; workflowVersion.value++; automationsVersion.value++
+      acpVersion.value++; chatVersion.value++; workflowVersion.value++; automationsVersion.value++; asrVersion.value++; imagegenVersion.value++
       agentsVersion.value++
       sessionsVersion.value++
       runningVersion.value++
@@ -109,6 +113,8 @@ export function connectEvents() {
     } else if (msg.type === 'schedules_changed') { schedulesVersion.value++
     } else if (msg.type === 'automations_changed') { automationsVersion.value++
     } else if (msg.type === 'chat_changed') { chatVersion.value++
+    } else if (msg.type === 'asr_changed') { asrVersion.value++; lastAsrId.value = msg.id || ''
+    } else if (msg.type === 'imagegen_changed') { imagegenVersion.value++
     } else if (msg.type === 'workflow_changed' || msg.type === 'run_state') { workflowVersion.value++
     } else if (msg.type === 'session_state') {
       // Claude sessions (module: 'agents')

@@ -1,0 +1,60 @@
+/* Image generation: compose area and job grid. */
+
+.img-setup { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; margin-top: 14px; padding: 14px 16px; border-radius: var(--r-l); background: var(--pink-soft); color: var(--pink-ink); font-size: 14px; line-height: 1.4; }
+.img-setup span { flex: 1; min-width: 0; }
+.img-setup svg { width: 20px; height: 20px; flex: none; }
+
+.img-compose { margin-top: 16px; padding: 14px; border-radius: var(--r-l); background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow-1); display: flex; flex-direction: column; gap: 12px; }
+.img-prompt { width: 100%; resize: none; border: none; outline: none; background: transparent; font-size: 16.5px; line-height: 1.5; min-height: 72px; max-height: 220px; }
+.img-refs { display: flex; gap: 10px; overflow-x: auto; padding: 2px 2px 6px; -webkit-overflow-scrolling: touch; }
+.img-ref { position: relative; flex: none; width: 84px; height: 84px; border-radius: 12px; overflow: hidden; background: var(--bg-2); }
+.img-ref.small { width: 64px; height: 64px; }
+.img-ref img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.img-ref-x { position: absolute; top: 3px; right: 3px; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; background: rgba(0, 0, 0, 0.55); color: #fff; }
+.img-ref-x svg { width: 13px; height: 13px; }
+.img-ref-order { position: absolute; left: 0; right: 0; bottom: 0; display: flex; align-items: center; justify-content: space-between; padding: 2px 3px; background: rgba(0, 0, 0, 0.5); color: #fff; font-size: 11px; font-variant-numeric: tabular-nums; }
+.img-ref-order button { width: 22px; height: 20px; display: grid; place-items: center; color: #fff; }
+.img-ref-order button:disabled { opacity: 0.3; }
+.img-ref-order svg { width: 14px; height: 14px; }
+.img-add { flex: none; width: 84px; height: 84px; border-radius: 12px; border: 1.5px dashed var(--line-strong); display: grid; place-items: center; color: var(--text-2); position: relative; }
+.img-add:disabled { opacity: 0.4; }
+.img-add svg { width: 26px; height: 26px; }
+.img-add .img-add-plus { position: absolute; right: 12px; bottom: 12px; width: 15px; height: 15px; }
+
+.img-opts-toggle { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 14px; color: var(--text-2); padding: 4px 0; }
+.img-opts-sum { margin-left: auto; font-weight: 500; font-size: 13px; color: var(--text-3); font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 55%; }
+.img-opts-toggle svg { width: 18px; height: 18px; transition: transform 0.2s; flex: none; }
+.img-opts-toggle svg.open { transform: rotate(180deg); }
+.img-opts { display: grid; grid-template-columns: 1fr; gap: 12px; }
+@media (min-width: 640px) { .img-opts { grid-template-columns: 1fr 1fr; } }
+.img-opt { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.img-opt > span:first-child { font-size: 13px; font-weight: 600; color: var(--text-2); }
+.img-opt .segmented, .img-opt .range { width: 100%; }
+.img-custom > div { display: flex; align-items: center; gap: 8px; width: 100%; }
+.img-custom i { font-style: normal; color: var(--text-3); }
+.img-go { height: 46px; }
+.img-add .spinner, .img-go .spinner { color: inherit; }
+
+.img-grid { display: grid; grid-template-columns: 1fr; gap: 14px; margin-top: 22px; }
+@media (min-width: 640px) { .img-grid { grid-template-columns: 1fr 1fr; } }
+@media (min-width: 1000px) { .img-grid { grid-template-columns: repeat(3, 1fr); } }
+.img-skel { height: 260px; border-radius: var(--r-l); }
+.img-card { border-radius: var(--r-l); background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow-1); overflow: hidden; display: flex; flex-direction: column; }
+.img-wait { position: relative; width: 100%; max-height: 420px; display: grid; place-items: center; background: var(--bg-2); color: var(--text-2); font-variant-numeric: tabular-nums; font-size: 14px; overflow: hidden; }
+/* The shimmer runs only on a running job; it is a transform on a pseudo-element, so it is cheap. */
+.img-wait::after { content: ""; position: absolute; inset: 0; background: linear-gradient(100deg, transparent 20%, color-mix(in srgb, var(--pink) 45%, transparent) 50%, transparent 80%); transform: translateX(-100%); animation: img-shimmer 1.6s ease-in-out infinite; }
+@keyframes img-shimmer { to { transform: translateX(100%); } }
+.img-wait span { position: relative; z-index: 1; }
+.img-err { display: flex; gap: 10px; padding: 16px; color: var(--danger); background: var(--danger-soft); font-size: 13.5px; word-break: break-word; }
+.img-err svg { width: 18px; height: 18px; flex: none; margin-top: 1px; }
+.img-out { display: grid; gap: 2px; background: var(--bg-2); }
+.img-out.n2, .img-out.n3, .img-out.n4 { grid-template-columns: 1fr 1fr; }
+.img-out-btn { display: block; width: 100%; min-height: 60px; background: var(--bg-2); }
+.img-out-btn img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.img-foot { display: flex; align-items: center; gap: 4px; padding: 8px 6px 0 14px; }
+.img-prompt-line { flex: 1; min-width: 0; font-size: 14px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.img-meta { display: flex; gap: 10px; padding: 0 14px 12px; font-size: 12px; color: var(--text-3); font-family: var(--font-mono); }
+.img-more { margin-top: 16px; }
+.img-add .chip-pick, .chip-pick { font-size: 12.5px; }
+.img-add-row, form.img-add { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; width: auto; height: auto; border: none; border-radius: 0; }
+form.img-add .input { flex: 1 1 180px; width: auto; }

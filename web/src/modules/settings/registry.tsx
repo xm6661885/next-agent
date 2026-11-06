@@ -1,7 +1,7 @@
 // Every settings section (the leaf pages), each owned by a module from modules.ts. Add a module's pages here; nothing else in settings needs to change.
 
 import type { JSX } from 'preact'
-import { IconFile, IconPencilLine, IconAgents, IconAutomation, IconBolt, IconChat, IconCode, IconGlobe, IconLayers, IconLock, IconSettings, IconTerminal, IconTool } from '../../components/icons'
+import { IconImage, IconFile, IconPencilLine, IconAgents, IconAutomation, IconBolt, IconChat, IconCode, IconGlobe, IconLayers, IconLock, IconSettings, IconTerminal, IconTool } from '../../components/icons'
 import { ClaudeCliSettings } from '../agents/settings/ClaudeCli'
 import { DefaultsSettings } from '../agents/settings/Defaults'
 import { ModelsSettings } from '../agents/settings/Models'
@@ -10,6 +10,9 @@ import { AcpSettings } from '../acp/Settings'
 import { ChatProviders, ChatDefaults, ChatTitles, ChatFiles, ChatMcp } from '../chat/settings'
 import { AutomationsSettings } from '../automations/Settings'
 import { WorkflowSettings } from '../workflow/settings'
+import { AsrSettings } from '../asr/Settings'
+import { ImagegenSettings } from '../imagegen/Settings'
+import { IconMic } from '../../components/icons-apps'
 import { GeneralSettings, RawFiles } from './General'
 import { MODULES, type Icon } from './modules'
 
@@ -29,6 +32,8 @@ export const SECTIONS: Section[] = [
   { key: 'acp', module: 'agents', title: 'ACP agents', hint: 'External agents over the Agent Client Protocol', icon: IconGlobe, Component: AcpSettings },
   { key: 'automations', module: 'automations', title: 'Tasks and webhooks', hint: 'Scripts directory, interpreters, webhook secret', icon: IconAutomation, Component: AutomationsSettings },
   { key: 'workflow', module: 'workflow', title: 'Workflow', hint: 'Run history, plugins, environment, API keys', icon: IconLayers, Component: WorkflowSettings },
+  { key: 'asr', module: 'apps', title: 'Speech to text', hint: 'Transcription API, model, language, chunking', icon: IconMic, Component: AsrSettings },
+  { key: 'imagegen', module: 'apps', title: 'Image generation', hint: 'Image API, models, reference mode, timeout', icon: IconImage, Component: ImagegenSettings },
   { key: 'general', module: 'general', title: 'Account and API', hint: 'External API key, sign out', icon: IconLock, Component: GeneralSettings },
   { key: 'raw', module: 'general', title: 'Config files', hint: 'Edit the TOML files directly', icon: IconSettings, Component: RawFiles },
 ]
