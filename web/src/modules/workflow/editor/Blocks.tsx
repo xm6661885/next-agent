@@ -225,11 +225,14 @@ const ORDER = ['AI', 'Control flow', 'Variables', 'Output', 'Text', 'System', 'D
 export function AddSheet() {
   const at = addTarget.value
   const close = () => { addTarget.value = null }
-  const all = [...catalog.value.containers, ...catalog.value.plugins]
-  const cats: Record<string, PluginSchema[]> = {}
-  for (const s of all) (cats[s.category] ||= []).push(s)
+  const src = (s: PluginSchema) => (s.source || '').split('/')[0]
+  const builtin = [...catalog.value.containers, ...catalog.value.plugins.filter((s) => src(s) !== 'extra' && src(s) !== 'user')]
+  const blocks: { title: string; list: PluginSchema[] }[] = [
+    { title: '', list: builtin },
+    { title: 'Extras', list: catalog.value.plugins.filter((s) => src(s) === 'extra') },
+    { title: 'User plugins', list: catalog.value.plugins.filter((s) => src(s) === 'user') },
+  ]
   const rank = (c: string) => (ORDER.indexOf(c) + 100) % 100
-  const names = Object.keys(cats).sort((a, b) => rank(a) - rank(b))
   const add = (s: PluginSchema) => {
     const nb = newBlocks(s)
     if (!OPENERS[nb[0].type]) collapsed.value = new Set([...collapsed.value, nb[0].id])
@@ -238,21 +241,31 @@ export function AddSheet() {
   }
   return (
     <Sheet open={at != null} onClose={close} title="Add card">
-      {names.length === 0 && <p class="fhint" style={{ padding: '8px 4px' }}>No plugins loaded.</p>}
-      {names.map((c) => (
-        <div key={c}>
-          <div class="wf-cat">{c}</div>
-          {cats[c].map((s, i) => (
-            <button key={s.id} class={`wf-plugin-row c-${s.color}`} style={{ '--i': i }} onClick={() => add(s)}>
-              <span class="wf-block-icon"><WfIcon name={s.icon} /></span>
-              <span style={{ minWidth: 0 }}>
-                <div style={{ fontWeight: 600 }}>{s.name}</div>
-                <div class="desc">{s.description}</div>
-              </span>
-            </button>
-          ))}
-        </div>
-      ))}
+      {builtin.length + blocks[1].list.length + blocks[2].list.length === 0 && <p class="fhint" style={{ padding: '8px 4px' }}>No plugins loaded.</p>}
+      {blocks.filter((blk) => blk.list.length).map((blk) => {
+        const cats: Record<string, PluginSchema[]> = {}
+        for (const s of blk.list) (cats[blk.title ? '' : s.category] ||= []).push(s)
+        const names = Object.keys(cats).sort((x, y) => rank(x) - rank(y))
+        return (
+          <div key={blk.title || 'builtin'}>
+            {blk.title && <div class="wf-cat wf-cat-block">{blk.title}</div>}
+            {names.map((c) => (
+              <div key={c}>
+                {c && <div class="wf-cat">{c}</div>}
+                {cats[c].map((s, i) => (
+                  <button key={s.id} class={`wf-plugin-row c-${s.color}`} style={{ '--i': i }} onClick={() => add(s)}>
+                    <span class="wf-block-icon"><WfIcon name={s.icon} /></span>
+                    <span style={{ minWidth: 0 }}>
+                      <div style={{ fontWeight: 600 }}>{s.name}</div>
+                      <div class="desc">{s.description}</div>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            ))}
+          </div>
+        )
+      })}
     </Sheet>
   )
 }

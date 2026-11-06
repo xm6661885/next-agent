@@ -113,7 +113,9 @@ function Field({ inp, block }: { inp: PluginInput; block: Block }) {
 }
 
 export function ParamForm({ block, schema }: { block: Block; schema: PluginSchema }) {
-  const basic = schema.inputs.filter((i) => !i.advanced)
+  // Notify card: the attachment path only matters when an attachment is chosen.
+  const noAttach = schema.id === 'extra.notify' && (block.params?.attachment ?? 'none') === 'none'
+  const basic = schema.inputs.filter((i) => !i.advanced && !(noAttach && i.name === 'path'))
   const adv = schema.inputs.filter((i) => i.advanced)
   const num = (e: Event) => Number(val(e)) || undefined
   return (
