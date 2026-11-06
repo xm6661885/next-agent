@@ -294,8 +294,9 @@ Other modules keep generated data under `data/<module-dir>/`. `NEXT_AGENT_DATA` 
 Before starting on an existing installation, run `python scripts/migrate/core.py --data DIR` (preview with
 `--dry-run`). It moves the old root-level `secret.key`, `sessions.json`, `uploads/`, `schedules.json`, and
 `agents/<agent-id>/` profiles to the paths above, skipping destinations that already exist. It rewrites only upload
-record paths beginning with the old absolute `DIR/uploads/` prefix, leaving cwd uploads unchanged, and keeps the
-original index as `agents/sessions.json.pre-core.bak`. If both upload directories exist, resolve that collision
+record paths beginning with the old absolute `DIR/uploads/` prefix, leaving cwd uploads unchanged, using a
+temporary file and rename without creating backups in `data/`. Before migrations, the integrator copies the
+whole data directory to `~/Deprecated`. If both upload directories exist, resolve that collision
 before rerunning; their records retain the old paths until then. The script is safe to rerun; the server uses only
 the new paths and does no layout migration at startup.
 

@@ -41,7 +41,7 @@ def test_migration_dry_run_and_twice(tmp_path):
     assert (data/'agents'/'profiles'/'alice'/'avatar.png').read_bytes()==b'avatar'
     assert (data/'agents'/'profiles'/'alice'/'CLAUDE.md').read_text()=='instructions'
     assert (data/'agents'/'uploads'/'sid'/'file.txt').read_text()=='upload'
-    assert (data/'agents'/'sessions.json.pre-core.bak').read_text()==original
+    assert not list(data.rglob('*.bak'))
     index['uploads']['fallback']['path']=str(data/'agents'/'uploads'/'sid'/'file.txt')
     assert json.loads((data/'agents'/'sessions.json').read_text())==index
     assert (config/'core.toml').read_text()=='[server]'
@@ -50,6 +50,7 @@ def test_migration_dry_run_and_twice(tmp_path):
     migrated=files(data)
     assert run(data)==''
     assert files(data)==migrated
+    assert not list(data.rglob('*.bak'))
 
 
 def test_migration_keeps_existing_destinations(tmp_path):

@@ -3,7 +3,6 @@ import argparse
 import json
 import os
 from pathlib import Path
-import shutil
 import tempfile
 
 
@@ -53,10 +52,6 @@ def migrate(data, dry_run=False):
             count+=1
     if not count: return
     print(f'{"Would rewrite" if dry_run else "Rewrite"} {count} upload path(s) in {sessions}')
-    backup=sessions.with_suffix('.json.pre-core.bak')
-    if not backup.exists():
-        print(f'{"Would back up" if dry_run else "Back up"} {sessions} -> {backup}')
-        if not dry_run: shutil.copy2(sessions,backup)
     if not dry_run:
         with tempfile.NamedTemporaryFile(mode='w',dir=sessions.parent,delete=False) as stream:
             temp=Path(stream.name)
