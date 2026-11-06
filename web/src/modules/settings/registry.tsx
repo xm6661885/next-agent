@@ -1,13 +1,14 @@
 // Every settings section (the leaf pages), each owned by a module from modules.ts. Add a module's pages here; nothing else in settings needs to change.
 
 import type { JSX } from 'preact'
-import { IconAgents, IconBolt, IconChat, IconCode, IconGlobe, IconLayers, IconLock, IconSettings, IconTerminal, IconTool } from '../../components/icons'
+import { IconAgents, IconAutomation, IconBolt, IconChat, IconCode, IconGlobe, IconLayers, IconLock, IconSettings, IconTerminal, IconTool } from '../../components/icons'
 import { ClaudeCliSettings } from '../agents/settings/ClaudeCli'
 import { DefaultsSettings } from '../agents/settings/Defaults'
 import { ModelsSettings } from '../agents/settings/Models'
 import { BuiltinMcpSettings } from '../agents/settings/BuiltinMcp'
 import { AcpSettings } from '../acp/Settings'
 import { ChatProviders, ChatDefaults, ChatMcp } from '../chat/settings'
+import { AutomationsSettings } from '../automations/Settings'
 import { WorkflowSettings } from '../workflow/settings'
 import { GeneralSettings, RawFiles } from './General'
 import { MODULES, type Icon } from './modules'
@@ -24,6 +25,7 @@ export const SECTIONS: Section[] = [
   { key: 'agent-models', module: 'agents', title: 'Models and pricing', hint: 'Custom model IDs and token prices', icon: IconCode, Component: ModelsSettings },
   { key: 'builtin-mcp', module: 'agents', title: 'Built-in tools', hint: 'Schedules, conversation history, agent collaboration', icon: IconBolt, Component: BuiltinMcpSettings },
   { key: 'acp', module: 'agents', title: 'ACP agents', hint: 'External agents over the Agent Client Protocol', icon: IconGlobe, Component: AcpSettings },
+  { key: 'automations', module: 'automations', title: 'Tasks and webhooks', hint: 'Scripts directory, interpreters, webhook secret', icon: IconAutomation, Component: AutomationsSettings },
   { key: 'workflow', module: 'workflow', title: 'Workflow', hint: 'Run history, plugins, environment, API keys', icon: IconLayers, Component: WorkflowSettings },
   { key: 'general', module: 'general', title: 'Account and API', hint: 'External API key, sign out', icon: IconLock, Component: GeneralSettings },
   { key: 'raw', module: 'general', title: 'Config files', hint: 'Edit the TOML files directly', icon: IconSettings, Component: RawFiles },

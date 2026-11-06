@@ -3,7 +3,7 @@
 // Kept apart from registry.tsx so the settings frame can read module titles without importing every section component.
 
 import type { JSX } from 'preact'
-import { IconAgents, IconChat, IconLayers, IconSettings } from '../../components/icons'
+import { IconAgents, IconAutomation, IconChat, IconLayers, IconSettings } from '../../components/icons'
 
 export type Icon = (p: JSX.SVGAttributes<SVGSVGElement>) => JSX.Element
 export interface SettingsModule { key: string; title: string; hint: string; icon: Icon }
@@ -11,6 +11,7 @@ export interface SettingsModule { key: string; title: string; hint: string; icon
 export const MODULES: SettingsModule[] = [
   { key: 'chat', title: 'Chat', hint: 'Model providers, chat defaults, MCP servers', icon: IconChat },
   { key: 'agents', title: 'Agents', hint: 'Claude Code CLI, defaults, models, built-in tools, ACP', icon: IconAgents },
+  { key: 'automations', title: 'Automations', hint: 'Scripts directory, interpreters, webhook secret', icon: IconAutomation },
   { key: 'workflow', title: 'Workflow', hint: 'Run history, plugins, environment', icon: IconLayers },
   { key: 'general', title: 'General', hint: 'Account and API, config files', icon: IconSettings },
 ]

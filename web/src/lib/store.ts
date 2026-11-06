@@ -26,6 +26,7 @@ export const acpVersion = signal(0)
 export const chatVersion = signal(0)
 export const workflowVersion = signal(0)
 export const schedulesVersion = signal(0)
+export const automationsVersion = signal(0)
 /** Bumped on every session state change in any module (and agents_changed); the Running view refetches on it. */
 export const runningVersion = signal(0)
 
@@ -97,7 +98,7 @@ export function connectEvents() {
       for (const s of msg.acp_sessions || []) mods[s.id] = { ...s, module: 'acp' }
       for (const s of msg.chat_sessions || []) mods[s.id] = { ...s, module: 'chat' }
       moduleSessions.value = mods
-      acpVersion.value++; chatVersion.value++; workflowVersion.value++
+      acpVersion.value++; chatVersion.value++; workflowVersion.value++; automationsVersion.value++
       agentsVersion.value++
       sessionsVersion.value++
       runningVersion.value++
@@ -106,6 +107,7 @@ export function connectEvents() {
       moduleSessions.value = { ...moduleSessions.value, [msg.session_id]: { ...moduleSessions.value[msg.session_id], ...msg, id: msg.session_id } }
     } else if (msg.type === 'acp_agents_changed') { acpVersion.value++
     } else if (msg.type === 'schedules_changed') { schedulesVersion.value++
+    } else if (msg.type === 'automations_changed') { automationsVersion.value++
     } else if (msg.type === 'chat_changed') { chatVersion.value++
     } else if (msg.type === 'workflow_changed' || msg.type === 'run_state') { workflowVersion.value++
     } else if (msg.type === 'session_state') {
