@@ -422,7 +422,7 @@ class MoreAgentsManager:
         runtimes = [self.runtimes[s['id']] for s in sessions if s['id'] in self.runtimes]
         status = dict(running=sum(r.state in ('running', 'interrupting') for r in runtimes),
                       live=sum(bool(getattr(r, 'client', None) and r.client.writer and not r.client.closed.done()) or bool(getattr(r, 'process', None) and r.process.alive) for r in runtimes),
-                      pending=sum(len(r.permissions) for r in runtimes),
+                      pending=sum(len(r.permissions) + len(getattr(r, 'questions', {})) for r in runtimes),
                       last_session={k: sessions[0][k] for k in ('id', 'title', 'updated_at', 'preview')} if sessions else None)
         return {**agent.model_dump(), 'status': status, 'info': self.info.get(agent.id), 'capabilities': {'images': True, 'steer': agent.kind == 'codex', 'modes': True, 'local_cwd': agent.kind == 'codex'}, 'recent': [self.view(s['id']) for s in sessions[:5]]}
 
