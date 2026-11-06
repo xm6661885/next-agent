@@ -175,6 +175,11 @@ class CodexRuntime:
         if p.get('threadId') not in (None,self.thread_id): return
         if method=='__exit__':
             self.process=None
+            for request, future in list(self.permissions.values()):
+                if not future.done(): future.set_result(None)
+            for request, future in list(self.questions.values()):
+                if not future.done(): future.set_result(None)
+            self.permissions.clear(); self.questions.clear()
             if self.active: self._finish('disconnected','Codex app-server disconnected')
             self.state_change('offline'); return
         if method=='item/agentMessage/delta':
