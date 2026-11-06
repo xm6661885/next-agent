@@ -9,17 +9,23 @@ export const EFFORTS: Effort[] = ['off', 'low', 'medium', 'high', 'max']
 export const DEFAULT_ASSISTANT = '_default'
 
 export interface Provider { id: string; name: string; format: 'openai' | 'anthropic'; base_url: string; api_key: string; models: string[]; headers: Record<string, string> }
-export interface ChatDefaults { model: string; effort: Effort; system_prompt: string; temperature: number; max_tokens: number; mcp: string[]; title_model: string }
+export interface ChatDefaults { model: string; effort: Effort; system_prompt: string; temperature: number; max_tokens: number; mcp: string[] }
 export type McpServer = { type?: 'stdio'; command: string; args?: string[]; env?: Record<string, string> } | { type: 'http' | 'sse'; url: string; headers?: Record<string, string> }
 export interface Profile { name: string; avatar: string }
-export interface ChatConfig { defaults: ChatDefaults; providers: Provider[]; mcp_servers: Record<string, McpServer>; profile: Profile }
+export interface TitlesConfig { enabled: boolean; model: string; prompt: string }
+export interface SwitchConfig { enabled: boolean }
+export interface ChatConfig { defaults: ChatDefaults; titles: TitlesConfig; files: SwitchConfig; memory: SwitchConfig; providers: Provider[]; mcp_servers: Record<string, McpServer>; profile: Profile }
 export interface ModelRef { id: string; provider: string; model: string; format: string }
 export interface ChatMeta { models: ModelRef[]; efforts: Effort[]; defaults: ChatDefaults; mcp_servers: string[]; profile: Profile }
 export interface Assistant {
   id: string; name: string; avatar: string; description: string; model: string; effort: Effort | ''
   system_prompt: string; temperature: number; mcp: string[]; created_at?: string; order: number
+  files?: boolean; memory?: boolean
   status?: { running: number; last_session: { id: string; title: string; updated_at: string; preview: string } | null }
+  recent?: ChatSession[]
 }
+export interface AssistantFile { id: string; name: string; size: number; chars: number; lines: number; created_at: string }
+export interface Memory { id: string; text: string; created_at: string; updated_at: string; source: 'assistant' | 'user' }
 export interface ChatSession {
   id: string; assistant_id: string; title: string; preview: string; created_at: string; updated_at: string
   overrides: { model: string | null; effort: Effort | null }; mcp: string[]; usage: { input: number; output: number }
@@ -56,8 +62,25 @@ export const chatApi = {
   markRead: (sid: string) => post<ChatSession>(`/api/chat/sessions/${enc(sid)}/read`),
   items: (sid: string, before: string, limit = 200) => get<{ items: Item[]; has_more: boolean }>(`/api/chat/sessions/${enc(sid)}/items?before=${enc(before)}&limit=${limit}`),
   search: (id: string, q: string) => get<{ session: ChatSession; snippet: string }[]>(`/api/chat/assistants/${enc(id)}/search?q=${enc(q)}`),
+  files: (aid: string) => get<AssistantFile[]>(`/api/chat/assistants/${enc(aid)}/files`),
+  uploadFiles: (aid: string, files: File[]) => { const fd = new FormData(); files.forEach((f) => fd.append('files', f)); return request<AssistantFile[]>('POST', `/api/chat/assistants/${enc(aid)}/files`, fd) },
+  fileUrl: (aid: string, fid: string) => `/api/chat/assistants/${enc(aid)}/files/${enc(fid)}`,
+  renameFile: (aid: string, fid: string, name: string) => patch<AssistantFile>(`/api/chat/assistants/${enc(aid)}/files/${enc(fid)}`, { name }),
+  deleteFile: (aid: string, fid: string) => request<{ ok: boolean }>('DELETE', `/api/chat/assistants/${enc(aid)}/files/${enc(fid)}`),
+  memories: (aid: string) => get<Memory[]>(`/api/chat/assistants/${enc(aid)}/memory`),
+  addMemory: (aid: string, text: string) => post<Memory>(`/api/chat/assistants/${enc(aid)}/memory`, { text }),
+  updateMemory: (aid: string, id: string, text: string) => patch<Memory>(`/api/chat/assistants/${enc(aid)}/memory/${enc(id)}`, { text }),
+  deleteMemory: (aid: string, id: string) => request<{ ok: boolean }>('DELETE', `/api/chat/assistants/${enc(aid)}/memory/${enc(id)}`),
+  clearMemory: (aid: string) => request<{ ok: boolean }>('DELETE', `/api/chat/assistants/${enc(aid)}/memory`),
   upload: (sid: string, files: File[], onProgress?: (p: number) => void) => uploadTo(`/api/chat/sessions/${enc(sid)}/uploads`, files, onProgress),
 }
 
 /** "<provider>/<model>" -> the model part, for chips. */
 export const modelLabel = (id: string) => id.includes('/') ? id.slice(id.indexOf('/') + 1) : id
+
+/** Effective switch: global AND assistant (assistants default to files on, memory off). */
+export const filesOn = (cfg: { files?: SwitchConfig } | null, a: Assistant | null) => !!cfg && cfg.files?.enabled !== false && a?.files !== false
+export const memoryOn = (cfg: { memory?: SwitchConfig } | null, a: Assistant | null) => !!cfg && cfg.memory?.enabled !== false && !!a?.memory
+
+/** Text types offered by the file pickers. */
+export const TEXT_ACCEPT = '.txt,.md,.csv,.json,.yaml,.yml,.toml,.py,.js,.ts,.tsx,.jsx,.html,.css,.log,.sql,.sh,.xml,.ini,.conf,.c,.h,.cpp,.go,.rs,.java,text/*'

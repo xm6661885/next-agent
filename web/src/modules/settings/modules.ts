@@ -9,7 +9,7 @@ export type Icon = (p: JSX.SVGAttributes<SVGSVGElement>) => JSX.Element
 export interface SettingsModule { key: string; title: string; hint: string; icon: Icon }
 
 export const MODULES: SettingsModule[] = [
-  { key: 'chat', title: 'Chat', hint: 'Model providers, chat defaults, MCP servers', icon: IconChat },
+  { key: 'chat', title: 'Chat', hint: 'Model providers, defaults, titles, files and memory, MCP servers', icon: IconChat },
   { key: 'agents', title: 'Agents', hint: 'Claude Code CLI, defaults, models, built-in tools, ACP', icon: IconAgents },
   { key: 'workflow', title: 'Workflow', hint: 'Run history, plugins, environment', icon: IconLayers },
   { key: 'general', title: 'General', hint: 'Account and API, config files', icon: IconSettings },

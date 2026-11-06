@@ -178,17 +178,62 @@ export function ChatDefaults({ title }: { title: string }) {
             </label>
           </div>
           <span class="fhint" style={{ padding: '0 16px 12px', display: 'block' }}>-1 and 0 leave the provider default.</span>
-          <div class="field"><span class="flabel">Title model</span>
-            <select class="input" value={d.title_model} onChange={(e) => set('title_model', (e.target as HTMLSelectElement).value)}>
-              <option value="">Same as the chat</option>
-              {models.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
-            </select>
-          </div>
         </div>
         <div class="group-title">System prompt</div>
         <div class="group">
           <label class="field"><textarea class="input" rows={6} value={d.system_prompt} placeholder="Empty sends no system prompt" onInput={(e) => set('system_prompt', (e.target as HTMLTextAreaElement).value)} /></label>
         </div>
+      </>}
+    </SettingsFrame>
+  )
+}
+
+export function ChatTitles({ title }: { title: string }) {
+  const { cfg, setCfg, dirty, saving, save } = useChatConfig()
+  const t = cfg?.titles
+  const set = <K extends keyof ChatConfig['titles']>(k: K, v: ChatConfig['titles'][K]) => setCfg((c) => c && { ...c, titles: { ...c.titles, [k]: v } })
+  const models = (cfg?.providers || []).flatMap((p) => p.models.map((m) => ({ id: `${p.id}/${m}`, label: `${m} · ${p.name || p.id}` })))
+  return (
+    <SettingsFrame title={title} dirty={dirty} saving={saving} onSave={() => cfg && save({ titles: cfg.titles })}>
+      {!t ? <Skeleton /> : <>
+        <div class="group">
+          <div class="row"><span class="label">Generate titles<span class="hint">Name each new chat with a short title written by a model</span></span>
+            <Switch on={t.enabled} onChange={(v) => set('enabled', v)} label="Generate titles" /></div>
+        </div>
+        <p class="fhint" style={{ padding: '8px 4px 0' }}>The first sentence of your message is used as the title right away. If generation fails, it stays. Renaming a chat yourself always wins.</p>
+        <div class="group-title">Model</div>
+        <div class="group">
+          <div class="field"><span class="flabel">Title model</span>
+            <select class="input" value={t.model} disabled={!t.enabled} onChange={(e) => set('model', (e.target as HTMLSelectElement).value)}>
+              <option value="">Same as the conversation</option>
+              {models.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+            </select>
+          </div>
+        </div>
+        <div class="group-title">Prompt</div>
+        <div class="group">
+          <label class="field"><textarea class="input" rows={4} disabled={!t.enabled} value={t.prompt} placeholder={TITLE_PROMPT} onInput={(e) => set('prompt', (e.target as HTMLTextAreaElement).value)} /></label>
+        </div>
+        <p class="fhint" style={{ padding: '8px 4px 0' }}>Empty uses the built-in instruction shown above. The first message of the chat is sent after it.</p>
+      </>}
+    </SettingsFrame>
+  )
+}
+
+const TITLE_PROMPT = 'Write only a short title for this conversation, at most 30 characters, in the language of the message.'
+
+export function ChatFiles({ title }: { title: string }) {
+  const { cfg, setCfg, dirty, saving, save } = useChatConfig()
+  return (
+    <SettingsFrame title={title} dirty={dirty} saving={saving} onSave={() => cfg && save({ files: cfg.files, memory: cfg.memory })}>
+      {!cfg ? <Skeleton /> : <>
+        <div class="group">
+          <div class="row"><span class="label">Files<span class="hint">Assistants can keep text files and read them in chats, and chats accept text file attachments</span></span>
+            <Switch on={cfg.files.enabled} onChange={(v) => setCfg({ ...cfg, files: { enabled: v } })} label="Files" /></div>
+          <div class="row"><span class="label">Memory<span class="hint">Assistants can save facts and preferences and recall them in later chats</span></span>
+            <Switch on={cfg.memory.enabled} onChange={(v) => setCfg({ ...cfg, memory: { enabled: v } })} label="Memory" /></div>
+        </div>
+        <p class="fhint" style={{ padding: '8px 4px 0' }}>These are global switches. Each assistant also has its own Files and Memory switches, and a feature is on only when both are on. Existing files and memory stay saved while a switch is off.</p>
       </>}
     </SettingsFrame>
   )
