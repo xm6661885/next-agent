@@ -86,7 +86,7 @@ Same item model as Claude sessions (`docs/protocol.md` "Items") so the chat UI c
 - `agent_message_chunk` text -> `text` item (consecutive chunks append via `delta`, `streaming` true until the next
   non-text update or the end of the turn). Image chunks -> `text` item with a Markdown `![](data:...)`.
 - `agent_thought_chunk` -> `thinking` item, same streaming rule.
-- `tool_call` -> `tool` item: `tool_use_id = toolCallId`, `name = title`, `more_agents_kind = kind`, `input = rawInput or {}`,
+- `tool_call` -> `tool` item: `tool_use_id = toolCallId`, `name = title`, `tool_kind = kind`, `input = rawInput or {}`,
   `status`, `locations`. `tool_call_update` patches those fields; when `status` becomes `completed`/`failed`, `result =
   {content: <text of all text content blocks joined, else rawOutput as JSON>, is_error: status=="failed", images: [],
   diffs: [{path, old_text, new_text}]}`.
