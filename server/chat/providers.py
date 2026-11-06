@@ -1,5 +1,6 @@
 """Provider HTTP requests, SSE normalization and transcript conversion."""
 import base64
+from html import escape
 import json
 from pathlib import Path
 import httpx
@@ -78,6 +79,12 @@ def history(items, format):
             flush()
             blocks = [{'type': 'text', 'text': item['text']}] if item['text'] else []
             for a in item.get('attachments', []):
+                if a.get('is_text'):
+                    text = Path(a['path']).read_bytes().decode('utf-8')
+                    content = text[:50000]
+                    if len(text)>50000: content += '\nThe rest of this file can be read with file_read.'
+                    blocks.append({'type': 'text', 'text': f'<file name="{escape(a["name"], quote=True)}">\n{content}\n</file>'})
+                    continue
                 data = base64.b64encode(Path(a['path']).read_bytes()).decode()
                 if format=='openai': blocks.append({'type': 'image_url', 'image_url': {'url': f"data:{a['mime']};base64,{data}"}})
                 else: blocks.append({'type': 'image', 'source': {'type': 'base64', 'media_type': a['mime'], 'data': data}})

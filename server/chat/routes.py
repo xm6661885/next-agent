@@ -9,11 +9,15 @@ from ..paths import atomic_write
 from . import providers
 from .config import Effort, McpServer, Provider
 from .store import IMAGE_MIMES, page
+from .resources import FileName, MemoryText
 
 
 class ConfigPatch(BaseModel):
     defaults: dict = Field(default_factory=dict)
     profile: dict = Field(default_factory=dict)
+    titles: dict = Field(default_factory=dict)
+    files: dict = Field(default_factory=dict)
+    memory: dict = Field(default_factory=dict)
     providers: list[Provider] = Field(default_factory=list)
     mcp_servers: dict[str, McpServer] = Field(default_factory=dict)
 
@@ -229,6 +233,66 @@ def router(core, manager):
         atomic_write(manager.store.avatars / (aid+'.mime'), file.content_type)
         return manager.patch_assistant(aid, {'avatar': 'file'})
 
+    @api.get('/api/chat/assistants/{aid}/files')
+    async def files(aid: str):
+        manager.assistant(aid)
+        return manager.resources.files(aid)
+
+    @api.post('/api/chat/assistants/{aid}/files')
+    async def add_files(aid: str, files: list[UploadFile] = File(...)):
+        manager.assistant(aid)
+        return await manager.resources.upload(aid, files)
+
+    @api.get('/api/chat/assistants/{aid}/files/{fid}')
+    async def file(aid: str, fid: str):
+        manager.assistant(aid)
+        record = manager.resources.file(aid, fid)
+        return FileResponse(manager.resources.file_dir(aid) / fid, media_type='text/plain', filename=record['name'])
+
+    @api.patch('/api/chat/assistants/{aid}/files/{fid}')
+    async def rename_file(aid: str, fid: str, body: FileName):
+        manager.assistant(aid)
+        return manager.resources.rename(aid, fid, body.name)
+
+    @api.delete('/api/chat/assistants/{aid}/files/{fid}')
+    async def delete_file(aid: str, fid: str):
+        manager.assistant(aid)
+        manager.resources.delete_file(aid, fid)
+        return {'ok': True}
+
+    @api.get('/api/chat/assistants/{aid}/memory')
+    async def memories(aid: str):
+        manager.assistant(aid)
+        return manager.resources.memories(aid)
+
+    @api.post('/api/chat/assistants/{aid}/memory')
+    async def add_memory(aid: str, body: MemoryText):
+        manager.assistant(aid)
+        record = manager.resources.add_memory(aid, body.text, 'user')
+        manager.memory_changed(aid)
+        return record
+
+    @api.patch('/api/chat/assistants/{aid}/memory/{mid}')
+    async def update_memory(aid: str, mid: str, body: MemoryText):
+        manager.assistant(aid)
+        record = manager.resources.update_memory(aid, mid, body.text)
+        manager.memory_changed(aid)
+        return record
+
+    @api.delete('/api/chat/assistants/{aid}/memory/{mid}')
+    async def delete_memory(aid: str, mid: str):
+        manager.assistant(aid)
+        manager.resources.delete_memory(aid, mid)
+        manager.memory_changed(aid)
+        return {'ok': True}
+
+    @api.delete('/api/chat/assistants/{aid}/memory')
+    async def clear_memory(aid: str):
+        manager.assistant(aid)
+        manager.resources.save_memories(aid, [])
+        manager.memory_changed(aid)
+        return {'ok': True}
+
     @api.get('/api/chat/assistants/{aid}/sessions')
     async def sessions(aid: str): return manager.sessions(aid)
 
@@ -258,8 +322,9 @@ def router(core, manager):
 
     @api.post('/api/chat/sessions/{sid}/uploads')
     async def uploads(sid: str, files: list[UploadFile] = File(...)):
-        manager.session(sid)
-        return [await manager.store.upload(sid, file) for file in files]
+        session = manager.session(sid)
+        enabled = manager.enabled(session['assistant_id'], 'files')
+        return [await manager.store.upload(sid, file, enabled) for file in files]
 
     @api.get('/api/chat/uploads/{sid}/{fid}')
     async def upload(sid: str, fid: str):
