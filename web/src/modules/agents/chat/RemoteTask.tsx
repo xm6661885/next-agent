@@ -4,7 +4,7 @@ import { signal } from '@preact/signals'
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks'
 import type { Item, ToolItem } from '../../../lib/types'
 import { api } from '../../../lib/api'
-import { acpApi } from '../../acp/api'
+import { moreAgentsApi } from '../../more-agents/api'
 import { navigate } from '../../../lib/router'
 import { Spark } from '../../../components/crab'
 import { IconClose } from '../../../components/icons'
@@ -37,10 +37,10 @@ export function RemoteTaskPanel({ task }: { task: Task }) {
       if (!on) return
       if (document.hidden) return again()
       try {
-        const r = task.module === 'acp' ? await acpApi.items(task.session_id, '', 200) : await api.items(task.session_id, '', 200)
+        const r = task.module === 'more_agents' ? await moreAgentsApi.items(task.session_id, '', 200) : await api.items(task.session_id, '', 200)
         if (!on) return
         setItems(r.items)
-        const live = task.module === 'acp' ? await acpApi.session(task.session_id) : await api.session(task.session_id)
+        const live = task.module === 'more_agents' ? await moreAgentsApi.session(task.session_id) : await api.session(task.session_id)
         if (!on) return
         const active = live.state === 'running' || live.state === 'interrupting'
         setRunning(active)
@@ -53,7 +53,7 @@ export function RemoteTaskPanel({ task }: { task: Task }) {
   useLayoutEffect(() => { const el = body.current; if (el) el.scrollTop = el.scrollHeight }, [items.length])
   const open = () => {
     remoteTaskView.value = null
-    navigate(task.module === 'acp' ? { name: 'acp-chat', agentId: task.agent_id, sessionId: task.session_id } : { name: 'chat', agentId: task.agent_id, sessionId: task.session_id })
+    navigate(task.module === 'more_agents' ? { name: 'more-agent-chat', agentId: task.agent_id, sessionId: task.session_id } : { name: 'chat', agentId: task.agent_id, sessionId: task.session_id })
   }
   return (
     <div class="subview" role="dialog" aria-label={task.title || 'Task'}>

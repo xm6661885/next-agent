@@ -2,7 +2,7 @@
 
 import { request } from '../../lib/api'
 
-export interface ScheduleTarget { module: 'agents' | 'acp'; agent_id: string; session: string }
+export interface ScheduleTarget { module: 'agents' | 'more_agents'; agent_id: string; session: string }
 export interface Schedule {
   id: string; title: string; prompt: string; cron: string | null; at: string | null
   target: ScheduleTarget; model: string; effort: string; enabled: boolean

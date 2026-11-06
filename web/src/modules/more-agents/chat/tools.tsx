@@ -1,4 +1,4 @@
-// ACP tool call cards. ACP sends a human title, a kind (read, edit, execute, fetch, ...) and a status,
+// More Agent tool call cards. More Agents send a human title, a kind (read, edit, execute, fetch, ...) and a status,
 // with results as text and diffs, so the cards are simpler than the Claude ones.
 
 import { useEffect, useState } from 'preact/hooks'

@@ -1,11 +1,11 @@
-// ACP message composer: textarea, attachments, slash command suggestions from the agent, model chip, send / stop.
-// ACP cannot steer a running turn, so messages sent while it works wait in the queue.
+// More Agent message composer: textarea, attachments, slash command suggestions from the agent, model chip, send / stop.
+// More Agents cannot steer a running turn, so messages sent while it works wait in the queue.
 
 import { useEffect, useRef, useState } from 'preact/hooks'
-import { acpApi } from '../api'
+import { moreAgentsApi } from '../api'
 import { toastError } from '../../../lib/store'
 import type { Attachment } from '../../../lib/types'
-import type { AcpState } from '../api'
+import type { SessionState } from '../api'
 import { IconCamera, IconFile, IconImage, IconPaperclip, IconSend, IconStop } from '../../../components/icons'
 import { Sheet, confirmDialog } from '../../../components/ui'
 import { CropSheet } from '../../../components/CropSheet'
@@ -16,7 +16,7 @@ interface Pending { key: string; file: File; progress: number; att?: Attachment;
 
 export function Composer({ sid, state, model, slash, images, onSend, onInterrupt, onOpenModel, disabled, fill }: {
   sid: string
-  state: AcpState
+  state: SessionState
   model: string
   slash: string[]
   /** The agent accepts image blocks. */
@@ -28,10 +28,10 @@ export function Composer({ sid, state, model, slash, images, onSend, onInterrupt
   /** Text to load into the box for editing (a queued message pulled back); nonce makes repeats apply. */
   fill?: { text: string; n: number }
 }) {
-  const draftKey = `acp-draft:${sid}`
+  const draftKey = `more-agent-draft:${sid}`
   const [text, setText] = useState(() => localStorage.getItem(draftKey) || '')
   // Uploaded attachments are already on the server, so the draft only keeps their metadata.
-  const attKey = `acp-draft-att:${sid}`
+  const attKey = `more-agent-draft-att:${sid}`
   const [files, setFiles] = useState<Pending[]>(() => {
     try {
       const saved: Attachment[] = JSON.parse(localStorage.getItem(attKey) || '[]')
@@ -86,7 +86,7 @@ export function Composer({ sid, state, model, slash, images, onSend, onInterrupt
     }))
     setFiles((cur) => [...cur, ...items])
     for (const it of items) {
-      acpApi.upload(sid, [it.file], (p) => setFiles((cur) => cur.map((f) => (f.key === it.key ? { ...f, progress: p } : f))))
+      moreAgentsApi.upload(sid, [it.file], (p) => setFiles((cur) => cur.map((f) => (f.key === it.key ? { ...f, progress: p } : f))))
         .then(([att]) => setFiles((cur) => cur.map((f) => (f.key === it.key ? { ...f, att, progress: 1 } : f))))
         .catch((e) => {
           setFiles((cur) => cur.map((f) => (f.key === it.key ? { ...f, error: e.message } : f)))

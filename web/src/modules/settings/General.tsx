@@ -32,7 +32,7 @@ export function GeneralSettings({ title }: { title: string }) {
   )
 }
 
-const FILES = ['core', 'agents', 'acp', 'chat', 'workflow'] as const
+const FILES = ['core', 'agents', 'more_agents', 'chat', 'workflow'] as const
 
 export function RawFiles({ title }: { title: string }) {
   const [file, setFile] = useState<string>('agents')

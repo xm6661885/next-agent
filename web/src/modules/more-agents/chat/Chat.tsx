@@ -1,4 +1,4 @@
-// ACP chat page: a copy of the Claude chat trimmed to what ACP supports (no steer, edit, fork, rewind,
+// More Agent chat page: a copy of the Claude chat trimmed to what More Agents support (no steer, edit, fork, rewind,
 // side questions, background tasks or generative UI). Model and other options come from the agent's configOptions.
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
@@ -11,8 +11,8 @@ import { IconBrain, IconCheck, IconChevron, IconChevronDown, IconCopy, IconMore,
 import { openViewer } from '../../../components/ImageViewer'
 import { copyText, fmtBytes, fmtDuration, haptic, uid } from '../../../lib/util'
 import type { Attachment, Item, TextItem, ThinkingItem, UserItem } from '../../../lib/types'
-import { acpApi, type AcpAgent, type ConfigOption } from '../api'
-import { AcpConn } from './conn'
+import { moreAgentsApi, type MoreAgent, type ConfigOption } from '../api'
+import { MoreAgentConn } from './conn'
 import { Composer } from './Composer'
 import { PermissionCard } from './cards'
 import { ToolCard, type AcpToolItem } from './tools'
@@ -22,11 +22,11 @@ import { clearFade, fadeTail, makeFollower, newFade, unwrapFade } from './fade'
 const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches
 
 /** Shown in place of the user's avatar choice when the agent has none. */
-export const acpAvatar = (a: AcpAgent | null) => a ? { ...a, avatar: a.avatar, id: a.id, order: a.order } : { id: '', avatar: 'crab:blue', order: 0 }
+export const moreAgentAvatar = (a: MoreAgent | null) => a ? { ...a, avatar: a.avatar, id: a.id, order: a.order } : { id: '', avatar: 'crab:blue', order: 0 }
 
-export function AcpChat({ agentId, sessionId }: { agentId: string; sessionId: string }) {
-  const conn = useMemo(() => new AcpConn(sessionId), [sessionId])
-  const [agent, setAgent] = useState<AcpAgent | null>(null)
+export function MoreAgentChat({ agentId, sessionId }: { agentId: string; sessionId: string }) {
+  const conn = useMemo(() => new MoreAgentConn(sessionId), [sessionId])
+  const [agent, setAgent] = useState<MoreAgent | null>(null)
   const [optionsOpen, setOptionsOpen] = useState(false)
   const [msgMenu, setMsgMenu] = useState<UserItem | null>(null)
   const [selectText, setSelectText] = useState<string | null>(null)
@@ -45,10 +45,10 @@ export function AcpChat({ agentId, sessionId }: { agentId: string; sessionId: st
       const s = conn.session.value
       const empty = s && !s.remote_id && s.turns === 0 && conn.items.value.length === 0
       conn.dispose()
-      if (empty) acpApi.deleteSession(s.id).catch(() => {})
+      if (empty) moreAgentsApi.deleteSession(s.id).catch(() => {})
     }
   }, [conn])
-  useEffect(() => { acpApi.agent(agentId).then(setAgent).catch(() => {}) }, [agentId])
+  useEffect(() => { moreAgentsApi.agent(agentId).then(setAgent).catch(() => {}) }, [agentId])
 
   const items = conn.items.value
   const state = conn.state.value
@@ -91,7 +91,7 @@ export function AcpChat({ agentId, sessionId }: { agentId: string; sessionId: st
     const el = scroller.current
     const prevH = el?.scrollHeight || 0
     try {
-      const r = await acpApi.items(sessionId, first.id)
+      const r = await moreAgentsApi.items(sessionId, first.id)
       conn.prependHistory(r.items, r.has_more)
       requestAnimationFrame(() => { if (el) el.scrollTop += el.scrollHeight - prevH })
     } catch (e) { toastError(e) } finally { setLoadingOlder(false) }
@@ -123,27 +123,27 @@ export function AcpChat({ agentId, sessionId }: { agentId: string; sessionId: st
   const rename = async () => {
     const t = await promptDialog({ title: 'Rename conversation', value: session?.title || '', confirm: 'Rename' })
     if (!t?.trim()) return
-    try { conn.session.value = await acpApi.updateSession(sessionId, { title: t.trim() }) } catch (e) { toastError(e) }
+    try { conn.session.value = await moreAgentsApi.updateSession(sessionId, { title: t.trim() }) } catch (e) { toastError(e) }
   }
   const [creating, setCreating] = useState(false)
   const newChat = async () => {
     if (creating) return
     setCreating(true)
     try {
-      const s = await acpApi.createSession(agentId)
+      const s = await moreAgentsApi.createSession(agentId)
       haptic()
-      navigate({ name: 'acp-chat', agentId, sessionId: s.id }, { replace: true })
+      navigate({ name: 'more-agent-chat', agentId, sessionId: s.id }, { replace: true })
     } catch (e) { toastError(e) } finally { setCreating(false) }
   }
   const [linking, setLinking] = useState(false)
   const connect = async (fresh: boolean) => {
     if (linking) return
     setLinking(true)
-    try { conn.session.value = await acpApi.connect(sessionId, fresh); toast(fresh ? 'Reconnected' : 'Connected') } catch (e) { toastError(e) } finally { setLinking(false) }
+    try { conn.session.value = await moreAgentsApi.connect(sessionId, fresh); toast(fresh ? 'Reconnected' : 'Connected') } catch (e) { toastError(e) } finally { setLinking(false) }
   }
   const sleep = async () => {
     setOptionsOpen(false)
-    try { conn.session.value = await acpApi.sleep(sessionId); toast('Disconnected') } catch (e) { toastError(e) }
+    try { conn.session.value = await moreAgentsApi.sleep(sessionId); toast('Disconnected') } catch (e) { toastError(e) }
   }
   const openChatImage = (el: HTMLImageElement) => {
     const all = Array.from(scroller.current?.querySelectorAll<HTMLImageElement>('.msg-assistant img') || [])
@@ -193,7 +193,7 @@ export function AcpChat({ agentId, sessionId }: { agentId: string; sessionId: st
   const last = items[items.length - 1]
   const streamingText = last?.kind === 'text' && (last as TextItem).streaming
   const status = conn.conn.value
-  const shown = acpAvatar(agent)
+  const shown = moreAgentAvatar(agent)
 
   return (
     <div class="page chat-page">
@@ -225,7 +225,7 @@ export function AcpChat({ agentId, sessionId }: { agentId: string; sessionId: st
             <div class="chat-empty rise">
               <AvatarFor a={shown} size={72} />
               <h2 class="serif">How can I help?</h2>
-              <p>{agent?.info?.title || agent?.info?.name || (agent ? `${agent.host}:${agent.port}` : '')}</p>
+              <p>{agent?.info?.title || agent?.info?.name || (agent && agent.kind === 'acp' ? `${agent.host}:${agent.port}` : '')}</p>
             </div>
           )}
           {rows.map((r) => {
@@ -285,7 +285,7 @@ export function AcpChat({ agentId, sessionId }: { agentId: string; sessionId: st
             {state !== 'offline' && <button disabled={busy || linking || state === 'connecting'} onClick={() => connect(true)}><IconRefresh /> Reconnect</button>}
             {state !== 'offline' && <button disabled={busy} onClick={sleep}><IconMoon /> Disconnect</button>}
           </div>
-          {agent?.info && <div class="init-info"><span>{agent.info.title || agent.info.name}{agent.info.version ? ` ${agent.info.version}` : ''}</span><span>{agent.host}:{agent.port}</span></div>}
+          {agent?.info && agent.kind === 'acp' && <div class="init-info"><span>{agent.info.title || agent.info.name}{agent.info.version ? ` ${agent.info.version}` : ''}</span><span>{agent.host}:{agent.port}</span></div>}
         </div>
       </Sheet>
       <Sheet open={selectText !== null} onClose={() => setSelectText(null)} title="Select text">
@@ -304,15 +304,15 @@ export function AcpChat({ agentId, sessionId }: { agentId: string; sessionId: st
 }
 
 function AvatarFor({ a, size, busy }: { a: { id: string; avatar: string; order: number }; size: number; busy?: boolean }) {
-  // Uploaded avatars of ACP agents are served by the ACP routes, not the Claude ones.
+  // Uploaded avatars of More Agents are served by the More Agent routes, not the Claude ones.
   if (a.avatar === 'file') return (
     <span class={`avatar ${busy ? 'busy' : ''}`} style={{ width: `${size}px`, height: `${size}px` }}>
-      <img src={acpApi.avatarUrl(a)} alt="" loading="lazy" decoding="async" />
+      <img src={moreAgentsApi.avatarUrl(a)} alt="" loading="lazy" decoding="async" />
     </span>
   )
   return <Avatar agent={a} size={size} busy={busy} />
 }
-export { AvatarFor as AcpAvatar }
+export { AvatarFor as MoreAgentAvatar }
 
 function Working({ state, start }: { state: string; start: number | null }) {
   const [now, setNow] = useState(Date.now())
@@ -330,8 +330,8 @@ function Working({ state, start }: { state: string; start: number | null }) {
   )
 }
 
-/** Messages sent while the agent works; ACP sends them in order once the turn ends. */
-function QueueTray({ items, conn, onEdit }: { items: Item[]; conn: AcpConn; onEdit: (text: string) => void }) {
+/** Messages sent while the agent works; More Agents send them in order once the turn ends. */
+function QueueTray({ items, conn, onEdit }: { items: Item[]; conn: MoreAgentConn; onEdit: (text: string) => void }) {
   const queued = items.filter((x): x is UserItem => x.kind === 'user' && x.pending && !!x.queued)
   if (!queued.length) return null
   const edit = async (u: UserItem) => {

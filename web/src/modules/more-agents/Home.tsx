@@ -1,23 +1,23 @@
-// ACP agents on the Agents tab (the "ACP" segment): cards grouped by ACP groups, like the Claude agent cards.
+// More Agents on the Agents tab (the "More" segment): cards for ACP and Codex agents, grouped.
 
 import { useEffect, useRef, useState } from 'preact/hooks'
-import { acpVersion, moduleSessions, toastError } from '../../lib/store'
+import { moreAgentsVersion, moduleSessions, toastError } from '../../lib/store'
 import { navigate } from '../../lib/router'
 import { Spark } from '../../components/crab'
 import { IconChat, IconPlus, IconGlobe } from '../../components/icons'
 import { haptic, relTime } from '../../lib/util'
-import { acpApi, type AcpAgent } from './api'
-import { AcpAvatar } from './chat/Chat'
+import { moreAgentsApi, type MoreAgent } from './api'
+import { MoreAgentAvatar } from './chat/Chat'
 
 const painted = () => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(r, 30))))
-let cache: AcpAgent[] | null = null
+let cache: MoreAgent[] | null = null
 let groupCache: string[] = []
 
-/** Live counts for one ACP agent from the global feed. */
-export function acpLive(agentId: string) {
+/** Live counts for one More agent from the global feed. */
+export function moreAgentLive(agentId: string) {
   let running = 0, live = 0, pending = 0, unread = 0
   for (const s of Object.values(moduleSessions.value)) {
-    if (s.module !== 'acp' || s.agent_id !== agentId) continue
+    if (s.module !== 'more_agents' || s.agent_id !== agentId) continue
     if (s.unread) unread++
     if (s.state === 'running' || s.state === 'interrupting') running++
     if (s.state !== 'offline') live++
@@ -26,23 +26,23 @@ export function acpLive(agentId: string) {
   return { running, live, pending, unread }
 }
 
-export function AcpAgents() {
-  const [list, setList] = useState<AcpAgent[] | null>(cache)
+export function MoreAgents() {
+  const [list, setList] = useState<MoreAgent[] | null>(cache)
   const [groups, setGroups] = useState<string[]>(groupCache)
   const [filter, setFilter] = useState<string | null>(null)
   useEffect(() => {
-    acpApi.agents().then((a) => { cache = a; setList(a) }).catch(toastError)
-    acpApi.groups().then((g) => { groupCache = g.groups; setGroups(g.groups) }).catch(() => {})
-  }, [acpVersion.value])
+    moreAgentsApi.agents().then((a) => { cache = a; setList(a) }).catch(toastError)
+    moreAgentsApi.groups().then((g) => { groupCache = g.groups; setGroups(g.groups) }).catch(() => {})
+  }, [moreAgentsVersion.value])
   void moduleSessions.value
 
   if (list === null) return <div class="agent-grid">{[0, 1].map((i) => <div key={i} class="skeleton" style={{ height: '128px', borderRadius: '20px' }} />)}</div>
   if (!list.length) return (
     <div class="empty rise">
       <div class="empty-icon"><IconGlobe width={40} height={40} /></div>
-      <h3 class="serif">No ACP agents yet</h3>
-      <p>Connect an external agent that speaks the Agent Client Protocol over TCP.</p>
-      <button class="btn primary" style={{ marginTop: '10px' }} onClick={() => navigate({ name: 'new-acp' })}><IconPlus width={18} height={18} /> New ACP agent</button>
+      <h3 class="serif">No More Agents yet</h3>
+      <p>Connect ACP endpoints or run Codex agents locally.</p>
+      <button class="btn primary" style={{ marginTop: '10px' }} onClick={() => navigate({ name: 'new-more-agent' })}><IconPlus width={18} height={18} /> New agent</button>
     </div>
   )
   const ungrouped = list.filter((a) => !a.group || !groups.includes(a.group))
@@ -51,7 +51,7 @@ export function AcpAgents() {
     : [{ title: '', items: filter === '' ? ungrouped : list.filter((a) => a.group === filter) }]
   return (
     <>
-      <p class="subtitle rise" style={{ '--i': 1 }}>{list.length} external agent{list.length > 1 ? 's' : ''}.</p>
+      <p class="subtitle rise" style={{ '--i': 1 }}>{list.length} agent{list.length > 1 ? 's' : ''}.</p>
       {groups.length > 0 && (
         <div class="group-filter rise" role="tablist" style={{ '--i': 1 }}>
           {[[null, 'All', list.length] as const, ...groups.map((g) => [g, g, list.filter((a) => a.group === g).length] as const),
@@ -65,15 +65,15 @@ export function AcpAgents() {
       {sections.map((sec, si) => (
         <section key={sec.title || si} class="agent-section">
           {sec.title && <div class="group-title">{sec.title}</div>}
-          <div class="agent-grid">{sec.items.map((a, i) => <AcpCard key={a.id} agent={a} index={i} />)}</div>
+          <div class="agent-grid">{sec.items.map((a, i) => <MoreAgentCard key={a.id} agent={a} index={i} />)}</div>
         </section>
       ))}
     </>
   )
 }
 
-function AcpCard({ agent, index }: { agent: AcpAgent; index: number }) {
-  const live = acpLive(agent.id)
+function MoreAgentCard({ agent, index }: { agent: MoreAgent; index: number }) {
+  const live = moreAgentLive(agent.id)
   const running = live.running || agent.status?.running || 0
   const pending = live.pending || agent.status?.pending || 0
   const last = agent.status?.last_session
@@ -83,20 +83,24 @@ function AcpCard({ agent, index }: { agent: AcpAgent; index: number }) {
     if (creating.current) return
     creating.current = true
     try {
-      const s = await acpApi.createSession(agent.id)
-      navigate({ name: 'acp', agentId: agent.id }, { animate: false })
+      const s = await moreAgentsApi.createSession(agent.id)
+      navigate({ name: 'more-agent', agentId: agent.id }, { animate: false })
       await painted()
-      navigate({ name: 'acp-chat', agentId: agent.id, sessionId: s.id })
+      navigate({ name: 'more-agent-chat', agentId: agent.id, sessionId: s.id })
     } catch (err) { toastError(err) } finally { creating.current = false }
   }
+
+  const kindTag = agent.kind === 'acp' ? 'ACP' : 'Codex'
+  const detailLine = agent.kind === 'acp' ? `${agent.host}:${agent.port}` : agent.model || 'default model'
+
   return (
     <div class="agent-card-wrap rise" style={{ '--i': index + 2 }}>
-      <button class="agent-card press" onClick={() => navigate({ name: 'acp', agentId: agent.id })}>
+      <button class="agent-card press" onClick={() => navigate({ name: 'more-agent', agentId: agent.id })}>
         <div class="agent-card-top">
-          <AcpAvatar a={agent} size={52} busy={running > 0} />
+          <MoreAgentAvatar a={agent} size={52} busy={running > 0} />
           <div class="agent-card-name">
             <div class="n">{agent.name}{live.unread > 0 && <span class="unread-dot" />}</div>
-            <div class="p">{agent.host}:{agent.port}</div>
+            <div class="p">{detailLine}</div>
           </div>
           {pending > 0 ? <span class="chip warn pending-chip">Needs you</span>
             : running > 0 ? <span class="chip pink"><Spark size={13} /> Working</span>
@@ -107,8 +111,9 @@ function AcpCard({ agent, index }: { agent: AcpAgent; index: number }) {
             : <span class="lp">{agent.description || 'No conversations yet.'}</span>}
         </div>
         <div class="agent-card-foot">
-          <span class="mtag">ACP</span>
-          {agent.info?.name && <span class="mtag">{agent.info.name}</span>}
+          <span class="mtag">{kindTag}</span>
+          {agent.kind === 'acp' && agent.info?.name && <span class="mtag">{agent.info.name}</span>}
+          {agent.kind === 'codex' && agent.mode && <span class="mtag">{agent.mode}</span>}
           <span class="when">{last ? relTime(last.updated_at) : ''}</span>
         </div>
       </button>

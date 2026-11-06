@@ -6,7 +6,7 @@ import { ClaudeCliSettings } from '../agents/settings/ClaudeCli'
 import { DefaultsSettings } from '../agents/settings/Defaults'
 import { ModelsSettings } from '../agents/settings/Models'
 import { BuiltinMcpSettings } from '../agents/settings/BuiltinMcp'
-import { AcpSettings } from '../acp/Settings'
+import { MoreAgentsSettings } from '../more-agents/Settings'
 import { ChatProviders, ChatDefaults, ChatTitles, ChatFiles, ChatMcp } from '../chat/settings'
 import { AutomationsSettings } from '../automations/Settings'
 import { WorkflowSettings } from '../workflow/settings'
@@ -29,7 +29,7 @@ export const SECTIONS: Section[] = [
   { key: 'agent-defaults', module: 'agents', title: 'Agent defaults', hint: 'Model, permissions, prompts, sleep', icon: IconAgents, Component: DefaultsSettings },
   { key: 'agent-models', module: 'agents', title: 'Models and pricing', hint: 'Custom model IDs and token prices', icon: IconCode, Component: ModelsSettings },
   { key: 'builtin-mcp', module: 'agents', title: 'Built-in tools', hint: 'Schedules, conversation history, agent collaboration', icon: IconBolt, Component: BuiltinMcpSettings },
-  { key: 'acp', module: 'agents', title: 'ACP agents', hint: 'External agents over the Agent Client Protocol', icon: IconGlobe, Component: AcpSettings },
+  { key: 'more-agents', module: 'agents', title: 'More Agents', hint: 'External agents: ACP endpoints and Codex', icon: IconGlobe, Component: MoreAgentsSettings },
   { key: 'automations', module: 'automations', title: 'Tasks and webhooks', hint: 'Scripts directory, interpreters, webhook secret', icon: IconAutomation, Component: AutomationsSettings },
   { key: 'workflow', module: 'workflow', title: 'Workflow', hint: 'Run history, plugins, environment, API keys', icon: IconLayers, Component: WorkflowSettings },
   { key: 'asr', module: 'apps', title: 'Speech to text', hint: 'Transcription API, model, language, chunking', icon: IconMic, Component: AsrSettings },

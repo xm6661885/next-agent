@@ -7,7 +7,7 @@ import { Avatar, Crab, Spark } from '../../components/crab'
 import { IconArrowUp, IconChat, IconEdit, IconFolder, IconGrip, IconMoon, IconPlus, IconSort, IconTag, IconTrash } from '../../components/icons'
 import { DirPicker } from '../../components/DirPicker'
 import { Segmented, Sheet, TopBar, confirmDialog, promptDialog, useScrolled } from '../../components/ui'
-import { AcpAgents } from '../acp/Home'
+import { MoreAgents } from '../more-agents/Home'
 import { RunningList, running, useRunningFeed } from './Running'
 import { haptic, relTime, shortPath } from '../../lib/util'
 import type { Agent, Session } from '../../lib/types'
@@ -103,7 +103,7 @@ export function Home() {
       <TopBar scrolled={scrolled}
         right={kind === 'running' ? undefined : kind === 'more' ? (
           <div class="topbar-actions">
-            <button class="icon-btn" aria-label="New agent" onClick={() => navigate({ name: 'new-acp' })}><IconPlus /></button>
+            <button class="icon-btn" aria-label="New agent" onClick={() => navigate({ name: 'new-more-agent' })}><IconPlus /></button>
           </div>
         ) : sorting ? (
           <button class="btn primary small" disabled={saving} onClick={finishSort}>{saving ? <span class="spinner" /> : 'Done'}</button>
@@ -124,7 +124,7 @@ export function Home() {
               { value: 'claude', label: 'Claude' }, { value: 'more', label: 'More Agents' },
               { value: 'running', label: runningCount > 0 ? `Running ${runningCount}` : 'Running' }]} />
           </div>
-          {kind === 'running' ? <RunningList /> : kind === 'more' ? <AcpAgents /> : <>
+          {kind === 'running' ? <RunningList /> : kind === 'more' ? <MoreAgents /> : <>
           <p class="subtitle rise" style={{ '--i': 1 }}>
             {list.length ? `${list.length} agent${list.length > 1 ? 's' : ''} ready to help.` : 'Let us set up your first agent.'}
           </p>

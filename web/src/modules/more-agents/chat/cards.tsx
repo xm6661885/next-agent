@@ -1,13 +1,13 @@
-// ACP permission request: the agent sends its own options (allow once, allow always, reject ...).
+// More Agent permission request: the agent sends its own options (allow once, allow always, reject ...).
 
 import { useState } from 'preact/hooks'
-import type { AcpPermission } from '../api'
-import type { AcpConn } from './conn'
+import type { Permission } from '../api'
+import type { MoreAgentConn } from './conn'
 import { toolSummary } from './tools'
 import { highlightCode } from './markdown'
 import { IconShield } from '../../../components/icons'
 
-export function PermissionCard({ req, conn }: { req: AcpPermission; conn: AcpConn }) {
+export function PermissionCard({ req, conn }: { req: Permission; conn: MoreAgentConn }) {
   const [busy, setBusy] = useState(false)
   const t = req.tool_call || {}
   const { verb, arg } = toolSummary({ name: t.title || '', acp_kind: t.kind, input: t.rawInput, locations: t.locations })

@@ -4,18 +4,18 @@
 import { signal } from '@preact/signals'
 import { authed, wsUrl } from '../../../lib/store'
 import type { Item } from '../../../lib/types'
-import type { AcpPermission, AcpSession, AcpState } from '../api'
+import type { Permission, MoreSession, SessionState } from '../api'
 
 export type ConnStatus = 'connecting' | 'open' | 'reconnecting' | 'closed'
 
-export class AcpConn {
+export class MoreAgentConn {
   items = signal<Item[]>([])
   hasMore = signal(false)
-  session = signal<AcpSession | null>(null)
-  state = signal<AcpState>('offline')
+  session = signal<MoreSession | null>(null)
+  state = signal<SessionState>('offline')
   /** Local Date.now() at which the current turn started, from the server's elapsed_ms. */
   turnStart = signal<number | null>(null)
-  perms = signal<AcpPermission[]>([])
+  perms = signal<Permission[]>([])
   conn = signal<ConnStatus>('connecting')
   loaded = signal(false)
 
@@ -80,7 +80,7 @@ export class AcpConn {
     if (this.ws && this.ws.readyState <= 1) return
     clearTimeout(this.timer)
     this.conn.value = this.loaded.value ? 'reconnecting' : 'connecting'
-    const ws = new WebSocket(wsUrl(`/ws/acp/${encodeURIComponent(this.sid)}`))
+    const ws = new WebSocket(wsUrl(`/ws/more-agents/${encodeURIComponent(this.sid)}`))
     this.ws = ws
     this.openedAt = Date.now()
     // Handshakes that never settle (iOS after a suspend) get replaced instead of waiting for the OS timeout.

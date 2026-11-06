@@ -15,10 +15,10 @@ export type Route =
   | { name: 'new-agent' }
   | { name: 'chat'; agentId: string; sessionId: string }
   | { name: 'memory' }
-  | { name: 'acp'; agentId: string }
-  | { name: 'acp-settings'; agentId: string }
-  | { name: 'new-acp' }
-  | { name: 'acp-chat'; agentId: string; sessionId: string }
+  | { name: 'more-agent'; agentId: string }
+  | { name: 'more-agent-settings'; agentId: string }
+  | { name: 'new-more-agent' }
+  | { name: 'more-agent-chat'; agentId: string; sessionId: string }
   | { name: 'chats' }
   | { name: 'assistant'; assistantId: string }
   | { name: 'assistant-settings'; assistantId: string }
@@ -52,6 +52,7 @@ export function tabOf(r: Route): Tab {
   if (r.name.startsWith('automation')) return 'automations'
   if (r.name.startsWith('wf') || r.name === 'workflows') return 'workflow'
   if (r.name === 'more' || r.name === 'about' || r.name.startsWith('asr') || r.name === 'images' || r.name.startsWith('settings') || r.name === 'memory') return 'more'
+  if (r.name.startsWith('more-agent')) return 'agents'
   return 'agents'
 }
 export const isTabRoot = (r: Route) => r.name === 'home' || r.name === 'chats' || r.name === 'automations' || r.name === 'workflows' || r.name === 'wf-console' || r.name === 'more'
@@ -66,10 +67,10 @@ export function parse(path: string): Route {
   if (p[0] === 'agents' && p[1] && p[2] === 's' && p[3]) return { name: 'chat', agentId: p[1], sessionId: p[3] }
   if (p[0] === 'agents' && p[1]) return { name: 'agent', agentId: p[1] }
   if (p[0] === 'agents') return { name: 'home' }
-  if (p[0] === 'acp' && p[1] === 'new') return { name: 'new-acp' }
-  if (p[0] === 'acp' && p[1] && p[2] === 'settings') return { name: 'acp-settings', agentId: p[1] }
-  if (p[0] === 'acp' && p[1] && p[2] === 's' && p[3]) return { name: 'acp-chat', agentId: p[1], sessionId: p[3] }
-  if (p[0] === 'acp' && p[1]) return { name: 'acp', agentId: p[1] }
+  if (p[0] === 'more-agents' && p[1] === 'new') return { name: 'new-more-agent' }
+  if (p[0] === 'more-agents' && p[1] && p[2] === 'settings') return { name: 'more-agent-settings', agentId: p[1] }
+  if (p[0] === 'more-agents' && p[1] && p[2] === 's' && p[3]) return { name: 'more-agent-chat', agentId: p[1], sessionId: p[3] }
+  if (p[0] === 'more-agents' && p[1]) return { name: 'more-agent', agentId: p[1] }
   if (p[0] === 'chat' && p[1] === 'new') return { name: 'new-assistant' }
   if (p[0] === 'chat' && p[1] && p[2] === 'settings') return { name: 'assistant-settings', assistantId: p[1] }
   if (p[0] === 'chat' && p[1] && p[2] === 'files') return { name: 'assistant-files', assistantId: p[1] }
@@ -110,10 +111,10 @@ export function href(r: Route): string {
     case 'agent-settings': return `/agents/${e(r.agentId)}/settings`
     case 'chat': return `/agents/${e(r.agentId)}/s/${e(r.sessionId)}`
     case 'memory': return '/more/memory'
-    case 'new-acp': return '/acp/new'
-    case 'acp': return `/acp/${e(r.agentId)}`
-    case 'acp-settings': return `/acp/${e(r.agentId)}/settings`
-    case 'acp-chat': return `/acp/${e(r.agentId)}/s/${e(r.sessionId)}`
+    case 'new-more-agent': return '/more-agents/new'
+    case 'more-agent': return `/more-agents/${e(r.agentId)}`
+    case 'more-agent-settings': return `/more-agents/${e(r.agentId)}/settings`
+    case 'more-agent-chat': return `/more-agents/${e(r.agentId)}/s/${e(r.sessionId)}`
     case 'chats': return '/chat'
     case 'new-assistant': return '/chat/new'
     case 'assistant': return `/chat/${e(r.assistantId)}`
@@ -198,7 +199,7 @@ export function navigate(r: Route | string, opts: { replace?: boolean; animate?:
 export function parentOf(r: Route): Route {
   switch (r.name) {
     case 'chat': case 'agent-settings': return { name: 'agent', agentId: r.agentId }
-    case 'acp-chat': case 'acp-settings': return { name: 'acp', agentId: r.agentId }
+    case 'more-agent-chat': case 'more-agent-settings': return { name: 'more-agent', agentId: r.agentId }
     case 'llm-chat': case 'assistant-settings': case 'assistant-files': case 'assistant-memory': return { name: 'assistant', assistantId: r.assistantId }
     case 'assistant': case 'new-assistant': return { name: 'chats' }
     case 'automation-task': case 'automation-new': case 'automation-runs': case 'automation-run': return { name: 'automations' }

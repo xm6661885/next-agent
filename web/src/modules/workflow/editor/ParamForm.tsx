@@ -4,7 +4,7 @@ import { useEffect, useState } from 'preact/hooks'
 import { Switch } from '../../../components/ui'
 import { api } from '../../../lib/api'
 import { TEMP_AGENT } from '../../../lib/router'
-import { acpApi } from '../../acp/api'
+import { moreAgentsApi } from '../../more-agents/api'
 import { workflows, type Block, type Json, type PluginInput, type PluginSchema } from '../api'
 import { findBlock, visibleFor } from '../defs'
 import { MagicText } from './MagicText'
@@ -37,24 +37,24 @@ export function definedVars(blockId: string) {
 const optList = (o: PluginInput['options']) => (o || []).map((x) => (typeof x === 'string' ? { value: x, label: x || '(default)' } : x))
 const val = (e: Event) => (e.target as HTMLInputElement).value
 
-// Agent lists for the agent / acp_agent inputs, loaded once per editor session.
+// Agent lists for the agent / more_agent inputs, loaded once per editor session.
 let claudeAgents: { id: string; name: string }[] | null = null
-let acpAgents: { id: string; name: string }[] | null = null
-function useAgents(kind: 'agent' | 'acp_agent') {
-  const [list, setList] = useState(kind === 'agent' ? claudeAgents : acpAgents)
+let moreAgents: { id: string; name: string }[] | null = null
+function useAgents(kind: 'agent' | 'more_agent') {
+  const [list, setList] = useState(kind === 'agent' ? claudeAgents : moreAgents)
   useEffect(() => {
     if (list) return
     if (kind === 'agent') api.agents().then((a) => { claudeAgents = [{ id: TEMP_AGENT, name: 'Temporary chat' }, ...a.map((x) => ({ id: x.id, name: x.name }))]; setList(claudeAgents) }).catch(() => setList([]))
-    else acpApi.agents().then((a) => { acpAgents = a.map((x) => ({ id: x.id, name: x.name })); setList(acpAgents) }).catch(() => setList([]))
+    else moreAgentsApi.agents().then((a) => { moreAgents = a.map((x) => ({ id: x.id, name: x.name })); setList(moreAgents) }).catch(() => setList([]))
   }, [kind])
   return list
 }
 
-function AgentSelect({ kind, value, set }: { kind: 'agent' | 'acp_agent'; value: string; set: (v: string) => void }) {
+function AgentSelect({ kind, value, set }: { kind: 'agent' | 'more_agent'; value: string; set: (v: string) => void }) {
   const list = useAgents(kind)
   return (
     <select class="select" value={value ?? ''} onChange={(e) => set(val(e))}>
-      <option value="">{list === null ? 'Loading…' : list.length ? 'Select an agent…' : kind === 'acp_agent' ? 'No ACP agents' : 'No agents'}</option>
+      <option value="">{list === null ? 'Loading…' : list.length ? 'Select an agent…' : kind === 'more_agent' ? 'No More Agents' : 'No agents'}</option>
       {value && list && !list.some((a) => a.id === value) && <option value={value}>{value} (not found)</option>}
       {(list || []).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
     </select>
@@ -78,7 +78,7 @@ function Field({ inp, block }: { inp: PluginInput; block: Block }) {
     )
   } else if (inp.type === 'select') {
     control = <select class="select" value={v ?? ''} onChange={(e) => set(val(e))}>{optList(inp.options).map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</select>
-  } else if (inp.type === 'agent' || inp.type === 'acp_agent') {
+  } else if (inp.type === 'agent' || inp.type === 'more_agent') {
     control = <AgentSelect kind={inp.type} value={v} set={set} />
   } else if (inp.type === 'varname') {
     const names = definedVars(block.id)
