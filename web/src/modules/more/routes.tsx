@@ -8,6 +8,10 @@ import { meta } from '../../lib/store'
 import { Crab } from '../../components/crab'
 import { BackButton, TopBar, useScrolled } from '../../components/ui'
 import { IconChevron, IconSettings, IconBrain } from '../../components/icons'
+import { AsrRoute } from '../asr/routes'
+import { ImagegenRoute } from '../imagegen/routes'
+import { IconMic } from '../../components/icons-apps'
+import { IconImage } from '../../components/icons'
 import { SettingsHome, SettingsModulePage, SettingsSection } from '../settings/Settings'
 
 export function MoreRoute(r: Route) {
@@ -18,7 +22,7 @@ export function MoreRoute(r: Route) {
     case 'settings-module': return <SettingsModulePage module={r.module} />
     case 'settings-section': return <SettingsSection module={r.module} section={r.section} />
   }
-  return null
+  return AsrRoute(r) || ImagegenRoute(r)
 }
 
 function useVersion() {
@@ -42,7 +46,17 @@ function More() {
               <span class="more-text"><span class="n">Settings</span><span class="p">Chat, Agents, Workflow and server</span></span>
               <IconChevron class="more-chev" />
             </button>
-            <button class="more-card press rise" style={{ '--i': 2 }} onClick={() => navigate({ name: 'memory' })}>
+            <button class="more-card press rise" style={{ '--i': 2 }} onClick={() => navigate({ name: 'asr' })}>
+              <span class="more-icon"><IconMic /></span>
+              <span class="more-text"><span class="n">Speech to text</span><span class="p">Record or upload audio and transcribe it</span></span>
+              <IconChevron class="more-chev" />
+            </button>
+            <button class="more-card press rise" style={{ '--i': 2 }} onClick={() => navigate({ name: 'images' })}>
+              <span class="more-icon"><IconImage /></span>
+              <span class="more-text"><span class="n">Image generation</span><span class="p">Generate images from text and reference images</span></span>
+              <IconChevron class="more-chev" />
+            </button>
+            <button class="more-card press rise" style={{ '--i': 3 }} onClick={() => navigate({ name: 'memory' })}>
               <span class="more-icon"><IconBrain /></span>
               <span class="more-text"><span class="n">Claude Code Memory</span><span class="p">Memory files of Claude Code agents</span></span>
               <IconChevron class="more-chev" />

@@ -4,6 +4,7 @@
 
 import type { JSX } from 'preact'
 import { IconAgents, IconChat, IconLayers, IconSettings } from '../../components/icons'
+import { IconSparkle } from '../../components/icons-apps'
 
 export type Icon = (p: JSX.SVGAttributes<SVGSVGElement>) => JSX.Element
 export interface SettingsModule { key: string; title: string; hint: string; icon: Icon }
@@ -12,6 +13,7 @@ export const MODULES: SettingsModule[] = [
   { key: 'chat', title: 'Chat', hint: 'Model providers, defaults, titles, files and memory, MCP servers', icon: IconChat },
   { key: 'agents', title: 'Agents', hint: 'Claude Code CLI, defaults, models, built-in tools, ACP', icon: IconAgents },
   { key: 'workflow', title: 'Workflow', hint: 'Run history, plugins, environment', icon: IconLayers },
+  { key: 'apps', title: 'Apps', hint: 'Speech to text and image generation', icon: IconSparkle },
   { key: 'general', title: 'General', hint: 'Account and API, config files', icon: IconSettings },
 ]
 

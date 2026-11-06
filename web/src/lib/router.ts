@@ -34,6 +34,9 @@ export type Route =
   | { name: 'wf-console' }
   | { name: 'more' }
   | { name: 'about' }
+  | { name: 'asr' }
+  | { name: 'asr-detail'; id: string }
+  | { name: 'images' }
   | { name: 'settings' }
   | { name: 'settings-module'; module: string }
   | { name: 'settings-section'; module: string; section: string }
@@ -43,7 +46,7 @@ export function tabOf(r: Route): Tab {
   if (r.name === 'chats' || r.name.startsWith('assistant') || r.name === 'new-assistant' || r.name === 'llm-chat') return 'chat'
   if (r.name.startsWith('automation')) return 'automations'
   if (r.name.startsWith('wf') || r.name === 'workflows') return 'workflow'
-  if (r.name === 'more' || r.name === 'about' || r.name.startsWith('settings') || r.name === 'memory') return 'more'
+  if (r.name === 'more' || r.name === 'about' || r.name.startsWith('asr') || r.name === 'images' || r.name.startsWith('settings') || r.name === 'memory') return 'more'
   return 'agents'
 }
 export const isTabRoot = (r: Route) => r.name === 'home' || r.name === 'chats' || r.name === 'automations' || r.name === 'workflows' || r.name === 'wf-console' || r.name === 'more'
@@ -75,6 +78,9 @@ export function parse(path: string): Route {
   if (p[0] === 'workflow' && p[1] === 'runs') return { name: 'wf-runs', workflowId: q.get('workflow') || undefined }
   if (p[0] === 'workflow' && p[1] === 'console') return { name: 'wf-console' }
   if (p[0] === 'workflow') return { name: 'workflows' }
+  if (p[0] === 'more' && p[1] === 'asr' && p[2]) return { name: 'asr-detail', id: p[2] }
+  if (p[0] === 'more' && p[1] === 'asr') return { name: 'asr' }
+  if (p[0] === 'more' && p[1] === 'images') return { name: 'images' }
   if (p[0] === 'more' && p[1] === 'about') return { name: 'about' }
   if (p[0] === 'more' && p[1] === 'memory') return { name: 'memory' }
   if (p[0] === 'more') return { name: 'more' }
@@ -113,6 +119,9 @@ export function href(r: Route): string {
     case 'wf-console': return '/workflow/console'
     case 'more': return '/more'
     case 'about': return '/more/about'
+    case 'asr': return '/more/asr'
+    case 'asr-detail': return `/more/asr/${e(r.id)}`
+    case 'images': return '/more/images'
     case 'settings': return '/settings'
     case 'settings-module': return `/settings/${e(r.module)}`
     case 'settings-section': return `/settings/${e(r.module)}/${e(r.section)}`
@@ -180,7 +189,8 @@ export function parentOf(r: Route): Route {
     case 'wf-editor': case 'wf-run': case 'wf-runs': case 'wf-console': return { name: 'workflows' }
     case 'settings-section': return { name: 'settings-module', module: r.module }
     case 'settings-module': return { name: 'settings' }
-    case 'settings': case 'about': case 'memory': return { name: 'more' }
+    case 'asr-detail': return { name: 'asr' }
+    case 'settings': case 'about': case 'memory': case 'asr': case 'images': return { name: 'more' }
     default: return { name: 'home' }
   }
 }
