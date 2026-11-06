@@ -104,6 +104,11 @@ class Builtin:
                                                 session_id=session_id, title=title, origin=origin, parent=parent)
             return sid, self.background(self.core.bridge.wait_claude(sid))
         if session_id is None and not cwd: raise ValueError('cwd is required for a new More Agents session')
+        more = self.core.modules['more_agents']
+        if session_id is None:
+            created = more.create_session(aid, title, origin, parent, cwd=cwd)
+            session_id = created['id']
+        await more.prepare(session_id)
         sid = self.core.bridge.start_more(aid, prompt, cwd=cwd or self.core.bridge.view(module, session_id)['cwd'],
                                           session_id=session_id, title=title, origin=origin, parent=parent,
                                           model=model, effort=effort)

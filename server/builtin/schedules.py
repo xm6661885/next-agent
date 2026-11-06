@@ -66,6 +66,7 @@ class Schedules:
 
     def validate(self, data, caller=None, future=True):
         values = ScheduleInput.model_validate(data).model_dump()
+        if values['target'].get('module') == 'agents' and not values['target'].get('cwd'): values['target'].pop('cwd', None)
         if (values['cron'] is None)==(values['at'] is None): raise ValueError('Exactly one of cron or at is required')
         if values['cron'] is not None:
             if len(values['cron'].split())!=5 or not croniter.is_valid(values['cron']):
@@ -135,7 +136,7 @@ class Schedules:
             session_id, result = await self.builtin.start(target['module'], target['agent_id'], schedule['prompt'],
                 session_id=None if target['session']=='new' else target['session'], origin='schedule',
                 title=schedule['title'] or 'Scheduled: '+schedule['prompt'][:40],
-                model=schedule['model'], effort=schedule['effort'], cwd=target.get('cwd') or None)
+                model=schedule['model'], effort=schedule['effort'], **({'cwd': target['cwd']} if target.get('cwd') else {}))
         except Exception as exc:
             schedule['last_result'] = dict(session_id=session_id, is_error=True, error=str(exc))
             self.save()
@@ -149,7 +150,7 @@ class Schedules:
         try: value = await result
         except Exception as exc: value = dict(is_error=True, error=str(exc))
         if self.entries.get(schedule['id']) is schedule and schedule['last_run']==run:
-            schedule['last_result'] = dict(session_id=sid, stop_reason=value.get('stop_reason','completed'), is_error=value.get('is_error', False), error=value.get('error'))
+            schedule['last_result'] = dict(session_id=sid, is_error=value.get('is_error', False), error=value.get('error'))
             self.save()
 
     async def run_due(self, startup=False):

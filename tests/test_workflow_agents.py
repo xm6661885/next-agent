@@ -27,7 +27,7 @@ class FakeBridge:
                     is_error=bool(self.error), error=self.error)
 
     async def run_claude(self, *args, **kwargs): return await self.turn('agents', *args, **kwargs)
-    async def run_acp(self, *args, **kwargs): return await self.turn('acp', *args, **kwargs)
+    async def run_more(self, *args, **kwargs): return await self.turn('acp', *args, **kwargs)
     async def stop(self, module, sid):
         self.stops.append((module, sid))
         self.sessions[sid]['state'] = 'idle'
@@ -79,7 +79,7 @@ def test_cards_continue_and_session_events(logged, bridge, card, aid, module):
     schemas = {p['id']: p for p in logged.get('/api/workflow/plugins').json()['plugins']}
     assert schemas['builtin.'+card]['uses_agent_slot']
     if card!='temp_task':
-        assert schemas['builtin.'+card]['inputs'][0]['type']==('agent' if module=='agents' else 'acp_agent')
+        assert schemas['builtin.'+card]['inputs'][0]['type']==('agent' if module=='agents' else 'more_agent')
 
 
 def test_temp_overrides_extra_and_cwd(logged, app, bridge, tmp_path):
@@ -160,7 +160,7 @@ def test_limit_raw_resize_console_and_shutdown(logged, app, bridge, monkeypatch)
 
 
 async def test_bridge_callbacks_precede_turn(app, monkeypatch):
-    bridge, acp = app.state.core.bridge, app.state.core.modules['acp']
+    bridge, acp = app.state.core.bridge, app.state.core.modules['more_agents']
     seen = []
     async def run_turn(sid, prompt):
         assert seen==[sid]
@@ -178,7 +178,7 @@ async def test_bridge_callbacks_precede_turn(app, monkeypatch):
             return future
         return SimpleNamespace(enqueue=enqueue)
     monkeypatch.setattr(acp, 'runtime', runtime)
-    result = await bridge.run_acp('remote', 'hi', on_session=seen.append)
+    result = await bridge.run_more('remote', 'hi', on_session=seen.append)
     assert result['session_id']==seen[0]
 
 
