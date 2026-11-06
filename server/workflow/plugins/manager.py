@@ -18,7 +18,7 @@ _gen = itertools.count(1)
 
 class PluginManager:
     def __init__(self, dirs: list[tuple[Path, str]]):
-        self.dirs = dirs  # [(directory, source core|user)]
+        self.dirs = dirs  # [(directory, source core|extra|user)]
         self.plugins: dict[str, Plugin] = {}
         self.sources: dict[str, str] = {}
         self.errors: list[dict] = []

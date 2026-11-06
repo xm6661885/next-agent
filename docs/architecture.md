@@ -11,13 +11,16 @@ is the core (auth, paths, TOML store helpers, global event feed) and a few narro
 | Agents (ACP) | `server/acp/` | `web/src/modules/acp` | `data/config/acp.toml` | `data/acp/` |
 | Built-in MCP | `server/builtin/` | settings pages + tool cards in the Claude chat | `data/config/agents.toml` (`builtin_mcp`) | `data/builtin/schedules.json` |
 | Chat | `server/chat/` | `web/src/modules/chat` | `data/config/chat.toml` | `data/chat/` (sessions/messages/uploads; `assistants/<aid>/files/`; `memory/<aid>.json`) |
-| Workflow | `server/workflow/` | `web/src/modules/workflow` | `data/config/workflow.toml` | `data/workflow/` |
+| Workflow | `server/workflow/` (core/extra/user cards, HTTP triggers) | `web/src/modules/workflow` | `data/config/workflow.toml` | `data/workflow/` (`app.db` incl. per-workflow trigger tokens, `plugins/`, `workspace/`) |
 | Settings / More | `/api/settings/*` in `server/app.py` | `web/src/modules/settings`, `web/src/modules/more` | all of the above | |
 
 ## Shared Claude CLI
 Agents and Workflow share one Claude Code CLI setup (`[server]` in core.toml: cli path, concurrency, API base URL/key).
 Workflow never starts a CLI itself: its agent cards create normal Agents sessions through `server/bridge.py`
 (`AgentBridge`), so the concurrency gate, idle reaper and chat UI are the Agents ones.
+Workflow scans shipped `plugins_core/` and `plugins_extra/` cards plus `data/workflow/plugins/` user cards.
+The `extra.notify` card invokes the local notification CLI without a shell. Public HTTP triggers authenticate
+with per-workflow tokens stored in `app.db`'s `triggers` table; their management uses normal Workflow auth.
 
 ## Bridges (the only cross-module calls)
 - `server/bridge.py` `AgentBridge`: run a turn on a Claude session (temporary or a named agent) or an ACP session and

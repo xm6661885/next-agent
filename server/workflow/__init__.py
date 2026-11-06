@@ -15,7 +15,8 @@ def mount(app, core):
     for name in ('plugins', 'workspace'): (root / name).mkdir(parents=True, exist_ok=True)
     db = Database(root / 'app.db')
     bus = EventBus(db)
-    plugins = PluginManager([(Path(__file__).parent / 'plugins_core', 'core'), (root / 'plugins', 'user')])
+    plugins = PluginManager([(Path(__file__).parent / 'plugins_core', 'core'),
+                             (Path(__file__).parent / 'plugins_extra', 'extra'), (root / 'plugins', 'user')])
     manager = RunManager(db, bus, plugins, root / 'workspace', config, core)
     core.modules['workflow'] = manager
     core.modules['overview_workflow'] = lambda: dict(manager.counts)

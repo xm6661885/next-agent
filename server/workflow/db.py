@@ -14,6 +14,9 @@ CREATE TABLE IF NOT EXISTS workflows(
   id TEXT PRIMARY KEY, name TEXT NOT NULL, group_id TEXT, sort INTEGER NOT NULL DEFAULT 0,
   icon TEXT NOT NULL DEFAULT 'sparkles', color TEXT NOT NULL DEFAULT 'pink',
   definition TEXT NOT NULL, updated_at REAL NOT NULL);
+CREATE TABLE IF NOT EXISTS triggers(
+  workflow_id TEXT PRIMARY KEY REFERENCES workflows(id) ON DELETE CASCADE,
+  enabled INTEGER NOT NULL, token TEXT NOT NULL, created_at REAL NOT NULL, last_used_at REAL);
 CREATE TABLE IF NOT EXISTS runs(
   id TEXT PRIMARY KEY, workflow_id TEXT, workflow_name TEXT, snapshot TEXT NOT NULL,
   status TEXT NOT NULL, inputs TEXT, result TEXT, error TEXT, cost_usd REAL NOT NULL DEFAULT 0,
@@ -70,6 +73,7 @@ class Database:
     async def open(self) -> None:
         self.conn = await aiosqlite.connect(self.path)
         self.conn.row_factory = aiosqlite.Row
+        await self.conn.execute("PRAGMA foreign_keys=ON")
         await self.conn.execute("PRAGMA journal_mode=WAL")
         await self.conn.execute("PRAGMA synchronous=NORMAL")
         await self.conn.execute("PRAGMA cache_size=-512")  # 512 KB page cache instead of 2 MB

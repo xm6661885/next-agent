@@ -3,7 +3,7 @@ import hmac
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import ValidationError
 from ..config import WorkflowConfig
-from . import plugins, runs, workflows
+from . import plugins, runs, triggers, workflows
 
 ACTIVE = {'queued', 'starting', 'connecting', 'running', 'interrupting'}
 
@@ -64,5 +64,5 @@ def router(core, manager):
 
     root = APIRouter()
     root.include_router(api)
-    for module in (workflows, runs, plugins): root.include_router(module.router(core, manager, require))
+    for module in (workflows, runs, plugins, triggers): root.include_router(module.router(core, manager, require))
     return root

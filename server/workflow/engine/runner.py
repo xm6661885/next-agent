@@ -89,6 +89,8 @@ def prepare_inputs(definition: dict, given: dict | None) -> dict:
         val = given.get(name, spec.get("default"))
         typ = spec.get("type", "text")
         out[name] = coerce(val, typ if typ in ("number", "bool", "json", "list") else "text", name)
+        if spec.get("required") and (out[name] is None or out[name] == "" or out[name] == []):
+            raise StepError(f"{name} is required")
     return out
 
 
