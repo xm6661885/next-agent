@@ -78,7 +78,7 @@ class CodexRuntime:
                 if self.active and self.turn_id:
                     self.state_change('interrupting'); await self.process.request('turn/interrupt',{'threadId':self.thread_id,'turnId':self.turn_id})
             elif typ=='set_config': self.session_changed(**self._set_option(payload['config_id'],payload['value']))
-            elif typ=='set_mode': self.session_changed(modes={**(self.session.get('modes') or {}),'currentModeId':payload['mode_id']})
+            elif typ=='set_mode': self.session_changed(mode=payload['mode_id'], modes={**(self.session.get('modes') or {}),'currentModeId':payload['mode_id']})
             if not future.done(): future.set_result(None)
         except Exception as exc:
             if not future.done(): future.set_exception(exc)
