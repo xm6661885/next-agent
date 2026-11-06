@@ -21,11 +21,15 @@ A self-hosted web console and PWA for AI agents. It has five bottom tabs: **Chat
   - History: search an agent's own earlier sessions.
   - Collab: delegate to agents marked "available as a subagent" and watch them in a small live window.
   - Switches: a master switch, one per category and per-agent overrides.
-- **Automations:** scheduled scripts, webhooks and one-off tasks (the tab is a placeholder for now).
+- **Automations:** scheduled scripts, webhooks and one-off tasks.
 - **Workflow:** a card-based workflow editor with runs, a console and plugins. Run history opens from the clock button at the top right.
   - Agent cards (temporary task, existing agent, ACP agent) run as normal Agents sessions through `core.bridge`.
   - Each card links to its chat page.
 - **More:** Settings (your chat profile, then one page per module and category), Claude Code Memory, and About.
+
+## Automations
+
+Manage scheduled scripts, webhooks and one-off tasks in the Automations tab or with `autotask`. See the [Automations protocol](docs/protocol-automations.md) and the [autotask skill](skills/autotask/SKILL.md) for API and CLI guidance.
 
 ## Requirements
 
