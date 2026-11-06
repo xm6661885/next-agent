@@ -8,7 +8,7 @@ log = logging.getLogger(__name__)
 
 @dataclass
 class Core:
-    paths: Any                 # DataDir; module data dirs: paths.root/'chat', 'workflow', 'acp'; config files: paths.config_dir
+    paths: Any                 # DataDir; paths.root/'agents', 'builtin', 'chat', 'workflow', 'more_agents', 'automations', 'asr', 'imagegen', 'core'; config: paths.config_dir
     auth: Any                  # Auth; use `require` for routes and `await auth.require_ws(ws)` for sockets
     require: Callable          # FastAPI dependency: Depends(core.require)
     emit: Callable             # emit(event: dict) to every /ws/events client; set event['module']

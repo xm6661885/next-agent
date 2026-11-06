@@ -24,5 +24,5 @@ Web console with four modules (Chat, Agents incl. ACP, Workflow, More) plus a bu
 - The UI must not use emoji. Icons are inline SVG in `web/src/components/icons.tsx`. Accent pink is `#fbc7d1`, the background is warm ivory, and dark mode follows `prefers-color-scheme`.
 - Closing a WebSocket must never interrupt or stop a runtime. Only an explicit `interrupt`, the idle reaper or shutdown can do that.
 - Tests mock the SDK; `scripts/e2e.py` is the only test that calls the real model.
-- Treat `data/` as user data. It holds config, password hash, sessions and uploads.
+- Treat `data/` as user data: central `config/` (including the password hash) and per-module `core/`, `agents/`, `builtin/`, `chat/`, `workflow/`, `more_agents/`, `automations/`, `asr/`, `imagegen/` folders for generated data.
 - An empty model means the CLI default.

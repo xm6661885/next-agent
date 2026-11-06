@@ -4,6 +4,23 @@
 
 The extracted wheel source is the authority for Python types and implementation details below. Links to PyPI and official documentation are included for release and behavioral claims.
 
+## 0.2.178 upgrade
+
+Upgraded the pin and lock from **0.2.163 to 0.2.178** on 2026-11-06; the new wheel bundles Claude Code
+**2.1.318** (previously 2.1.286). Read the upstream [changelog at v0.2.178](https://github.com/anthropics/claude-agent-sdk-python/blob/v0.2.178/CHANGELOG.md)
+for every intervening release. Most entries update the bundle. Relevant Python changes are additive hook output
+and init types (0.2.166), the corrected `SandboxSettings.ignoreViolations: dict[str, list[str]]`, parallel-tool
+recovery in SDK session helpers (0.2.170), and opt-in `HookMatcher.on_failure="block"` (0.2.177; requires CLI support).
+SessionStart/Setup hooks can still arrive when `include_hook_events=False` (0.2.169 documentation clarification).
+The 0.2.164 thinking-delta test change uses explicit thinking display options for CLI 2.1.287+.
+
+No application import/constructor changes are required; `mcp==1.27.2` remains compatible. The configured
+`cli_path` is preserved: the shell and live service PATH both resolve `claude` to `/home/xm666/.local/bin/claude`,
+which reports 2.1.318 (service PATH checked read-only via `/proc`). An empty CLI path selects the wheel bundle. The local transcript reader
+does not use the SDK's fixed session helper, and private queue-control/process access remains coupled to the CLI.
+Transcript recovery and control hardening are outside this upgrade. Sections 9–10 retain their original probe
+versions; no live-model or e2e probes were rerun for 0.2.178.
+
 ## 1. Version, Python, and CLI
 
 - **PyPI:** `0.2.163`. The downloaded artifact is `claude_agent_sdk-0.2.163-py3-none-manylinux_2_17_x86_64.whl`.

@@ -48,7 +48,7 @@ All JSON. Timestamps are ISO-8601 UTC strings. IDs are strings.
   "thinking_budget": 8000,      // group model. used when thinking == "enabled"
   // ---- agent-only fields ----
   "claude_md": "inherit",       // inherit = CLAUDE.md files from cwd/user as Claude Code normally does
-                                // custom = also inject data/agents/<id>/CLAUDE.md into the system prompt append
+                                // custom = also inject data/agents/profiles/<id>/CLAUDE.md into the system prompt append
   "setting_sources": ["user", "project", "local"],
   "tools": ["*"],               // ["*"] = all built-in tools, [] = none, else explicit base tool list
   "auto_memory": true,          // false sets CLAUDE_CODE_DISABLE_AUTO_MEMORY=1
@@ -179,7 +179,7 @@ Requests never time out. They stay open until a device answers, the user interru
 | POST | `/api/agents/reorder` | `{ids: [..]}` | `{ok}` |
 | GET | `/api/groups` | | `{groups: [string]}` user-defined agent groups, in display order |
 | PUT | `/api/groups` | `{groups: [string], renames?: {old: new}}` | `{groups}`. Replaces the whole list (unique, non-empty, at most 40 chars, else `422`). Agents in a renamed group follow `renames`; agents whose group is dropped get `group = ""`. Emits `agents_changed`. |
-| GET/PUT | `/api/agents/{id}/claude-md` | PUT `{content}` | `{content, path, exists}`. With `claude_md=inherit` this reads and writes `<cwd>/CLAUDE.md`. With `custom` it uses `data/agents/<id>/CLAUDE.md`. |
+| GET/PUT | `/api/agents/{id}/claude-md` | PUT `{content}` | `{content, path, exists}`. With `claude_md=inherit` this reads and writes `<cwd>/CLAUDE.md`. With `custom` it uses `data/agents/profiles/<id>/CLAUDE.md`. |
 | GET | `/api/agents/{id}/avatar` | | image bytes (`404` if none) |
 | POST | `/api/agents/{id}/avatar` | multipart `file` (png/jpeg/webp/gif, at most 2 MB) | `Agent` (avatar = "file") |
 | GET | `/api/agents/{id}/sessions` | | `[Session]` newest `updated_at` first |
@@ -209,6 +209,7 @@ Requests never time out. They stay open until a device answers, the user interru
 | POST | `/api/sessions/{sid}/uploads` | multipart `files` (each at most 50 MB) | `[Attachment]` |
 | GET | `/api/uploads/{sid}/{file_id}` | | file bytes (`Content-Disposition: inline`) |
 | GET | `/api/status` | | `{live: n, max_concurrent, queued: n, sessions: [{id, agent_id, state, pending}], memory_mb}` |
+| GET | `/api/running` | | `[RunningSession]` across module providers, newest `updated_at` first (see "Running sessions") |
 | GET | `/api/meta` | | `{models: [..], efforts: [..], permission_modes: [..], version, defaults, default_genui_widgets}`. `models` = built-in list followed by `defaults.custom_models` (deduplicated, no `""` entry). `efforts` has no `""` either. |
 | GET | `/api/sessions/{sid}/files` | `?path=<absolute path>&download=0\|1` | File bytes for a `file://` path that appears in an assistant `text` item of this session (see "Files from Claude"). `inline`, or `attachment` with `download=1`. `404` when the path is not referenced in the session, missing, or not a regular file. |
 | GET | `/api/sessions/{sid}/artifacts` | | `[Artifact]` (see "Artifacts"), most recently touched first |
@@ -221,6 +222,25 @@ Requests never time out. They stay open until a device answers, the user interru
 | GET/POST | `/api/external/send` | `prompt`, `agent_id`, `key` (query, form or JSON; key may also be `X-API-Key`), optional `session_id` | No cookie. Plain text `Message Sent` immediately, header `X-Session-Id`. Creates a session unless `session_id` is given. `403` when `server.api_key` is empty, `401` bad key, `404` unknown agent/session. Per agent, external messages run strictly in order: each waits until the previous turn finishes (and until the target session is idle). |
 
 Errors use the FastAPI `{detail}` format.
+
+### Running sessions
+
+`GET /api/running` requires authentication and returns an array sorted by `updated_at` descending:
+
+```jsonc
+[{
+  "module": "agents", "session_id": "session-id", "agent_id": "claude", "agent_name": "Claude",
+  "avatar": "crab:gray", "title": "Session title", "state": "running", "pending": 0,
+  "unread": false, "updated_at": "2026-11-06T00:00:00+00:00", "preview": "Latest response", "cwd": "/project"
+}]
+```
+
+`avatar` is the agent API's avatar spec string; `cwd` is the session working directory, or `""` when unknown.
+Claude rows include sessions in `running` or `interrupting`, or with `pending > 0` permission requests,
+including `_temp` sessions with the temporary agent's name/avatar and each session's cwd. Queued, starting,
+idle and offline sessions without pending permissions are excluded. The response combines Claude rows with
+rows returned by every other registered module object exposing a synchronous callable `running()`.
+All providers return this same row shape; modules without a callable provider contribute no rows.
 
 ### ConfigForm
 ```jsonc
@@ -258,6 +278,28 @@ Errors use the FastAPI `{detail}` format.
 `ConfigForm.server` is stored in `core.toml`; `defaults` and `pricing` in `agents.toml` (see "Config files").
 `ConfigForm` also has `"builtin_mcp": BuiltinMcp` (see `docs/builtin-mcp.md`; PATCH merges key by key).
 
+### Data layout
+
+Config stays in the central `data/config/` directory; generated data belongs to each module:
+
+| Path | Owner / contents |
+|---|---|
+| `data/core/secret.key` | core: authentication cookie signing key |
+| `data/agents/sessions.json` | Claude Agents: session index and upload records |
+| `data/agents/profiles/<agent-id>/` | Claude Agents: uploaded `avatar.*` and custom `CLAUDE.md` |
+| `data/agents/uploads/<session-id>/` | Claude Agents: fallback uploads when the session cwd is unavailable |
+| `data/builtin/schedules.json` | Built-in MCP: persistent schedules |
+
+Other modules keep generated data under `data/<module-dir>/`. `NEXT_AGENT_DATA` changes the entire data root.
+Before starting on an existing installation, run `python scripts/migrate/core.py --data DIR` (preview with
+`--dry-run`). It moves the old root-level `secret.key`, `sessions.json`, `uploads/`, `schedules.json`, and
+`agents/<agent-id>/` profiles to the paths above, skipping destinations that already exist. It rewrites only upload
+record paths beginning with the old absolute `DIR/uploads/` prefix, leaving cwd uploads unchanged, using a
+temporary file and rename without creating backups in `data/`. Before migrations, the integrator copies the
+whole data directory to `~/Deprecated`. If both upload directories exist, resolve that collision
+before rerunning; their records retain the old paths until then. The script is safe to rerun; the server uses only
+the new paths and does no layout migration at startup.
+
 ### Config files
 Everything lives in `data/config/` as five TOML files. Each module owns one file and reloads it within 2 seconds
 when it changes on disk. Comments are kept on every write.
@@ -270,12 +312,9 @@ when it changes on disk. Comments are kept on every write.
 | `chat.toml` | Chat | see `docs/protocol-chat.md` |
 | `workflow.toml` | Workflow | see `docs/protocol-workflow.md` |
 
-**Layout migration** (once, at startup, before anything else): when `data/config/core.toml` does not exist and
-`data/config.toml` does, `[server]` goes to `core.toml` and every other table and key goes to `agents.toml`
-(comments kept), then `data/config.toml` is renamed to `data/config.toml.v1.bak`. Missing `acp.toml`, `chat.toml` /
-`workflow.toml` are created by their owning modules from built-in templates. A fresh install writes `core.toml` and
-`agents.toml`, plus the templates of mounted modules; the first-start
-password rule is unchanged. `NEXT_AGENT_DATA` still moves the whole `data/` directory.
+Only split config files are supported; the old single-file `data/config.toml` is not read or migrated.
+Missing module configs are created by their owning modules from built-in templates. A fresh install writes
+`core.toml` and `agents.toml`, plus the templates of mounted modules; the first-start password rule is unchanged.
 
 **Config migration** (done once at startup, written back to agents.toml): `server.idle_mode/idle_timeout_min/adaptive_keep`
 move to `[defaults]`. Each old-style agent (no `override_groups` key) gets groups derived from its old values:
@@ -356,7 +395,7 @@ Every message has `type` and may carry `req_id`. Any command that fails gets an 
 
 Global feed for the home page and session lists. On connect the server sends
 `{type:"hello", agents:[{id, status}], sessions:[{id, agent_id, state, pending, unread}]}`.
-After that it sends `{type:"session_state", session_id, agent_id, state, pending, unread, title, updated_at, preview}` whenever any of those change, and
+After that Claude Agents sends `{type:"session_state", module:"agents", session_id, agent_id, state, pending, unread, title, updated_at, preview}` whenever any of those change, and
 `{type:"agents_changed"}` after any agent config change (including a hot reload). No replay; clients refetch on reconnect.
 
 ## Files from Claude
@@ -393,7 +432,7 @@ For `send` with attachments, the user message content is:
 3. one final text block with one line per attachment: `The user sent a file: <absolute path>`
 
 When reading history, lines matching `^The user sent a file: (.+)$` are removed from the displayed text and turned back
-into `attachments` (matched to upload records when the path lies under `data/uploads/`). Image blocks in history user
+into `attachments` (matched to upload records when the path lies under `data/agents/uploads/`). Image blocks in history user
 messages are not shown separately.
 
 ## Generative UI blocks
@@ -421,7 +460,7 @@ zoomable (`maximum-scale=1, user-scalable=no`, `touch-action: manipulation`). Th
 ## Uploads
 
 `POST /api/sessions/{sid}/uploads` stores files in `<agent cwd>/uploads/<id8>-<name>` (temporary sessions: the
-session's cwd), falling back to `data/uploads/<sid>/` if the cwd is missing. `path` in the response is that absolute
+session's cwd), falling back to `data/agents/uploads/<sid>/` if the cwd is missing. `path` in the response is that absolute
 path. Deleting a session or agent deletes its uploaded files.
 
 ## REST additions

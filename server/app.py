@@ -118,6 +118,13 @@ def create_app(data_dir=None):
         return PlainTextResponse('Message Sent',headers={'X-Session-Id':sid})
     @app.get('/api/me')
     async def me(_:None=Depends(require)): return {'authenticated':True}
+    @app.get('/api/running')
+    async def running(_:None=Depends(require)):
+        rows=[]
+        for module in core.modules.values():
+            provider=getattr(module,'running',None)
+            if callable(provider): rows.extend(provider())
+        return sorted(rows,key=lambda row:row['updated_at'],reverse=True)
     @app.get('/api/mcp/global')
     async def global_mcp(_:None=Depends(require)):
         path=Path.home()/'.claude.json'
@@ -510,7 +517,7 @@ def create_app(data_dir=None):
     # Modules register their own routes; order matters only for the SPA catch-all below, which must stay last.
     core.modules['agents']=SimpleNamespace(settings=lambda:config.config.builtin_mcp,
         agents=lambda:[*config.config.agents,manager.agent(TEMP_AGENT)],
-        sessions=lambda:list(index.sessions.values()),search=agent_search)
+        sessions=lambda:list(index.sessions.values()),search=agent_search,running=manager.running)
     for module in (acp, builtin, chat, workflow): module.mount(app,core)
     dist=Path(__file__).resolve().parents[1]/'web'/'dist'
     if dist.exists():
