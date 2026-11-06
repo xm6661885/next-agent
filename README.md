@@ -15,7 +15,7 @@ A self-hosted web console and PWA for AI agents. It has five bottom tabs: **Chat
   - Agent settings: working directory, model, permissions, tools, CLAUDE.md, MCP servers and subagents.
   - Sessions with streaming tool cards, steering, approval cards, fork and rewind.
   - Turns keep running when the browser closes.
-- **Agents (ACP):** external agents that speak the Agent Client Protocol over TCP. A Claude / More Agents / Running switch sits at the top of the tab; Running lists every working or waiting session of both. ACP sessions stream and survive disconnects.
+- **More Agents:** remote agents over ACP and native Codex agents through the Codex app-server. A Claude / More Agents / Running switch sits at the top of the tab; Running lists every working or waiting session across Claude and More Agents. More Agents sessions stream and survive disconnects.
 - **Built-in MCP** (`next` server, for Claude agents only):
   - Schedules: cron or one-shot jobs that run an agent.
   - History: search an agent's own earlier sessions.
@@ -23,7 +23,7 @@ A self-hosted web console and PWA for AI agents. It has five bottom tabs: **Chat
   - Switches: a master switch, one per category and per-agent overrides.
 - **Automations:** scheduled scripts, webhooks and one-off tasks.
 - **Workflow:** a card-based workflow editor with runs, a console and plugins. Run history opens from the clock button at the top right.
-  - Agent cards (temporary task, existing agent, ACP agent) run as normal Agents sessions through `core.bridge`.
+  - Agent cards (temporary task, existing agent, More Agents task) run as normal Agents sessions through `core.bridge`.
   - Each card links to its chat page.
 - **More:** Settings (your chat profile, then one page per module and category), Claude Code Memory, and About.
 
@@ -69,10 +69,12 @@ cd web && npm run build                   # rebuild the frontend after changes (
 
 Settings live in `data/config/`. `core.toml` holds `[server]`: login, the external API and shared Claude CLI settings.
 `agents.toml` holds defaults (including idle settings), agents, temporary-agent settings, groups, pricing, built-in MCP
-and extensions. ACP, Chat and Workflow own `acp.toml`, `chat.toml` and `workflow.toml`.
+and extensions. More Agents, Chat, Workflow, Automations, speech to text and image generation own `more_agents.toml`,
+`chat.toml`, `workflow.toml`, `automations.toml`, `asr.toml` and `imagegen.toml`.
 
 Edit these files through Settings or by hand; changes reload within 2 seconds and comments are preserved. Running
-turns finish before changed launch options restart their CLI. Existing `data/config.toml` is split automatically and
-kept as `config.toml.v1.bak`. `NEXT_AGENT_DATA` moves the whole data directory.
+turns finish before changed launch options restart their CLI. Only split config files are supported. Before starting an existing installation, run
+`scripts/migrate/core.py --data DIR` followed by `scripts/migrate/more_agents.py --data DIR` with `uv run python`
+(see [data layout and migration](docs/protocol.md#data-layout)). `NEXT_AGENT_DATA` moves the whole data directory.
 
 Credentials come from `~/.claude/settings.json` (the `env` block), so keep `"user"` in `setting_sources`.

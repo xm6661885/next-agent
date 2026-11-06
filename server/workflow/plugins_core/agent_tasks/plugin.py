@@ -59,8 +59,11 @@ class AgentCard(Plugin):
             kwargs['extra'] = extra
             if self.id=='builtin.temp_task':
                 kwargs['cwd'] = ctx.resolve_cwd(p['cwd']) if p['cwd'].strip() else None
+        if self.module == 'more_agents':
+            if not p.get('session_id') and not p.get('cwd', '').strip(): raise StepError('cwd is required for a new More Agents session')
+            kwargs.update(cwd=p.get('cwd', ''), model=p.get('model', ''), effort=p.get('effort', ''))
         try:
-            call = ctx.bridge.run_acp if self.module=='acp' else ctx.bridge.run_claude
+            call = ctx.bridge.run_more if self.module=='more_agents' else ctx.bridge.run_claude
             result = await call(aid, p['prompt'], **kwargs)
         except asyncio.CancelledError:
             if sid is not None: await ctx.bridge.stop(self.module, sid)
@@ -93,9 +96,9 @@ class AgentTask(AgentCard):
     inputs = [Input('agent', 'agent', 'Agent', required=True), PROMPT, SESSION, *CLAUDE_INPUTS]
 
 
-class AcpTask(AgentCard):
-    id = 'builtin.acp_task'
-    name = 'ACP agent task'
-    module = 'acp'
-    inputs = [Input('agent', 'acp_agent', 'Agent', required=True), PROMPT, SESSION]
+class MoreAgentTask(AgentCard):
+    id = 'builtin.more_agent_task'
+    name = 'More Agents agent task'
+    module = 'more_agents'
+    inputs = [Input('agent', 'more_agent', 'Agent', required=True), PROMPT, Input('cwd', label='Working directory'), Input('model', label='Model', advanced=True), Input('effort', 'select', 'Reasoning effort', advanced=True, default='', options=['', 'low', 'medium', 'high', 'xhigh', 'max']), SESSION]
     outputs = [Output('result', default=True), Output('session_id')]

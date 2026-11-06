@@ -14,9 +14,10 @@ from . import Input, Prompt, mcp_tool
 
 
 class Target(Input):
-    module: Literal['agents', 'acp'] = 'agents'
+    module: Literal['agents', 'more_agents'] = 'agents'
     agent_id: str = ''
     session: str = Field(default='new', min_length=1)
+    cwd: str = ''
 
 
 class Create(Prompt):
@@ -45,7 +46,7 @@ def next_run(values, now):
 class Schedules:
     def __init__(self, builtin):
         self.builtin = builtin
-        self.path = builtin.core.paths.root / 'schedules.json'
+        self.path = builtin.core.paths.root / 'builtin' / 'schedules.json'
         self.entries = json.loads(self.path.read_text()) if self.path.exists() else {}
         self.changed = asyncio.Event()
         self.launching = set()
@@ -65,6 +66,7 @@ class Schedules:
 
     def validate(self, data, caller=None, future=True):
         values = ScheduleInput.model_validate(data).model_dump()
+        if values['target'].get('module') == 'agents' and not values['target'].get('cwd'): values['target'].pop('cwd', None)
         if (values['cron'] is None)==(values['at'] is None): raise ValueError('Exactly one of cron or at is required')
         if values['cron'] is not None:
             if len(values['cron'].split())!=5 or not croniter.is_valid(values['cron']):
@@ -76,6 +78,10 @@ class Schedules:
         upcoming = next_run(values, time.time())
         if values['at'] and future and upcoming<=time.time(): raise ValueError('at must be in the future')
         target = values['target']
+        if target['module'] == 'more_agents' and target['session'] == 'new' and not target.get('cwd'):
+            raise ValueError('cwd is required for a new More Agents schedule')
+        if target['module'] == 'agents' and target.get('cwd'):
+            raise ValueError('cwd is only valid for More Agents')
         if not target['agent_id']:
             if not caller: raise ValueError('target.agent_id is required')
             target['agent_id'] = caller['agent_id']
@@ -130,7 +136,7 @@ class Schedules:
             session_id, result = await self.builtin.start(target['module'], target['agent_id'], schedule['prompt'],
                 session_id=None if target['session']=='new' else target['session'], origin='schedule',
                 title=schedule['title'] or 'Scheduled: '+schedule['prompt'][:40],
-                model=schedule['model'], effort=schedule['effort'])
+                model=schedule['model'], effort=schedule['effort'], **({'cwd': target['cwd']} if target.get('cwd') else {}))
         except Exception as exc:
             schedule['last_result'] = dict(session_id=session_id, is_error=True, error=str(exc))
             self.save()
@@ -182,6 +188,6 @@ class Schedules:
             return [s for s in self.entries.values() if s['created_by'] and
                     (s['created_by']['module'], s['created_by']['agent_id'])==(caller['module'], caller['agent_id'])]
         async def delete(args): return self.delete(args.id, caller)
-        return [mcp_tool('schedule_create', 'Schedule a prompt using exactly one of cron (five fields) or at (local datetime).', Create, create),
+        return [mcp_tool('schedule_create', 'Schedule a prompt using exactly one of cron (five fields) or at (local datetime). New More Agents sessions require target.cwd; model and effort are optional.', Create, create),
                 mcp_tool('schedule_list', 'List schedules created by this agent.', Input, listing),
                 mcp_tool('schedule_delete', 'Delete a schedule created by this agent.', ScheduleId, delete)]

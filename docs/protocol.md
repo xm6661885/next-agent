@@ -216,8 +216,8 @@ Requests never time out. They stay open until a device answers, the user interru
 | GET | `/api/sessions/{sid}/files/stat` | `?path=<absolute path>` | `{name, size, mime, is_image}` with the same access rule, else `404` |
 | GET | `/api/config` | | `ConfigForm` (below) |
 | PATCH | `/api/config` | partial `ConfigForm` (`server` and `defaults` merge key by key; `pricing` replaces the whole table; `host`, `port`, `default_file_output_prompt` and `default_genui_prompt` are ignored) | `ConfigForm`. `422 {detail}` on invalid values. Comments in the config files are kept. |
-| GET/PUT | `/api/config/raw` | `?file=core\|agents\|acp\|chat\|workflow\|automations` (default `agents`); PUT `{content}` | `{content, file, path}`. Raw text of `data/config/<file>.toml`. In `core`, `password_hash` is masked as `"***"`; PUT keeps the existing hash when it sees `"***"`. PUT validates that file's schema and returns `400 {detail}` on invalid TOML or schema; the owning module reloads at once. Unknown `file`: `400`. |
-| GET | `/api/settings/overview` | | `{version, files: [{file, path, mtime}], modules: {agents: {agents, acp_agents, sessions}, chat: {assistants, providers, sessions}, workflow: {workflows, runs}}}` counts for the settings home page |
+| GET/PUT | `/api/config/raw` | `?file=core\|agents\|more_agents\|chat\|workflow\|automations\|asr\|imagegen` (default `agents`); PUT `{content}` | `{content, file, path}`. Raw text of `data/config/<file>.toml`. In `core`, `password_hash` is masked as `"***"`; PUT keeps the existing hash when it sees `"***"`. PUT validates that file's schema and returns `400 {detail}` on invalid TOML or schema; the owning module reloads at once. Unknown `file`: `400`. |
+| GET | `/api/settings/overview` | | `{version, files: [{file, path, mtime}], modules: {agents: {agents, more_agents_agents, sessions}, chat: {assistants, providers, sessions}, workflow: {workflows, runs}}}` counts for the settings home page |
 
 | GET/POST | `/api/external/send` | `prompt`, `agent_id`, `key` (query, form or JSON; key may also be `X-API-Key`), optional `session_id` | No cookie. Plain text `Message Sent` immediately, header `X-Session-Id`. Creates a session unless `session_id` is given. `403` when `server.api_key` is empty, `401` bad key, `404` unknown agent/session. Per agent, external messages run strictly in order: each waits until the previous turn finishes (and until the target session is idle). |
 
@@ -241,6 +241,8 @@ including `_temp` sessions with the temporary agent's name/avatar and each sessi
 idle and offline sessions without pending permissions are excluded. The response combines Claude rows with
 rows returned by every other registered module object exposing a synchronous callable `running()`.
 All providers return this same row shape; modules without a callable provider contribute no rows.
+More Agents rows use `module: "more_agents"` for both ACP and Codex, including running/interrupting sessions
+and sessions with pending permissions or questions. Their `pending` is the combined permission and question count.
 
 ### ConfigForm
 ```jsonc
@@ -289,6 +291,12 @@ Config stays in the central `data/config/` directory; generated data belongs to 
 | `data/agents/profiles/<agent-id>/` | Claude Agents: uploaded `avatar.*` and custom `CLAUDE.md` |
 | `data/agents/uploads/<session-id>/` | Claude Agents: fallback uploads when the session cwd is unavailable |
 | `data/builtin/schedules.json` | Built-in MCP: persistent schedules |
+| `data/more_agents/` | More Agents: sessions, transcripts, uploads, avatars and Codex model caches |
+| `data/chat/` | Chat: sessions, messages, uploads, assistant files and memory |
+| `data/workflow/` | Workflow: `app.db`, plugins and workspace |
+| `data/automations/` | Automations: `autotask.db`, logs, scripts and task Python environment |
+| `data/asr/` | Speech to text: recordings and processing metadata |
+| `data/imagegen/` | Image generation: jobs, references, masks and outputs |
 
 Other modules keep generated data under `data/<module-dir>/`. `NEXT_AGENT_DATA` changes the entire data root.
 Before starting on an existing installation, run `python scripts/migrate/core.py --data DIR` (preview with
@@ -298,20 +306,25 @@ record paths beginning with the old absolute `DIR/uploads/` prefix, leaving cwd 
 temporary file and rename without creating backups in `data/`. Before migrations, the integrator copies the
 whole data directory to `~/Deprecated`. If both upload directories exist, resolve that collision
 before rerunning; their records retain the old paths until then. The script is safe to rerun; the server uses only
-the new paths and does no layout migration at startup.
+the new paths and does no layout migration at startup. Then run
+`uv run python scripts/migrate/more_agents.py --data DIR` (also supports `--dry-run`) to migrate ACP config,
+sessions, attachments, workflow cards, schedule targets and Claude session parents; see
+`docs/protocol-more-agents.md` for the migration contract.
 
 ### Config files
-Everything lives in `data/config/` as five TOML files. Each module owns one file and reloads it within 2 seconds
+Everything lives in `data/config/` as per-module TOML files. Each module owns one file and reloads it within 2 seconds
 when it changes on disk. Comments are kept on every write.
 
 | File | Owner | Tables |
 |---|---|---|
 | `core.toml` | core | `[server]`: `host`, `port`, `password_hash`, `api_key` (external API), and the Claude CLI setup shared by Agents and Workflow: `cli_path`, `max_concurrent`, `anthropic_base_url`, `anthropic_api_key` |
 | `agents.toml` | Agents (Claude) | `groups`, `[defaults]`, `[pricing]`, `[builtin_mcp]`, `[[agents]]`, `[temp_agent]`, `[extensions]` |
-| `acp.toml` | Agents (ACP) | see `docs/protocol-acp.md` |
+| `more_agents.toml` | More Agents | see `docs/protocol-more-agents.md` |
 | `chat.toml` | Chat | see `docs/protocol-chat.md` |
 | `workflow.toml` | Workflow | see `docs/protocol-workflow.md` |
 | `automations.toml` | Automations | see `docs/protocol-automations.md` |
+| `asr.toml` | Speech to text | see `docs/protocol-apps.md` |
+| `imagegen.toml` | Image generation | see `docs/protocol-apps.md` |
 
 Only split config files are supported; the old single-file `data/config.toml` is not read or migrated.
 Missing module configs are created by their owning modules from built-in templates. A fresh install writes

@@ -29,7 +29,7 @@ from . import artifacts
 from . import btw
 from .core import Core
 from .bridge import AgentBridge
-from . import acp, chat, workflow, builtin, asr, imagegen, automations
+from . import more_agents, chat, workflow, builtin, asr, imagegen, automations
 
 VERSION='0.2.0'
 
@@ -491,13 +491,13 @@ def create_app(data_dir=None):
         def counts(name):
             fn=core.modules.get('overview_'+name)
             return fn() if fn else {}
-        acp_counts=counts('acp')
+        more_counts=counts('more_agents')
         return {'version':VERSION,
                 'files':[{'file':name,'path':str(obj.path),
                           'mtime':datetime.fromtimestamp(obj.path.stat().st_mtime,timezone.utc).isoformat()}
                          for name,obj in raw_configs.items()],
-                'modules':{'agents':{'agents':len(config.config.agents),'acp_agents':acp_counts.get('acp_agents',0),
-                                     'sessions':len(index.sessions)+acp_counts.get('sessions',0)},
+                'modules':{'agents':{'agents':len(config.config.agents),'more_agents_agents':more_counts.get('more_agents_agents',0),
+                                     'sessions':len(index.sessions)+more_counts.get('sessions',0)},
                            'chat':counts('chat'),'workflow':counts('workflow')}}
     @app.get('/api/memory')
     async def memory_list(_:None=Depends(require)): return await asyncio.to_thread(memory.listing)
@@ -518,7 +518,7 @@ def create_app(data_dir=None):
     core.modules['agents']=SimpleNamespace(settings=lambda:config.config.builtin_mcp,
         agents=lambda:[*config.config.agents,manager.agent(TEMP_AGENT)],
         sessions=lambda:list(index.sessions.values()),search=agent_search,running=manager.running)
-    for module in (acp, builtin, chat, workflow, automations, asr, imagegen): module.mount(app,core)
+    for module in (more_agents, builtin, chat, workflow, automations, asr, imagegen): module.mount(app,core)
     dist=Path(__file__).resolve().parents[1]/'web'/'dist'
     if dist.exists():
         assets=dist/'assets'

@@ -11,6 +11,41 @@ def test_running_empty(logged):
     assert logged.get('/api/running').json()==[]
 
 
+@pytest.mark.parametrize('kind',['acp','codex'])
+def test_running_mounted_more_agents(logged,app,tmp_path,monkeypatch,kind):
+    from server.more_agents.config import AcpAgent, CodexAgent
+    from unittest.mock import Mock
+
+    more=app.state.core.modules['more_agents']
+    agent=(AcpAgent(id='remote',name='Remote',host='localhost',port=1,avatar='crab:blue') if kind=='acp'
+           else CodexAgent(id='remote',name='Remote',avatar='crab:blue'))
+    more.config.data.agents.append(agent)
+    expected=[]
+    for number,(state,permissions,questions) in enumerate([
+            ('running',0,0),('interrupting',0,0),('idle',1,1),('offline',0,1),('idle',0,0),('offline',0,0)]):
+        session=more.store.create(agent.id,f'Session {number}',kind=kind,cwd=str(tmp_path))
+        session.update(updated_at=f'2026-11-06T00:00:{number:02d}+00:00',preview=f'Preview {number}',unread=True)
+        runtime=more.runtime(session['id'])
+        runtime.state=state
+        runtime.permissions={str(i):object() for i in range(permissions)}
+        runtime.questions={str(i):object() for i in range(questions)}
+        if number<4:
+            expected.append(dict(module='more_agents',session_id=session['id'],agent_id=agent.id,
+                                 agent_name=agent.name,avatar=agent.avatar,title=session['title'],state=state,
+                                 pending=permissions+questions,unread=True,updated_at=session['updated_at'],
+                                 preview=session['preview'],cwd=str(tmp_path)))
+    claude=app.state.index.create('claude','Claude')
+    claude['updated_at']='2026-11-05T00:00:00+00:00'
+    app.state.manager.get_or_create(claude['id']).state='running'
+    provider=Mock(wraps=more.running)
+    monkeypatch.setattr(more,'running',provider)
+    rows=logged.get('/api/running').json()
+    provider.assert_called_once_with()
+    assert rows[:-1]==list(reversed(expected))
+    assert rows[-1]['module']=='agents'
+    assert set(rows[0])==set(rows[-1])
+
+
 def test_running_across_modules(logged,app,tmp_path):
     manager=app.state.manager
     index=app.state.index

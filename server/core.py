@@ -15,7 +15,7 @@ class Core:
     claude: Callable           # claude() -> ServerConfig with cli_path, max_concurrent, anthropic_base_url, anthropic_api_key
     version: str = ''
     bridge: Any = None         # AgentBridge (server/bridge.py), set after the Agents module is up
-    modules: dict = field(default_factory=dict)   # name -> object a module chooses to expose (e.g. 'acp': AcpManager)
+    modules: dict = field(default_factory=dict)   # name -> object a module chooses to expose (e.g. 'more_agents': MoreAgentsManager)
     hello: list = field(default_factory=list)     # callables returning extra keys for the /ws/events hello message
     _startup: list = field(default_factory=list)
     _shutdown: list = field(default_factory=list)

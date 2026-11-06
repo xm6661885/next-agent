@@ -26,9 +26,9 @@ def router(core, manager):
     async def console():
         rows = await manager.db.fetchall("SELECT * FROM runs WHERE status IN ('queued','running','waiting_input') ORDER BY created_at DESC")
         sessions = []
-        agents, acp = core.modules.get('agents'), core.modules.get('acp')
+        agents, more_agents = core.modules.get('agents'), core.modules.get('more_agents')
         for module, entries in (('agents', agents.sessions() if agents else []),
-                                ('acp', list(acp.store.sessions.values()) if acp else [])):
+                                ('more_agents', list(more_agents.sessions()) if more_agents else [])):
             for session in entries:
                 if session.get('origin')!='workflow': continue
                 view = core.bridge.view(module, session['id'])

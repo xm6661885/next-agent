@@ -10,17 +10,17 @@ from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
-from server.acp import mount
-from server.acp.client import AcpConnection, AcpError, LINE_LIMIT
-from server.acp.config import config_file
-from server.acp.runtime import AcpManager
-from server.acp.store import AcpStore
+from server.more_agents import mount
+from server.more_agents.kinds.acp.client import AcpConnection, AcpError, LINE_LIMIT
+from server.more_agents.config import config_file
+from server.more_agents.manager import MoreAgentsManager
+from server.more_agents.store import MoreAgentsStore
 from server.auth import Auth, COOKIE
 from server.core import Core
 from server.paths import DataDir
 
 
-OPTIONS = [{'id': 'model', 'name': 'Model', 'type': 'select', 'currentValue': 'small',
+OPTIONS = [{'id': 'model', 'name': 'Model', 'category': 'model', 'type': 'select', 'currentValue': 'small',
             'options': [{'value': 'small', 'name': 'Small'}, {'value': 'large', 'name': 'Large'}]}]
 MODES = {'currentModeId': 'ask', 'availableModes': [{'id': 'ask', 'name': 'Ask'}, {'id': 'auto', 'name': 'Auto'}]}
 
@@ -204,8 +204,8 @@ async def acp(tmp_path):
     app, core, events = make_app(tmp_path)
     peer = Peer()
     await peer.start()
-    manager = core.modules['acp']
-    await manager.create_agent({'id': 'phone', 'name': 'Phone', 'host': '127.0.0.1', 'port': peer.port, 'token': 'secret', 'config_defaults': {'model': 'large'}})
+    manager = core.modules['more_agents']
+    await manager.create_agent({'kind': 'acp', 'id': 'phone', 'name': 'Phone', 'host': '127.0.0.1', 'port': peer.port, 'token': 'secret', 'config_defaults': {'model': 'large'}})
     await core.start()
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://testserver', cookies={COOKIE: core.auth.token()}) as client:
         yield SimpleNamespace(app=app, core=core, manager=manager, peer=peer, http=client, events=events)
@@ -221,9 +221,9 @@ async def until(predicate):
 
 async def test_turn_mapping_persistence_and_restart(acp):
     m = acp.manager
-    result = await asyncio.wait_for(m.run_turn('phone', 'first'), 3)
+    result = await asyncio.wait_for(m.run_turn('phone', 'first', cwd='/'), 3)
     sid = result['session_id']
-    assert result=={'session_id': sid, 'text': 'Hello firstDone', 'stop_reason': 'end_turn'}
+    assert result=={'session_id': sid, 'text': 'Hello firstDone', 'stop_reason': 'end_turn', 'is_error': False, 'error': None}
     session = m.view(sid)
     assert (session['title'], session['preview'], session['turns'], session['unread'], session['state'])==('first', 'Done', 1, True, 'idle')
     items = m.items(sid)
@@ -242,11 +242,11 @@ async def test_turn_mapping_persistence_and_restart(acp):
     assert first_text['item']['text']=='Hello ' and first_text['item']['streaming'] is True
     assert any(e['type']=='delta' and e['text']=='first' for e in ring)
     assert m.store.load_items(sid)==items
-    assert acp.core.hello[0]()['acp_sessions'][0]['id']==sid
-    assert any(e.get('module')=='acp' and e['state']=='running' for e in acp.events)
-    assert acp.core.modules['overview_acp']()=={'acp_agents': 1, 'sessions': 1}
+    assert acp.core.hello[0]()['more_agents_sessions'][0]['id']==sid
+    assert any(e.get('module')=='more_agents' and e['state']=='running' for e in acp.events)
+    assert acp.core.modules['overview_more_agents']()=={'more_agents_agents': 1, 'sessions': 1}
     await m.close()
-    restored = AcpManager(acp.core, m.config, AcpStore(acp.core.paths.root))
+    restored = MoreAgentsManager(acp.core, m.config, MoreAgentsStore(acp.core.paths.root))
     assert restored.view(sid)['state']=='offline'
     assert restored.items(sid)==items
     assert not restored.runtimes[sid].worker
@@ -255,7 +255,7 @@ async def test_turn_mapping_persistence_and_restart(acp):
 
 async def test_load_replay_missing_session_and_titles(acp):
     m = acp.manager
-    sid = (await m.run_turn('phone', 'original'))['session_id']
+    sid = (await m.run_turn('phone', 'original', cwd='/'))['session_id']
     remote = m.view(sid)['remote_id']
     await m.sleep(sid)
     await m.run_turn('phone', 'title', session_id=sid)
@@ -291,7 +291,7 @@ async def test_connect_and_fresh_reconnect(acp):
 
 async def test_permission_queue_cancel_and_interrupt(acp):
     m = acp.manager
-    sid = m.start_turn('phone', 'permission')
+    sid = m.start_turn('phone', 'permission', cwd='/')
     runtime = m.runtime(sid)
     await until(lambda: runtime.permissions)
     assert m.view(sid)['origin']=='subagent' and m.agents()[0]['status']['pending']==1
@@ -321,7 +321,7 @@ async def test_permission_queue_cancel_and_interrupt(acp):
 
 async def test_disconnect_rpc_error_and_shutdown(acp):
     m = acp.manager
-    result = await m.run_turn('phone', 'disconnect')
+    result = await m.run_turn('phone', 'disconnect', cwd='/')
     sid = result['session_id']
     assert result['stop_reason']=='disconnected' and result['text']=='partial' and result['is_error']
     assert m.view(sid)['state']=='offline'
@@ -343,66 +343,67 @@ async def test_disconnect_rpc_error_and_shutdown(acp):
 
 async def test_rest_config_sessions_uploads_and_auth(acp):
     c, m = acp.http, acp.manager
-    agent = (await c.get('/api/acp/agents/phone')).json()
+    agent = (await c.get('/api/more-agents/agents/phone')).json()
     assert agent['kind']=='acp' and agent['token']=='secret'
-    assert (await c.patch('/api/acp/agents/phone', json={'token': None, 'name': 'New name'})).status_code==200
+    assert (await c.patch('/api/more-agents/agents/phone', json={'token': None, 'name': 'New name'})).status_code==200
     assert m.agent('phone').token=='secret'
-    assert (await c.patch('/api/acp/agents/phone', json={'token': ''})).json()['token']==''
-    assert (await c.post('/api/acp/agents', json={'name': 'Phone', 'host': 'localhost', 'port': 1})).status_code==409
+    assert (await c.patch('/api/more-agents/agents/phone', json={'token': ''})).json()['token']==''
+    assert (await c.post('/api/more-agents/agents', json={'kind': 'acp', 'name': 'Phone', 'host': 'localhost', 'port': 1})).status_code==409
     for body in ({'id': '../bad', 'name': 'Bad', 'host': 'x', 'port': 1}, {'name': 'Bad', 'host': 'x', 'port': 0}, {'name': 'Bad', 'host': 'x', 'port': 1, 'token': 'x\ny'}):
-        assert (await c.post('/api/acp/agents', json=body)).status_code==422
-    assert (await c.patch('/api/acp/agents/phone', json={'id': 'new'})).status_code==400
-    assert (await c.put('/api/acp/groups', json={'groups': [' Work ', 'Home']})).json()=={'groups': ['Work', 'Home']}
-    assert (await c.patch('/api/acp/agents/phone', json={'group': 'Work'})).status_code==200
-    await c.put('/api/acp/groups', json={'groups': ['Renamed'], 'renames': {'Work': 'Renamed'}})
+        assert (await c.post('/api/more-agents/agents', json=body)).status_code==422
+    assert (await c.patch('/api/more-agents/agents/phone', json={'id': 'new'})).status_code==400
+    assert (await c.put('/api/more-agents/groups', json={'groups': [' Work ', 'Home']})).json()=={'groups': ['Work', 'Home']}
+    assert (await c.patch('/api/more-agents/agents/phone', json={'group': 'Work'})).status_code==200
+    await c.put('/api/more-agents/groups', json={'groups': ['Renamed'], 'renames': {'Work': 'Renamed'}})
     assert m.agent('phone').group=='Renamed'
-    assert (await c.put('/api/acp/groups', json={'groups': ['x', 'x']})).status_code==422
-    assert (await c.patch('/api/acp/settings', json={'idle_timeout_min': 3})).json()=={'idle_timeout_min': 3}
+    assert (await c.put('/api/more-agents/groups', json={'groups': ['x', 'x']})).status_code==422
+    assert (await c.patch('/api/more-agents/settings', json={'idle_timeout_min': 3})).json()=={'idle_timeout_min': 3}
     assert m.config.data.server.idle_timeout_min==3
-    assert (await c.patch('/api/acp/settings', json={'idle_timeout_min': -1})).status_code==422
-    await c.patch('/api/acp/settings', json={'idle_timeout_min': 10})
-    assert (await c.post('/api/acp/agents/reorder', json={'ids': []})).status_code==400
-    assert (await c.post('/api/acp/agents/reorder', json={'ids': ['phone']})).status_code==200
-    tested = (await c.post('/api/acp/agents/phone/test')).json()
+    assert (await c.patch('/api/more-agents/settings', json={'idle_timeout_min': -1})).status_code==422
+    await c.patch('/api/more-agents/settings', json={'idle_timeout_min': 10})
+    assert (await c.post('/api/more-agents/agents/reorder', json={'ids': []})).status_code==400
+    assert (await c.post('/api/more-agents/agents/reorder', json={'ids': ['phone']})).status_code==200
+    tested = (await c.post('/api/more-agents/agents/phone/test')).json()
     assert tested['ok'] and tested['config_options']==OPTIONS and tested['info']['name']=='fake'
     assert not m.store.sessions
-    assert (await c.post('/api/acp/agents/phone/avatar', files={'file': ('x.svg', b'<svg/>', 'image/svg+xml')})).status_code==415
-    assert (await c.post('/api/acp/agents/phone/avatar', files={'file': ('x.png', b'x'*(2*1024*1024+1), 'image/png')})).status_code==413
-    assert (await c.post('/api/acp/agents/phone/avatar', files={'file': ('x.png', b'png', 'image/png')})).json()['avatar']=='file'
-    assert (await c.get('/api/acp/agents/phone/avatar')).content==b'png'
-    sid = (await c.post('/api/acp/agents/phone/sessions', json={})).json()['id']
+    assert (await c.post('/api/more-agents/agents/phone/avatar', files={'file': ('x.svg', b'<svg/>', 'image/svg+xml')})).status_code==415
+    assert (await c.post('/api/more-agents/agents/phone/avatar', files={'file': ('x.png', b'x'*(2*1024*1024+1), 'image/png')})).status_code==413
+    assert (await c.post('/api/more-agents/agents/phone/avatar', files={'file': ('x.png', b'png', 'image/png')})).json()['avatar']=='file'
+    assert (await c.get('/api/more-agents/agents/phone/avatar')).content==b'png'
+    sid = (await c.post('/api/more-agents/agents/phone/sessions', json={})).json()['id']
     assert m.view(sid)['state']=='offline'
-    response = await c.post(f'/api/acp/sessions/{sid}/uploads', files=[('files', ('note.txt', b'file text', 'text/plain')), ('files', ('pic.png', b'image', 'image/png'))])
+    response = await c.post(f'/api/more-agents/sessions/{sid}/uploads', files=[('files', ('note.txt', b'file text', 'text/plain')), ('files', ('pic.png', b'image', 'image/png'))])
     uploads = response.json()
     assert response.status_code==200 and len(uploads)==2
     assert (await c.get(uploads[0]['url'])).content==b'file text'
     other = m.create_session('phone')['id']
-    assert (await c.get(f'/api/acp/uploads/{other}/{uploads[0]["id"]}')).status_code==404
+    assert (await c.get(f'/api/more-agents/uploads/{other}/{uploads[0]["id"]}')).status_code==404
     await m.runtime(sid).enqueue('files', uploads)
     prompt = [r['params']['prompt'] for r in acp.peer.requests if r['method']=='session/prompt'][-1]
     assert [b['type'] for b in prompt]==['text', 'resource', 'image']
     assert prompt[1]['resource']['text']=='file text' and prompt[2]['data']=='aW1hZ2U='
-    fallback = m.store.prompt('', uploads, {})
+    from server.more_agents.kinds.acp.encode import prompt as encode_prompt
+    fallback = encode_prompt('', uploads, {})
     assert [b['text'] for b in fallback]==['The user sent a file: note.txt', 'The user sent a file: pic.png']
-    assert (await c.post(f'/api/acp/sessions/{sid}/read')).json()['unread'] is False
-    assert (await c.patch(f'/api/acp/sessions/{sid}', json={'title': 'Changed'})).json()['title']=='Changed'
-    items = (await c.get(f'/api/acp/sessions/{sid}/items', params={'limit': 2})).json()
+    assert (await c.post(f'/api/more-agents/sessions/{sid}/read')).json()['unread'] is False
+    assert (await c.patch(f'/api/more-agents/sessions/{sid}', json={'title': 'Changed'})).json()['title']=='Changed'
+    items = (await c.get(f'/api/more-agents/sessions/{sid}/items', params={'limit': 2})).json()
     assert items['has_more'] and len(items['items'])==2
-    previous = (await c.get(f'/api/acp/sessions/{sid}/items', params={'before': items['items'][0]['id'], 'limit': 2})).json()
+    previous = (await c.get(f'/api/more-agents/sessions/{sid}/items', params={'before': items['items'][0]['id'], 'limit': 2})).json()
     assert len(previous['items'])==2 and previous['items'][-1]['id']!=items['items'][0]['id']
-    assert (await c.get('/api/acp/agents/phone/search', params={'q': 'HELLO files'})).json()[0]['session']['id']==sid
-    assert (await c.post(f'/api/acp/sessions/{sid}/sleep')).json()['state']=='offline'
-    assert acp.core.modules['raw_configs']['acp'] is m.config
+    assert (await c.get('/api/more-agents/agents/phone/search', params={'q': 'HELLO files'})).json()[0]['session']['id']==sid
+    assert (await c.post(f'/api/more-agents/sessions/{sid}/sleep')).json()['state']=='offline'
+    assert acp.core.modules['raw_configs']['more_agents'] is m.config
     raw = m.config.path.read_text().replace('idle_timeout_min = 10', 'idle_timeout_min = 0')
     m.config.replace_raw(raw)
     await m.config.changed()
     assert m.config.data.server.idle_timeout_min==0
-    assert (await c.delete('/api/acp/agents/phone')).json()=={'ok': True}
+    assert (await c.delete('/api/more-agents/agents/phone')).json()=={'ok': True}
     assert not m.store.sessions and not (m.store.root/'items'/f'{sid}.jsonl').exists()
     assert not (m.store.root/'uploads'/sid).exists()
     assert not (m.store.avatars/'phone').exists()
     c.cookies.clear()
-    assert (await c.get('/api/acp/agents')).status_code==401
+    assert (await c.get('/api/more-agents/agents')).status_code==401
 
 
 def receive_until(ws, predicate):
@@ -414,35 +415,35 @@ def receive_until(ws, predicate):
 
 def test_websocket_resume_permissions_and_disconnect(tmp_path):
     app, core, events = make_app(tmp_path)
-    m = core.modules['acp']
+    m = core.modules['more_agents']
     peer = Peer()
     with TestClient(app, base_url='http://testserver') as c:
         c.portal.call(peer.start)
         try:
             with pytest.raises(WebSocketDisconnect) as exc:
-                with c.websocket_connect('/ws/acp/missing', headers={'origin': 'http://testserver'}) as ws: ws.receive_json()
+                with c.websocket_connect('/ws/more-agents/missing', headers={'origin': 'http://testserver'}) as ws: ws.receive_json()
             assert exc.value.code==4401
             c.cookies.set(COOKIE, core.auth.token())
-            c.post('/api/acp/agents', json={'id': 'phone', 'name': 'Phone', 'host': '127.0.0.1', 'port': peer.port, 'token': 'secret'})
-            sid = c.post('/api/acp/agents/phone/sessions', json={}).json()['id']
-            path = f'/ws/acp/{sid}'
+            c.post('/api/more-agents/agents', json={'kind': 'acp', 'id': 'phone', 'name': 'Phone', 'host': '127.0.0.1', 'port': peer.port, 'token': 'secret'})
+            sid = c.post('/api/more-agents/agents/phone/sessions', json={}).json()['id']
+            path = f'/ws/more-agents/{sid}'
             with pytest.raises(WebSocketDisconnect) as exc:
                 with c.websocket_connect(path, headers={'origin': 'http://elsewhere'}) as ws: ws.receive_json()
             assert exc.value.code==4403
             with pytest.raises(WebSocketDisconnect) as exc:
-                with c.websocket_connect('/ws/acp/missing', headers={'origin': 'http://testserver'}) as ws: ws.receive_json()
+                with c.websocket_connect('/ws/more-agents/missing', headers={'origin': 'http://testserver'}) as ws: ws.receive_json()
             assert exc.value.code==4404
             with c.websocket_connect(path, headers={'origin': 'http://testserver'}) as ws:
                 ws.send_json({'type': 'resume', 'seq': 0})
                 assert ws.receive_json()['type']=='snapshot'
                 assert ws.receive_json()['type']=='resumed'
-                assert not peer.requests
+                assert [r['method'] for r in peer.requests[:2]] == ['initialize', 'session/new']
                 ws.send_json({'type': 'send', 'text': 'permission', 'client_id': 'one'})
                 permission = receive_until(ws, lambda e: e['type']=='permission')['request']
                 assert permission['options'][0]['option_id']=='allow'
                 ws.send_json({'type': 'permission_reply', 'id': permission['id'], 'option_id': 'unknown', 'req_id': 'bad'})
                 assert receive_until(ws, lambda e: e['type']=='error')['req_id']=='bad'
-                assert c.post(f'/api/acp/sessions/{sid}/sleep').status_code==409
+                assert c.post(f'/api/more-agents/sessions/{sid}/sleep').status_code==409
                 ws.send_json({'type': 'send', 'text': 'drop', 'client_id': 'two'})
                 queued = receive_until(ws, lambda e: e.get('item', {}).get('client_id')=='two')['item']
                 assert queued['queued'] and queued['pending']
@@ -458,7 +459,7 @@ def test_websocket_resume_permissions_and_disconnect(tmp_path):
                 receive_until(ws, lambda e: e['type']=='session' and e['session']['modes']['currentModeId']=='ask')
                 ws.send_json({'type': 'send', 'text': 'hold'})
                 last = receive_until(ws, lambda e: e['type']=='state' and e['state']=='running')['seq']
-            assert c.get(f'/api/acp/sessions/{sid}').json()['state']=='running'
+            assert c.get(f'/api/more-agents/sessions/{sid}').json()['state']=='running'
             c.portal.call(m.stop, sid)
             c.portal.call(until, lambda: m.view(sid)['state']=='idle')
             assert m.view(sid)['unread'] is True
@@ -515,13 +516,13 @@ async def test_connection_test_failure_and_timeout(acp, monkeypatch):
     async def refused(*args): raise ConnectionRefusedError('refused')
     with monkeypatch.context() as patch:
         patch.setattr(AcpConnection, 'open', refused)
-        response = await acp.http.post('/api/acp/agents/phone/test')
+        response = await acp.http.post('/api/more-agents/agents/phone/test')
         assert response.status_code==200 and response.json()['ok'] is False and response.json()['error']=='refused'
     async def stalled(*args): await asyncio.Future()
     with monkeypatch.context() as patch:
         patch.setattr(AcpConnection, 'initialize', stalled)
         started = time.monotonic()
-        response = await acp.http.post('/api/acp/agents/phone/test')
+        response = await acp.http.post('/api/more-agents/agents/phone/test')
         assert 9<=time.monotonic()-started<12
         assert response.status_code==200 and response.json()['ok'] is False
     assert not acp.manager.store.sessions
@@ -535,8 +536,9 @@ async def test_offline_config_connect_and_idle_reaper(acp, monkeypatch):
     await runtime.submit('set_config', {'config_id': 'model', 'value': 'large'})
     assert runtime.state=='idle' and m.view(sid)['turns']==0
     assert m.view(sid)['config_options'][0]['currentValue']=='large'
+    await m.prepare(sid)
     runtime.last_activity = time.monotonic()-1000
-    import server.acp.runtime as module
+    import server.more_agents.manager as module
     original = asyncio.sleep
     async def tick(seconds): await original(.005)
     monkeypatch.setattr(module, 'asyncio', SimpleNamespace(**{**vars(asyncio), 'sleep': tick}))
@@ -559,3 +561,19 @@ async def test_malformed_peer_response_fails_pending_request(acp):
             await asyncio.wait_for(connection.request('malformed-error', {}), 2)
         assert connection.closed.done() and not connection.pending
     finally: await connection.close()
+
+
+async def test_session_cwd_is_fixed_and_launch_choices_use_categories(acp):
+    m=acp.manager
+    sid=m.create_session('phone',cwd='C:\\remote\\project')['id']
+    await m.prepare(sid)
+    assert next(r for r in acp.peer.requests if r['method']=='session/new')['params']['cwd']=='C:\\remote\\project'
+    await m.patch_agent('phone',dict(cwd='/changed-default'))
+    await m.sleep(sid)
+    await m.run_turn('phone','settings',session_id=sid,model='small',effort='high')
+    assert next(r for r in acp.peer.requests if r['method']=='session/load')['params']['cwd']=='C:\\remote\\project'
+    choices=[r['params'] for r in acp.peer.requests if r['method']=='session/set_config_option']
+    assert choices[-1]['configId']=='model' and choices[-1]['value']=='small'
+    assert all(c['configId']!='effort' for c in choices)
+    assert m.view(sid)['cwd']=='C:\\remote\\project'
+    with pytest.raises(HTTPException): m.create_session('phone',cwd=' ')

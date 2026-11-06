@@ -74,15 +74,16 @@ class Builtin:
         return {'next': create_sdk_mcp_server('next', tools=tools)}
 
     def agent(self, module, aid):
-        agents = self.agents.agents() if module=='agents' else self.core.modules['acp'].config.data.agents
+        if module == 'more_agents': return self.core.modules['more_agents'].agent(aid)
+        agents = self.agents.agents()
         agent = next((a for a in agents if a.id==aid), None)
         if agent is None: raise ValueError('Target agent not found')
         return agent
 
     def sessions(self, module):
         if module=='agents': return self.agents.sessions()
-        acp = self.core.modules.get('acp')
-        return list(acp.store.sessions.values()) if acp else []
+        more_agents = self.core.modules.get('more_agents')
+        return more_agents.sessions() if more_agents else []
 
     def target(self, module, aid, sid=None):
         self.agent(module, aid)
@@ -96,71 +97,24 @@ class Builtin:
         task.add_done_callback(self.pending.discard)
         return task
 
-    async def start(self, module, aid, prompt, *, session_id=None, title='', origin, parent=None, model='', effort=''):
+    async def start(self, module, aid, prompt, *, session_id=None, title='', origin, parent=None, model='', effort='', cwd=None):
         self.target(module, aid, session_id)
-        kwargs = dict(session_id=session_id, title=title, origin=origin, parent=parent)
-        if module=='agents':
-            sid = self.core.bridge.start_claude(aid, prompt, overrides={'model': model, 'effort': effort}, **kwargs)
+        if module == 'agents':
+            if cwd is not None: raise ValueError('cwd is only valid for More Agents')
+            sid = self.core.bridge.start_claude(aid, prompt, overrides={'model': model, 'effort': effort},
+                                                session_id=session_id, title=title, origin=origin, parent=parent)
             return sid, self.background(self.core.bridge.wait_claude(sid))
-        acp = self.core.modules['acp']
-        if not session_id:
-            session_id = acp.create_session(aid, title, origin, parent)['id']
-            kwargs['session_id'] = session_id
-        runtime = acp.runtime(session_id)
-        if model or effort:
-            while runtime.state not in ('idle', 'offline'): await asyncio.sleep(.05)
-            try: await runtime._connect()
-            except BaseException:
-                await runtime._disconnect()
-                raise
-            offered = {o['id'] for o in acp.view(session_id)['config_options']}
-            for key, value in (('model', model), ('effort', effort)):
-                if value and key in offered: await runtime.submit('set_config', {'config_id': key, 'value': value})
-        queue = asyncio.Queue()
-        runtime.subscribers.add(queue)
-        try:
-            sid = self.core.bridge.start_acp(aid, prompt, **kwargs)
-            iid = next(i['id'] for i in reversed(self.core.bridge.items('acp', sid)) if i['kind']=='user')
-        except BaseException:
-            runtime.subscribers.discard(queue)
-            raise
-        return sid, self.background(self.wait_acp(runtime, queue, iid))
+        if session_id is None and not cwd: raise ValueError('cwd is required for a new More Agents session')
+        sid = self.core.bridge.start_more(aid, prompt, cwd=cwd, session_id=session_id, title=title, origin=origin,
+                                          parent=parent, model=model, effort=effort)
+        return sid, self.background(self.core.bridge.wait_more(sid))
 
     async def send(self, module, sid, prompt):
-        if module=='agents':
+        if module == 'agents':
             await self.core.bridge.send(module, sid, prompt)
             return self.background(self.core.bridge.wait_claude(sid))
-        runtime = self.core.modules['acp'].runtime(sid)
-        queue = asyncio.Queue()
-        runtime.subscribers.add(queue)
-        try:
-            await self.core.bridge.send(module, sid, prompt)
-            iid = next(i['id'] for i in reversed(self.core.bridge.items(module, sid)) if i['kind']=='user')
-        except BaseException:
-            runtime.subscribers.discard(queue)
-            raise
-        return self.background(self.wait_acp(runtime, queue, iid))
-
-    async def wait_acp(self, runtime, queue, iid):
-        delivered, error = False, None
-        try:
-            while True:
-                event = await queue.get()
-                if event['type']=='patch' and event['id']==iid and event['patch'].get('pending') is False:
-                    if event['patch'].get('cancelled'):
-                        return dict(session_id=runtime.sid, text='', is_error=True, error='Queued turn cancelled')
-                    delivered = True
-                item = event.get('item', {})
-                if delivered and item.get('kind')=='notice' and item['level']=='error': error = item['text']
-                if delivered and item.get('kind')=='result':
-                    items = self.core.bridge.items('acp', runtime.sid)
-                    end = next(i for i, value in enumerate(items) if value['id']==item['id'])
-                    start = max((i+1 for i, value in enumerate(items[:end]) if value['kind']=='result'), default=0)
-                    text = ''.join(i['text'] for i in items[start:end] if i['kind']=='text')
-                    return dict(session_id=runtime.sid, text=text, is_error=bool(error), error=error)
-                if delivered and event['type']=='state' and event['state']=='offline':
-                    return dict(session_id=runtime.sid, text='', is_error=True, error=error or 'ACP disconnected')
-        finally: runtime.subscribers.discard(queue)
+        await self.core.bridge.send('more_agents', sid, prompt)
+        return self.background(self.core.bridge.wait_more(sid))
 
     async def close(self):
         tasks = list(self.pending)

@@ -1,4 +1,4 @@
-"""Authenticated ACP HTTP and WebSocket endpoints."""
+"""Authenticated More Agents HTTP and WebSocket endpoints."""
 import asyncio
 from contextlib import suppress
 from typing import Literal
@@ -6,9 +6,8 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, 
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, ValidationError
 from ..paths import atomic_write
-from .client import AcpConnection
 from .store import page
-from .config import AcpServer
+from .config import MoreAgentsServer
 
 
 class Title(BaseModel):
@@ -25,7 +24,7 @@ class Groups(BaseModel):
 
 
 class Command(BaseModel):
-    type: Literal['resume', 'ping', 'send', 'cancel_queued', 'interrupt', 'permission_reply', 'connect', 'set_config', 'set_mode']
+    type: Literal['resume', 'ping', 'send', 'cancel_queued', 'interrupt', 'permission_reply', 'question_reply', 'connect', 'set_config', 'set_mode']
     seq: int | None = Field(default=None, ge=0)
     req_id: str | int | None = None
     client_id: str | None = None
@@ -36,6 +35,7 @@ class Command(BaseModel):
     config_id: str | None = None
     value: str | None = None
     mode_id: str | None = None
+    answers: dict[str, list[str]] | None = None
 
 
 async def session_socket(ws, sid, core, manager):
@@ -45,6 +45,7 @@ async def session_socket(ws, sid, core, manager):
         await ws.close(code=4404)
         return
     runtime = manager.runtime(sid)
+    manager.prepare(sid)
     queue = asyncio.Queue(maxsize=1000)
     runtime.subscribers.add(queue)
     runtime.viewers += 1
@@ -102,6 +103,9 @@ async def session_socket(ws, sid, core, manager):
                 elif typ=='permission_reply':
                     if not message.id: raise ValueError('id is required')
                     runtime.reply_permission(message.id, message.option_id)
+                elif typ=='question_reply':
+                    if not message.id: raise ValueError('id is required')
+                    runtime.reply_question(message.id, message.answers)
                 else:
                     payload = None
                     if typ=='cancel_queued':
@@ -133,45 +137,52 @@ async def session_socket(ws, sid, core, manager):
 def router(core, manager):
     api = APIRouter(dependencies=[Depends(core.require)])
 
-    @api.get('/api/acp/agents')
+    @api.get('/api/more-agents/agents')
     async def agents(): return manager.agents()
 
-    @api.post('/api/acp/agents')
+    @api.get('/api/more-agents/kinds')
+    async def kinds(): return manager.kinds()
+
+    @api.post('/api/more-agents/agents')
     async def create_agent(body: dict): return await manager.create_agent(body)
 
-    @api.post('/api/acp/agents/reorder')
+    @api.post('/api/more-agents/agents/reorder')
     async def reorder(body: Reorder):
         manager.reorder(body.ids)
         return {'ok': True}
 
-    @api.get('/api/acp/groups')
+    @api.get('/api/more-agents/groups')
     async def groups(): return {'groups': manager.config.data.groups}
 
-    @api.put('/api/acp/groups')
+    @api.put('/api/more-agents/groups')
     async def set_groups(body: Groups): return {'groups': manager.set_groups(body.groups, body.renames)}
 
-    @api.get('/api/acp/settings')
+    @api.get('/api/more-agents/settings')
     async def settings(): return manager.config.data.server.model_dump()
 
-    @api.patch('/api/acp/settings')
-    async def set_settings(body: AcpServer):
+    @api.patch('/api/more-agents/settings')
+    async def set_settings(body: MoreAgentsServer):
         if 'server' not in manager.config.doc: manager.config.doc['server'] = {}
         manager.config.doc['server']['idle_timeout_min'] = body.idle_timeout_min
         manager.config.save()
         return manager.config.data.server.model_dump()
 
-    @api.get('/api/acp/agents/{aid}')
+    @api.get('/api/more-agents/agents/{aid}/models')
+    async def models(aid: str):
+        return await manager.models(aid)
+
+    @api.get('/api/more-agents/agents/{aid}')
     async def agent(aid: str): return manager.agent_view(manager.agent(aid))
 
-    @api.patch('/api/acp/agents/{aid}')
+    @api.patch('/api/more-agents/agents/{aid}')
     async def patch_agent(aid: str, body: dict): return await manager.patch_agent(aid, body)
 
-    @api.delete('/api/acp/agents/{aid}')
+    @api.delete('/api/more-agents/agents/{aid}')
     async def delete_agent(aid: str):
         await manager.delete_agent(aid)
         return {'ok': True}
 
-    @api.get('/api/acp/agents/{aid}/avatar')
+    @api.get('/api/more-agents/agents/{aid}/avatar')
     async def avatar(aid: str):
         manager.agent(aid)
         path = manager.store.avatars / aid
@@ -179,7 +190,7 @@ def router(core, manager):
         mime = (manager.store.avatars / (aid+'.mime')).read_text()
         return FileResponse(path, media_type=mime)
 
-    @api.post('/api/acp/agents/{aid}/avatar')
+    @api.post('/api/more-agents/agents/{aid}/avatar')
     async def avatar_upload(aid: str, file: UploadFile = File(...)):
         manager.agent(aid)
         if file.content_type not in ('image/png', 'image/jpeg', 'image/webp', 'image/gif'):
@@ -190,32 +201,20 @@ def router(core, manager):
         atomic_write(manager.store.avatars / (aid+'.mime'), file.content_type)
         return await manager.patch_agent(aid, {'avatar': 'file'})
 
-    @api.post('/api/acp/agents/{aid}/test')
+    @api.post('/api/more-agents/agents/{aid}/test')
     async def test_agent(aid: str):
-        agent = manager.agent(aid)
-        connection = AcpConnection()
-        try:
-            async with asyncio.timeout(10):
-                await connection.open(agent.host, agent.port, agent.token)
-                await connection.initialize(core.version)
-                manager.info[aid] = connection.info
-                manager.changed_event()
-                result = await connection.request('session/new', {'cwd': agent.cwd, 'mcpServers': []})
-                await connection.close()
-                return {'ok': True, 'info': connection.info, 'config_options': result.get('configOptions', [])}
-        except Exception as exc:
-            return {'ok': False, 'info': connection.info, 'config_options': [], 'error': str(exc) or 'Connection test timed out'}
-        finally: await connection.close()
+        return await manager.test(aid)
 
-    @api.get('/api/acp/agents/{aid}/sessions')
+    @api.get('/api/more-agents/agents/{aid}/sessions')
     async def sessions(aid: str):
         manager.agent(aid)
         return sorted((manager.view(s['id']) for s in manager.store.sessions.values() if s['agent_id']==aid), key=lambda s: s['updated_at'], reverse=True)
 
-    @api.post('/api/acp/agents/{aid}/sessions')
-    async def create_session(aid: str, body: Title = Title()): return manager.create_session(aid, body.title)
+    @api.post('/api/more-agents/agents/{aid}/sessions')
+    async def create_session(aid: str, body: dict):
+        return manager.create_session(aid, str(body.get('title') or ''), cwd=body.get('cwd'))
 
-    @api.get('/api/acp/agents/{aid}/search')
+    @api.get('/api/more-agents/agents/{aid}/search')
     async def search(aid: str, q: str = ''):
         manager.agent(aid)
         if not q.strip(): return []
@@ -230,10 +229,10 @@ def router(core, manager):
                     break
         return results
 
-    @api.get('/api/acp/sessions/{sid}')
+    @api.get('/api/more-agents/sessions/{sid}')
     async def session(sid: str): return manager.view(sid)
 
-    @api.patch('/api/acp/sessions/{sid}')
+    @api.patch('/api/more-agents/sessions/{sid}')
     async def patch_session(sid: str, body: Title):
         manager.session(sid)
         if 'title' in body.model_fields_set:
@@ -243,30 +242,30 @@ def router(core, manager):
                 manager.session_state(sid)
         return manager.view(sid)
 
-    @api.delete('/api/acp/sessions/{sid}')
+    @api.delete('/api/more-agents/sessions/{sid}')
     async def delete_session(sid: str):
         await manager.delete_session(sid)
         return {'ok': True}
 
-    @api.post('/api/acp/sessions/{sid}/read')
+    @api.post('/api/more-agents/sessions/{sid}/read')
     async def read(sid: str): return manager.mark_read(sid)
 
-    @api.post('/api/acp/sessions/{sid}/sleep')
+    @api.post('/api/more-agents/sessions/{sid}/sleep')
     async def sleep(sid: str): return await manager.sleep(sid)
 
-    @api.post('/api/acp/sessions/{sid}/connect')
+    @api.post('/api/more-agents/sessions/{sid}/connect')
     async def connect(sid: str, fresh: bool = False): return await manager.connect(sid, fresh)
 
-    @api.get('/api/acp/sessions/{sid}/items')
+    @api.get('/api/more-agents/sessions/{sid}/items')
     async def items(sid: str, before: str | None = None, limit: int = Query(default=200, ge=1, le=200)):
         return page(manager.items(sid), before, limit)
 
-    @api.post('/api/acp/sessions/{sid}/uploads')
+    @api.post('/api/more-agents/sessions/{sid}/uploads')
     async def uploads(sid: str, files: list[UploadFile] = File(...)):
         manager.session(sid)
         return [await manager.store.upload(sid, file) for file in files]
 
-    @api.get('/api/acp/uploads/{sid}/{fid}')
+    @api.get('/api/more-agents/uploads/{sid}/{fid}')
     async def upload(sid: str, fid: str):
         manager.session(sid)
         attachment = manager.store.attachment(sid, fid)
@@ -274,7 +273,7 @@ def router(core, manager):
 
     sockets = APIRouter()
 
-    @sockets.websocket('/ws/acp/{sid}')
+    @sockets.websocket('/ws/more-agents/{sid}')
     async def socket(ws: WebSocket, sid: str): await session_socket(ws, sid, core, manager)
 
     sockets.include_router(api)

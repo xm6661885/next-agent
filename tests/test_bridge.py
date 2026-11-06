@@ -203,23 +203,23 @@ async def test_bridge_existing_session_applies_new_launch_options(app):
 async def test_acp_delegation_and_unavailable(app):
     core=app.state.core
     bridge=core.bridge
-    acp=SimpleNamespace(run_turn=AsyncMock(return_value={'text':'done'}),start_turn=Mock(return_value='acp-session'),
+    acp=SimpleNamespace(run_turn=AsyncMock(return_value={'text':'done','is_error':False,'error':None}),start_turn=Mock(return_value='acp-session'),
                         send=AsyncMock(),stop=AsyncMock(),view=Mock(return_value={'id':'acp-session'}),
                         items=Mock(return_value=[{'kind':'text'}]))
-    core.modules['acp']=acp
-    kwargs=dict(session_id='acp-session',title='Title',origin='subagent',parent={'task_id':'task'})
-    assert await bridge.run_acp('agent','Prompt',**kwargs)=={'text':'done'}
-    acp.run_turn.assert_awaited_once_with('agent','Prompt',**kwargs)
-    assert bridge.start_acp('agent','Prompt',**kwargs)=='acp-session'
-    acp.start_turn.assert_called_once_with('agent','Prompt',**kwargs)
-    await bridge.send('acp','acp-session','More')
-    await bridge.stop('acp','acp-session')
+    core.modules['more_agents']=acp
+    kwargs=dict(cwd='/',session_id='acp-session',title='Title',origin='subagent',parent={'task_id':'task'})
+    assert await bridge.run_more('agent','Prompt',**kwargs)=={'text':'done','is_error':False,'error':None}
+    acp.run_turn.assert_awaited_once_with('agent','Prompt', session_id='acp-session', title='Title', origin='subagent', parent={'task_id':'task'}, cwd='/', model='', effort='', on_session=None)
+    assert bridge.start_more('agent','Prompt',**kwargs)=='acp-session'
+    acp.start_turn.assert_called_once_with('agent','Prompt',**kwargs,model='',effort='',on_session=None)
+    await bridge.send('more_agents','acp-session','More')
+    await bridge.stop('more_agents','acp-session')
     acp.send.assert_awaited_once_with('acp-session','More')
     acp.stop.assert_awaited_once_with('acp-session')
-    assert bridge.view('acp','acp-session')=={'id':'acp-session'}
-    assert bridge.items('acp','acp-session')==[{'kind':'text'}]
-    del core.modules['acp']
-    for call in (lambda:bridge.start_acp('a','p'),lambda:bridge.view('acp','s'),lambda:bridge.items('acp','s')):
-        with pytest.raises(RuntimeError,match='^ACP module unavailable$'): call()
-    for call in (bridge.run_acp('a','p'),bridge.send('acp','s','p'),bridge.stop('acp','s')):
-        with pytest.raises(RuntimeError,match='^ACP module unavailable$'): await call
+    assert bridge.view('more_agents','acp-session')=={'id':'acp-session'}
+    assert bridge.items('more_agents','acp-session')==[{'kind':'text'}]
+    del core.modules['more_agents']
+    for call in (lambda:bridge.start_more('a','p',cwd='/'),lambda:bridge.view('more_agents','s'),lambda:bridge.items('more_agents','s')):
+        with pytest.raises(RuntimeError,match='^More Agents module unavailable$'): call()
+    for call in (bridge.run_more('a','p',cwd='/'),bridge.send('more_agents','s','p'),bridge.stop('more_agents','s')):
+        with pytest.raises(RuntimeError,match='^More Agents module unavailable$'): await call

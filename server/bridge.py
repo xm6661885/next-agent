@@ -50,37 +50,42 @@ class AgentBridge:
     async def wait_claude(self, session_id):
         return await self.manager.wait_turn(session_id)
 
-    def acp(self):
-        module=self.core.modules.get('acp')
-        if module is None: raise RuntimeError('ACP module unavailable')
+    def more(self):
+        module=self.core.modules.get('more_agents')
+        if module is None: raise RuntimeError('More Agents module unavailable')
         return module
 
-    async def run_acp(self, agent_id, prompt, *, session_id=None, title='', origin='workflow', parent=None, on_session=None):
-        callback={'on_session':on_session} if on_session is not None else {}
-        return await self.acp().run_turn(agent_id,prompt,session_id=session_id,title=title,origin=origin,parent=parent,**callback)
+    async def run_more(self, agent_id, prompt, *, cwd=None, session_id=None, title='', origin='workflow', parent=None,
+                       model='', effort='', on_session=None):
+        return await self.more().run_turn(agent_id, prompt, cwd=cwd, session_id=session_id, title=title, origin=origin,
+                                          parent=parent, model=model, effort=effort, on_session=on_session)
 
-    def start_acp(self, agent_id, prompt, *, session_id=None, title='', origin='workflow', parent=None):
-        return self.acp().start_turn(agent_id,prompt,session_id=session_id,title=title,origin=origin,parent=parent)
+    def start_more(self, agent_id, prompt, *, cwd=None, session_id=None, title='', origin='workflow', parent=None,
+                   model='', effort='', on_session=None):
+        return self.more().start_turn(agent_id, prompt, cwd=cwd, session_id=session_id, title=title, origin=origin,
+                                      parent=parent, model=model, effort=effort, on_session=on_session)
+
+    async def wait_more(self, session_id): return await self.more().wait_turn(session_id)
 
     async def send(self, module, session_id, prompt):
-        if module=='acp': return await self.acp().send(session_id,prompt)
+        if module=='more_agents': return await self.more().send(session_id,prompt)
         if module!='agents': raise ValueError('Unknown module')
         self.manager.send(session_id,prompt)
 
     async def stop(self, module, session_id):
-        if module=='acp': return await self.acp().stop(session_id)
+        if module=='more_agents': return await self.more().stop(session_id)
         if module!='agents': raise ValueError('Unknown module')
         runtime=self.manager.get_or_create(session_id)
         if runtime.state in ('running','interrupting'): runtime.submit(('interrupt',))
         elif runtime.state in ('queued','starting'): await self.manager.stop(session_id)
 
     def view(self, module, session_id):
-        if module=='acp': return self.acp().view(session_id)
+        if module=='more_agents': return self.more().view(session_id)
         if module!='agents': raise ValueError('Unknown module')
         return self.manager.view(session_id)
 
     def items(self, module, session_id):
-        if module=='acp': return self.acp().items(session_id)
+        if module=='more_agents': return self.more().items(session_id)
         if module!='agents': raise ValueError('Unknown module')
         runtime=self.manager.get_or_create(session_id)
         return runtime.history_items()+list(runtime.items.items)

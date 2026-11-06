@@ -38,16 +38,16 @@ def test_raw_module_registry_available_at_mount(tmp_path,monkeypatch):
         assert app.state.raw_configs is core.modules['raw_configs']
         mounted.append(set(core.modules['raw_configs']))
         assert core.bridge is not None
-    monkeypatch.setattr(server.app.acp,'mount',mount)
+    monkeypatch.setattr(server.app.more_agents,'mount',mount)
     server.app.create_app(tmp_path)
     assert mounted==[{'core','agents'}]
 
 def test_module_raw_and_settings_overview(logged,app):
     core=app.state.core
-    for name in ('acp','chat','workflow'): core.modules.pop('overview_'+name,None)
+    for name in ('more_agents','chat','workflow'): core.modules.pop('overview_'+name,None)
     empty=logged.get('/api/settings/overview').json()
     assert empty['version']==core.version
-    assert empty['modules']=={'agents':{'agents':1,'acp_agents':0,'sessions':0},'chat':{},'workflow':{}}
+    assert empty['modules']=={'agents':{'agents':1,'more_agents_agents':0,'sessions':0},'chat':{},'workflow':{}}
     class Settings(BaseModel):
         count:int=1
     config=TomlFile(core.paths.config_dir/'chat.toml',Settings,'# module comment\ncount = 1\n')
@@ -55,7 +55,7 @@ def test_module_raw_and_settings_overview(logged,app):
     async def changed(): calls.append(config.data.count)
     config.on_change(changed)
     core.modules['raw_configs']['chat']=config
-    core.modules['overview_acp']=lambda:{'acp_agents':3,'sessions':4}
+    core.modules['overview_more_agents']=lambda:{'more_agents_agents':3,'sessions':4}
     core.modules['overview_chat']=lambda:{'assistants':2,'providers':1,'sessions':config.data.count}
     core.modules['overview_workflow']=lambda:{'workflows':5,'runs':6}
     app.state.index.create('claude',origin='schedule')
@@ -64,7 +64,7 @@ def test_module_raw_and_settings_overview(logged,app):
     assert calls==[7]
     assert logged.put('/api/config/raw?file=chat',json={'content':'count = "bad"'}).status_code==400
     overview=logged.get('/api/settings/overview').json()
-    assert overview['modules']=={'agents':{'agents':1,'acp_agents':3,'sessions':5},
+    assert overview['modules']=={'agents':{'agents':1,'more_agents_agents':3,'sessions':5},
                                  'chat':{'assistants':2,'providers':1,'sessions':7},'workflow':{'workflows':5,'runs':6}}
     files={entry['file']:entry for entry in overview['files']}
     assert files['chat']['path']==str(config.path)

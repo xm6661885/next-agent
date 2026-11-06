@@ -8,7 +8,7 @@ from uuid import uuid4
 import httpx
 import pytest
 
-from server.acp.config import AcpAgent
+from server.more_agents.config import AcpAgent
 from server.auth import COOKIE
 from server.builtin import Builtin, epoch
 from server.config import Agent, Defaults, ServerConfig
@@ -18,7 +18,7 @@ from server.options import build_options, options_key
 class FakeBridge:
     def __init__(self, app):
         self.index = app.state.index
-        self.acp = app.state.core.modules['acp']
+        self.acp = app.state.core.modules['more_agents']
         self.calls, self.states, self.transcripts, self.results = [], {}, {}, {}
         self.auto = False
 
@@ -44,25 +44,27 @@ class FakeBridge:
 
     async def wait_claude(self, sid): return await asyncio.shield(self.results[sid])
 
-    def start_acp(self, aid, prompt, **kwargs):
-        self.calls.append(('acp', aid, prompt, kwargs))
+    async def wait_more(self, sid): return await self.acp.wait_turn(sid)
+
+    def start_more(self, aid, prompt, **kwargs):
+        self.calls.append(('more_agents', aid, prompt, kwargs))
         return self.acp.start_turn(aid, prompt, **kwargs)
 
     def view(self, module, sid):
-        if module=='acp': return self.acp.view(sid)
+        if module=='more_agents': return self.acp.view(sid)
         return {**self.index.sessions[sid], 'state': self.states.get(sid, 'offline')}
 
     def items(self, module, sid):
-        return self.acp.items(sid) if module=='acp' else self.transcripts.get(sid, [])
+        return self.acp.items(sid) if module=='more_agents' else self.transcripts.get(sid, [])
 
     async def send(self, module, sid, prompt):
         self.calls.append(('send', module, sid, prompt))
-        if module=='acp': await self.acp.send(sid, prompt)
+        if module=='more_agents': await self.acp.send(sid, prompt)
         else: self.begin(sid, prompt)
 
     async def stop(self, module, sid):
         self.calls.append(('stop', module, sid))
-        if module=='acp': await self.acp.stop(sid)
+        if module=='more_agents': await self.acp.stop(sid)
         else:
             self.states[sid] = 'interrupting'
             if not self.results[sid].done(): self.finish(sid, 'Stopped')
@@ -84,7 +86,7 @@ async def builtin(app, monkeypatch):
                           Agent(id='private', name='Private', cwd=str(app.state.paths.root))])
     config.agents[0].as_subagent = True
     config.builtin_mcp['enabled'] = True
-    acp = core.modules['acp']
+    acp = core.modules['more_agents']
     acp.config.data.agents.append(AcpAgent(id='phone', name='Phone', host='127.0.0.1', port=1, as_subagent=True))
     monkeypatch.setattr('server.builtin.create_sdk_mcp_server',
                         lambda name, tools: dict(type='sdk', name=name, instance=object(), tools={t.name: t for t in tools}))
@@ -261,9 +263,10 @@ async def test_scheduler_slow_start_and_failed_acp_setup(builtin, monkeypatch):
     gate.set()
     await until(lambda: len(b.bridge.calls)==2)
     for sid in list(b.bridge.results): b.bridge.finish(sid)
-    await call(tools_for(b), 'task_create', dict(module='acp', agent_id='phone', prompt='Unavailable', model='large'), error=True)
-    acp = b.core.modules['acp']
-    assert all(r.state=='offline' and r.client is None for r in acp.runtimes.values())
+    task = await call(tools_for(b), 'task_create', dict(module='more_agents', agent_id='phone', prompt='Unavailable', wait=True, model='large', cwd=str(b.app.state.paths.root)))
+    assert task['state'] == 'offline' and task['result']['is_error']
+    acp = b.core.modules['more_agents']
+    assert all(r.state=='offline' and r.adapter.client is None for r in acp.runtimes.values())
 
 
 async def test_history_is_scoped_paged_and_flattened(builtin, monkeypatch, tmp_path):
@@ -302,7 +305,7 @@ async def test_collaboration_lifecycle_ownership_and_recovery(builtin):
     b = builtin
     tools = tools_for(b)
     listed = await call(tools, 'agents_list')
-    assert {(a['module'], a['agent_id']) for a in listed}=={('agents', 'worker'), ('acp', 'phone')}
+    assert {(a['module'], a['agent_id']) for a in listed}=={('agents', 'worker'), ('more_agents', 'phone')}
     for aid in ('claude', 'private', 'missing'):
         await call(tools, 'task_create', dict(module='agents', agent_id=aid, prompt='Help'), error=True)
     task = await call(tools, 'task_create', dict(module='agents', agent_id='worker', prompt='Work', title='Delegate', model='haiku'))
@@ -335,39 +338,39 @@ async def test_collaboration_lifecycle_ownership_and_recovery(builtin):
 
 
 async def test_acp_schedule_and_tasks_use_bridge_and_offered_options(builtin):
-    from test_acp import Peer
+    from test_more_agents_acp import Peer
     b = builtin
     peer = Peer()
     await peer.start()
-    b.core.modules['acp'].agent('phone').port = peer.port
+    b.core.modules['more_agents'].agent('phone').port = peer.port
     try:
-        schedule = b.schedules.create(dict(prompt='Scheduled', cron='* * * * *', target={'module': 'acp', 'agent_id': 'phone'},
+        schedule = b.schedules.create(dict(prompt='Scheduled', cron='* * * * *', target={'module': 'more_agents', 'agent_id': 'phone', 'cwd': str(b.app.state.paths.root)},
                                            model='large', effort='high'), b.caller)
         fired = await b.schedules.fire(schedule['id'])
         await until(lambda: schedule['last_result'])
         assert not schedule['last_result']['is_error']
-        assert b.bridge.view('acp', fired['session_id'])['origin']=='schedule'
+        assert b.bridge.view('more_agents', fired['session_id'])['origin']=='schedule'
         configs = [r['params'] for r in peer.requests if r['method']=='session/set_config_option']
         assert [(c['configId'], c['value']) for c in configs]==[('model', 'large')]
-        assert b.bridge.calls[0][0]=='acp' and 'overrides' not in b.bridge.calls[0][3]
+        assert b.bridge.calls[0][0]=='more_agents' and 'overrides' not in b.bridge.calls[0][3]
         tools = tools_for(b)
-        task = await call(tools, 'task_create', dict(module='acp', agent_id='phone', prompt='Hi', wait=True))
+        task = await call(tools, 'task_create', dict(module='more_agents', agent_id='phone', prompt='Hi', wait=True, cwd=str(b.app.state.paths.root)))
         assert task['result']['text']=='Hello HiDone' and not task['result']['is_error']
         await call(tools, 'task_send', {'task_id': task['task_id'], 'prompt': 'hold'})
-        await until(lambda: b.bridge.view('acp', task['session_id'])['state']=='running')
+        await until(lambda: b.bridge.view('more_agents', task['session_id'])['state']=='running')
         await call(tools, 'task_send', {'task_id': task['task_id'], 'prompt': 'Followup'})
         for writer in list(peer.writers): writer.close()
         await until(lambda: b.module.collab.tasks[task['task_id']]['task']['result'])
         assert b.module.collab.tasks[task['task_id']]['task']['result']['text']=='Hello FollowupDone'
         await call(tools, 'task_send', {'task_id': task['task_id'], 'prompt': 'hold'})
-        await until(lambda: b.bridge.view('acp', task['session_id'])['state']=='running')
+        await until(lambda: b.bridge.view('more_agents', task['session_id'])['state']=='running')
         await call(tools, 'task_stop', {'task_id': task['task_id']})
         await until(lambda: b.module.collab.tasks[task['task_id']]['task']['result'])
         b.module.collab.tasks.clear()
         assert (await call(tools, 'task_status', {'task_id': task['task_id']}))['session_id']==task['session_id']
         assert not peer.errors
     finally:
-        await b.core.modules['acp'].close()
+        await b.core.modules['more_agents'].close()
         await peer.close()
 
 
@@ -420,3 +423,27 @@ def test_builtin_config_and_agent_fields(logged, app):
         assert logged.patch('/api/agents/'+aid, json={'builtin_mcp': {'history': 'yes'}}).status_code==422
     app.state.config.load()
     assert app.state.config.config.temp_agent.as_subagent
+
+
+async def test_more_agents_cwd_rules_and_discovery(builtin,monkeypatch):
+    from server.more_agents.config import CodexAgent
+    b=builtin
+    more=b.core.modules['more_agents']
+    more.config.data.agents.append(CodexAgent(id='native',name='Native',as_subagent=True))
+    monkeypatch.setattr(more,'cached_models',lambda aid: [dict(model='fake',displayName='Fake',supportedReasoningEfforts=[dict(reasoningEffort='low',description='Low')],defaultReasoningEffort='low')] if aid=='native' else [])
+    tools=tools_for(b)
+    rows=await call(tools,'agents_list')
+    assert next(r for r in rows if r['agent_id']=='worker')['needs_cwd'] is False
+    assert next(r for r in rows if r['agent_id']=='phone')['kind']=='acp'
+    native=next(r for r in rows if r['agent_id']=='native')
+    assert native['kind']=='codex' and native['needs_cwd']
+    assert native['models']==[dict(id='fake',name='Fake',efforts=['low'],default_effort='low')]
+    error=await call(tools,'task_create',dict(module='more_agents',agent_id='phone',prompt='x'),error=True)
+    assert 'cwd is required' in error['error']
+    error=await call(tools,'task_create',dict(module='agents',agent_id='worker',prompt='x',cwd='/'),error=True)
+    assert 'only valid for More Agents' in error['error']
+    with pytest.raises(ValueError,match='cwd is required'):
+        b.schedules.create(dict(prompt='x',cron='* * * * *',target=dict(module='more_agents',agent_id='phone',session='new')))
+    schedule=b.schedules.create(dict(prompt='x',cron='* * * * *',target=dict(module='more_agents',agent_id='phone',session='new',cwd='C:\\remote')))
+    assert schedule['target']['cwd']=='C:\\remote'
+    assert b.schedules.path==b.app.state.paths.root/'builtin'/'schedules.json'

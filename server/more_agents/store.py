@@ -1,5 +1,4 @@
-"""ACP session, transcript and attachment storage."""
-import base64
+"""More Agents sessions, transcripts, avatars and attachments."""
 import json
 import mimetypes
 import re
@@ -19,9 +18,9 @@ def page(items, before=None, limit=200):
     return {'items': items[start:end], 'has_more': start>0}
 
 
-class AcpStore:
+class MoreAgentsStore:
     def __init__(self, root):
-        self.root = root / 'acp'
+        self.root = root / 'more_agents'
         self.path = self.root / 'sessions.json'
         self.avatars = self.root / 'avatars'
         self.sessions = json.loads(self.path.read_text()) if self.path.exists() else {}
@@ -30,9 +29,9 @@ class AcpStore:
     def save(self):
         atomic_write(self.path, json.dumps(self.sessions, ensure_ascii=False, indent=2))
 
-    def create(self, agent_id, title='', origin='ui', parent=None):
+    def create(self, agent_id, title='', origin='ui', parent=None, *, kind, cwd):
         sid = str(uuid4())
-        self.sessions[sid] = dict(id=sid, agent_id=agent_id, remote_id=None, title=title, preview='',
+        self.sessions[sid] = dict(id=sid, agent_id=agent_id, kind=kind, cwd=cwd, remote_id=None, title=title, preview='',
                                  created_at=now(), updated_at=now(), turns=0, unread=False, origin=origin,
                                  parent=parent, config_options=[], modes=None, commands=[])
         self.save()
@@ -68,7 +67,7 @@ class AcpStore:
         mime = mimetypes.guess_type(name)[0] or 'application/octet-stream'
         atomic_write(path, content)
         record = dict(id=fid, name=name, mime=mime, size=len(content), path=str(path.resolve()),
-                      url=f'/api/acp/uploads/{sid}/{fid}', is_image=mime in IMAGE_MIMES)
+                      url=f'/api/more-agents/uploads/{sid}/{fid}', is_image=mime in IMAGE_MIMES)
         index = self.upload_index(sid)
         index[fid] = record
         atomic_write(path.parent / 'index.json', json.dumps(index))
@@ -78,20 +77,3 @@ class AcpStore:
         record = self.upload_index(sid).get(fid)
         if not record: raise HTTPException(404, 'Upload not found')
         return record
-
-    def prompt(self, text, attachments, capabilities):
-        blocks = [{'type': 'text', 'text': text}] if text else []
-        for attachment in attachments:
-            path, mime = Path(attachment['path']), attachment['mime']
-            if mime in IMAGE_MIMES and attachment['size']<=3750000 and capabilities.get('image'):
-                blocks.append({'type': 'image', 'mimeType': mime, 'data': base64.b64encode(path.read_bytes()).decode()})
-                continue
-            if mime not in IMAGE_MIMES and attachment['size']<=200000 and capabilities.get('embeddedContext'):
-                try: content = path.read_text(encoding='utf-8')
-                except UnicodeDecodeError: pass
-                else:
-                    if '\x00' not in content:
-                        blocks.append({'type': 'resource', 'resource': {'uri': path.as_uri(), 'mimeType': mime, 'text': content}})
-                        continue
-            blocks.append({'type': 'text', 'text': 'The user sent a file: '+attachment['name']})
-        return blocks
