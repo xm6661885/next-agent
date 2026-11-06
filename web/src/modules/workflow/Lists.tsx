@@ -11,14 +11,16 @@ import { WfIcon } from './icons'
 import { TabPage } from './TabPage'
 import { StatusBadge } from './ui'
 
+const TRIGGER: Record<string, string> = { api: 'API', webhook: 'Webhook', rerun: 'Rerun', nested: 'Nested' }
+
 function RunRow({ r, now, onDelete }: { r: Run; now?: number; onDelete?: () => void }) {
   const waiting = r.status === 'waiting_input'
   const dur = r.finished_at && r.started_at ? r.finished_at - r.started_at : now && r.started_at ? now - r.started_at : null
   return (
     <button class={`row press ${waiting ? 'wf-needs' : ''}`} onClick={() => navigate({ name: 'wf-run', runId: r.id })}>
       <span class="wf-block-icon"><WfIcon name={waiting ? 'bell' : 'workflow'} size={18} /></span>
-      <span class="label">{r.workflow_name || '(deleted workflow)'}
-        <span class="hint">{waiting ? 'Tap to respond' : fmtTime(r.started_at || r.created_at)}{dur != null ? ` · ${fmtSecs(dur)}` : ''}{r.cost_usd ? ` · $${r.cost_usd.toFixed(3)}` : ''}{r.trigger === 'api' ? ' · API' : ''}</span>
+      <span class="label">{r.trigger && r.trigger !== 'ui' && <span class="origin-tag">{TRIGGER[r.trigger] || (r.trigger.startsWith('nested') ? 'Nested' : r.trigger)}</span>}{r.workflow_name || '(deleted workflow)'}
+        <span class="hint">{waiting ? 'Tap to respond' : fmtTime(r.started_at || r.created_at)}{dur != null ? ` · ${fmtSecs(dur)}` : ''}{r.cost_usd ? ` · $${r.cost_usd.toFixed(3)}` : ''}</span>
       </span>
       <StatusBadge status={r.status} />
       {onDelete && <span class="icon-btn" role="button" aria-label="Delete" onClick={(e) => { e.stopPropagation(); onDelete() }}><IconTrash width={18} height={18} /></span>}

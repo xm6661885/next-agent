@@ -10,6 +10,7 @@ import { findInvalidRefs } from './defs'
 import { COLOR_CHOICES, ICON_CHOICES, WfIcon } from './icons'
 import { INPUT_TYPES, lastRunId, startWorkflow } from './inputs'
 import { MenuItem, SheetHost, downloadJson, showSheet } from './ui'
+import { TriggerSheet } from './editor/TriggerSheet'
 import { AddSheet, BlockList, editorActions, setAllCollapsed } from './editor/Blocks'
 import { ChipEditor, VarBar, VarPicker } from './editor/VarPicker'
 import { def, edit, flushSave, hist, openWorkflow, redo, saveState, undo, updateMeta, wf } from './editor/state'
@@ -108,6 +109,7 @@ export function Editor({ id }: { id: string }) {
           <MenuItem icon="edit" onClick={act(rename)}>Rename</MenuItem>
           <MenuItem icon="sparkles" onClick={act(() => showSheet((c, o) => <AppearanceSheet open={o} close={() => c()} icon={w.icon} color={w.color} save={(p) => updateMeta(p).catch(toastError)} />))}>Icon and color</MenuItem>
           <MenuItem icon="input" sub={d.inputs?.length ? `${d.inputs.length} inputs` : ''} onClick={act(openInputs)}>Workflow inputs</MenuItem>
+          <MenuItem icon="link" onClick={act(() => showSheet((c, o) => <TriggerSheet open={o} close={() => c()} wid={w.id} />))}>API trigger</MenuItem>
           <MenuItem icon="up" onClick={act(() => setAllCollapsed(true))}>Collapse all cards</MenuItem>
           <MenuItem icon="down" onClick={act(() => setAllCollapsed(false))}>Expand all cards</MenuItem>
           <MenuItem icon="history" onClick={act(() => navigate({ name: 'wf-runs', workflowId: w.id }))}>Run history</MenuItem>

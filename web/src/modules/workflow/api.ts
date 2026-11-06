@@ -32,6 +32,7 @@ export interface PluginSchema {
 export interface Catalog { plugins: PluginSchema[]; containers: PluginSchema[]; markers: PluginSchema[]; errors: { folder: string; error: string; missing_deps?: boolean }[]; watching?: boolean }
 export interface ConsoleSession { module: 'agents' | 'acp'; agent_id: string; session_id: string; title: string; state: string; parent: Json }
 export interface WfSettings { agent_concurrency: number; run_retention: number; plugin_watch: boolean; default_cwd: string; env: Record<string, string> }
+export interface TriggerInfo { enabled: boolean; token: string; path: string; last_used_at: number | null }
 export interface RunOpts { from_block?: string; only_block?: string; stop_after?: string; base_run_id?: string | null }
 
 const P = '/api/workflow'
@@ -63,6 +64,9 @@ export const wfApi = {
   cancel: (id: string) => post(`/runs/${enc(id)}/cancel`),
   input: (id: string, values: Json) => post(`/runs/${enc(id)}/input`, { values }),
   rerun: (id: string, from?: string | null) => post<{ run_id: string }>(`/runs/${enc(id)}/rerun${from ? `?from_block=${enc(from)}` : ''}`),
+  trigger: (id: string) => get<TriggerInfo>(`/workflows/${enc(id)}/trigger`),
+  setTrigger: (id: string, enabled: boolean) => request<TriggerInfo>('PATCH', `${P}/workflows/${enc(id)}/trigger`, { enabled }),
+  regenTrigger: (id: string) => post<TriggerInfo>(`/workflows/${enc(id)}/trigger/regenerate`),
   plugins: () => get<Catalog>('/plugins'),
   reloadPlugins: () => post<{ count: number; errors: Catalog['errors'] }>('/plugins/reload'),
   installDeps: (folder: string) => post('/plugins/install-deps', { folder }),
