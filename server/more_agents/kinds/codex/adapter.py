@@ -137,7 +137,7 @@ class CodexRuntime:
         finally:
             if self.queue: self._ensure_worker()
     async def _run_turn(self,item,text,attachments,future):
-        self.active=(item,future); self.items.begin(); self.state_change('connecting')
+        self.active=(item,future); self.items.begin(); self.session.pop('_last_error', None); self.state_change('connecting')
         try:
             await self._connect(); self.state_change('running'); item.update(pending=False,queued=False); self.emit({'type':'patch','id':item['id'],'patch':{'pending':False,'queued':False}})
             input=[{'type':'text','text':text,'text_elements':[]}]
@@ -149,7 +149,7 @@ class CodexRuntime:
             await self._wait_turn()
         except Exception as exc:
             self._finish('disconnected',str(exc)); return
-        self._finish(self.session.pop('_last_stop_reason','completed'),None)
+        self._finish(self.session.pop('_last_stop_reason','completed'), self.session.pop('_last_error', None))
     def _turn_settings(self):
         agent=self.manager.agent(self.session['agent_id']); mode=MODES[agent.mode]; out={'summary':'auto','approvalPolicy':mode['approvalPolicy'],'sandboxPolicy':mode['sandboxPolicy']}
         if self.session.get('model'): out['model']=self.session['model']
@@ -200,8 +200,11 @@ class CodexRuntime:
             usage=p.get('tokenUsage') or {}; total=usage.get('total') or {}; last=usage.get('last') or {}
             self.session_changed(usage={'input':total.get('inputTokens',0),'cached_input':total.get('cachedInputTokens',0),'output':total.get('outputTokens',0),'reasoning':total.get('reasoningOutputTokens',0)},context={'used':last.get('totalTokens',0),'max':usage.get('modelContextWindow')})
         elif method=='turn/completed':
-            turn=p.get('turn') or {}; self.session['_last_stop_reason']={'completed':'completed','interrupted':'interrupted','failed':'error'}.get(turn.get('status'),'completed');
-            if turn.get('error'): self.items.notice('error',turn['error'].get('message',str(turn['error'])))
+            turn=p.get('turn') or {}; self.session['_last_stop_reason']={'completed':'completed','interrupted':'interrupted','failed':'error'}.get(turn.get('status'),'completed')
+            if turn.get('error'):
+                self.session['_last_error']=turn['error'].get('message',str(turn['error'])) if isinstance(turn['error'],dict) else str(turn['error'])
+                self.items.notice('error',self.session['_last_error'])
+            elif turn.get('status') == 'failed': self.session['_last_error']='Codex turn failed'
             if hasattr(self,'_turn_done'): self._turn_done.set()
         elif method=='error' and p.get('willRetry') is False: self.items.notice('error',str(p.get('error')))
         elif method in ('item/plan/updated','item/plan/delta'):
