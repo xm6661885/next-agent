@@ -50,7 +50,7 @@ class AgentBridge:
     def start_acp(self, agent_id, prompt, **kwargs): return self.start_more(agent_id,prompt,cwd=kwargs.pop('cwd','/'),**kwargs)
     async def send(self,module,session_id,prompt):
         if module=='agents': return self.manager.send(session_id,prompt)
-        if module=='more_agents': return self.more().send(session_id,prompt)
+        if module=='more_agents': return await self.more().send(session_id,prompt)
         raise ValueError('Unknown module')
     async def stop(self,module,session_id):
         if module=='agents':
