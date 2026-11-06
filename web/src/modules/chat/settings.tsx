@@ -2,12 +2,11 @@
 
 import { useEffect, useState } from 'preact/hooks'
 import { chatVersion, toast, toastError } from '../../lib/store'
-import { Segmented, Sheet, Switch, confirmDialog, promptDialog } from '../../components/ui'
-import { IconPlus, IconTrash, IconBolt, IconChevron, IconRefresh } from '../../components/icons'
+import { SecretInput, Segmented, Sheet, Switch, confirmDialog, promptDialog } from '../../components/ui'
+import { IconPlus, IconTrash, IconBolt, IconRefresh } from '../../components/icons'
 import { Spark } from '../../components/crab'
 import { SettingsFrame } from '../settings/Frame'
 import { EFFORTS, chatApi, modelLabel, type ChatConfig, type McpServer, type Provider } from './api'
-import { ProfileSheet, UserAvatar } from './profile'
 
 /** Load chat.toml as a form, edit a draft, PATCH the changed part. */
 function useChatConfig() {
@@ -30,7 +29,6 @@ const BLANK_PROVIDER: Provider = { id: '', name: '', format: 'openai', base_url:
 export function ChatProviders({ title }: { title: string }) {
   const { cfg, save } = useChatConfig()
   const [edit, setEdit] = useState<{ i: number | null; p: Provider } | null>(null)
-  const [profile, setProfile] = useState(false)
   const [testing, setTesting] = useState<string | null>(null)
   const [tests, setTests] = useState<Record<string, { ok: boolean; error?: string }>>({})
   const list = cfg?.providers || []
@@ -50,19 +48,10 @@ export function ChatProviders({ title }: { title: string }) {
     if (!await confirmDialog({ title: `Remove ${p.name || 'provider'}?`, body: 'Assistants that use its models fall back to the default model.', confirm: 'Remove', danger: true })) return
     if (await save({ providers: list.filter((_, k) => k !== edit.i) })) setEdit(null)
   }
-  const me = cfg?.profile
   return (
     <SettingsFrame title={title}>
       {!cfg ? <Skeleton /> : <>
         <span class="fhint" style={{ display: 'block', padding: '0 4px' }}>Chat only. Agents and Workflow use the Claude CLI settings.</span>
-        <div class="group-title">You</div>
-        <div class="group">
-          <button type="button" class="row press" onClick={() => setProfile(true)}>
-            {me && <UserAvatar p={me} size={32} />}
-            <span class="label">{me?.name || 'You'}<span class="hint">Your name and picture in chats</span></span>
-            <IconChevron width={14} height={14} />
-          </button>
-        </div>
         <div class="group-title">Providers</div>
         <div class="group">
           {list.map((p, i) => {
@@ -81,7 +70,6 @@ export function ChatProviders({ title }: { title: string }) {
         </div>
       </>}
       {edit && <ProviderSheet key={edit.i ?? 'new'} init={edit.p} isNew={edit.i === null} onSave={saveOne} onRemove={remove} onClose={() => setEdit(null)} />}
-      {me && <ProfileSheet open={profile} p={me} onSave={(p) => save({ profile: p })} onClose={() => setProfile(false)} />}
     </SettingsFrame>
   )
 }
@@ -131,7 +119,7 @@ function ProviderSheet({ init, isNew, onSave, onRemove, onClose }: {
           <span class="fhint">Include /v1, e.g. {p.format === 'anthropic' ? 'https://api.anthropic.com/v1' : 'https://api.openai.com/v1'}</span>
         </label>
         <label class="field"><span class="flabel">API key</span>
-          <input class="input mono" type="password" value={p.api_key} autocomplete="off" placeholder="sk-..." onInput={(e) => set('api_key', val(e))} />
+          <SecretInput value={p.api_key} placeholder="sk-..." label="API key" onInput={(v) => set('api_key', v)} />
         </label>
       </div>
       <div class="group-title" style={{ display: 'flex', alignItems: 'center' }}>

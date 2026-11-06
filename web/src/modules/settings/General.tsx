@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'preact/hooks'
 import { api } from '../../lib/api'
 import { authed, disconnectEvents, toast, toastError } from '../../lib/store'
-import { Segmented, confirmDialog } from '../../components/ui'
+import { SecretInput, Segmented, confirmDialog } from '../../components/ui'
 import { IconLogout } from '../../components/icons'
 import { SettingsFrame, useConfigForm } from './Frame'
 import type { ConfigForm } from '../../lib/types'
@@ -21,8 +21,8 @@ export function GeneralSettings({ title }: { title: string }) {
       {form && (
         <div class="group">
           <label class="field"><span class="flabel">External API key</span>
-            <input class="input mono" value={form.server.api_key ?? ''} placeholder="Empty disables the API" autocapitalize="off" spellcheck={false}
-              onInput={(e) => setForm({ ...form, server: { ...form.server, api_key: (e.target as HTMLInputElement).value } })} />
+            <SecretInput value={form.server.api_key ?? ''} placeholder="Empty disables the API" label="API key"
+              onInput={(v) => setForm({ ...form, server: { ...form.server, api_key: v } })} />
             <span class="fhint">GET /api/external/send?prompt=...&amp;agent_id=...&amp;key=... starts a new session. Messages to one agent run one at a time.</span>
           </label>
         </div>

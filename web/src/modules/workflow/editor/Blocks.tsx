@@ -1,7 +1,7 @@
-// Flat card list with indentation for control flow, drag to reorder (sortablejs), card menu and the Add card sheet.
+// Flat card list with indentation for control flow, drag to reorder (sortablejs, loaded on first use), card menu and the Add card sheet.
 
 import { computed, signal } from '@preact/signals'
-import Sortable from 'sortablejs'
+import type Sortable from 'sortablejs'
 import { useEffect, useRef } from 'preact/hooks'
 import { Sheet, promptDialog } from '../../../components/ui'
 import { toast } from '../../../lib/store'
@@ -64,21 +64,28 @@ export function BlockList() {
   }
   const visible = blocks.filter((b) => !hidden.has(b.id))
 
+  // sortablejs installs a document-level, non-passive touchmove listener when it loads, so it is imported
+  // here (the first time an editor opens) and not at app start.
   useEffect(() => {
-    const s = Sortable.create(ref.current!, {
-      handle: '.drag-handle', animation: 180, easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)',
-      forceFallback: true, fallbackOnBody: true, fallbackTolerance: 3, // touch events everywhere, no native DnD on iOS
-      scroll: true, scrollSensitivity: 90, scrollSpeed: 16, ghostClass: 'sortable-ghost', chosenClass: 'sortable-chosen',
-      onEnd: (evt) => {
-        // put the DOM back, then let state re-render, so Sortable and Preact never both edit the list
-        const { item, from, oldIndex, newIndex } = evt
-        item.remove()
-        from.insertBefore(item, from.children[oldIndex!] ?? null)
-        if (oldIndex === newIndex) return
-        moveCard(item.dataset.id!, (from.children[newIndex!] as HTMLElement | undefined)?.dataset.id, newIndex! > oldIndex!)
-      },
+    let s: Sortable | undefined
+    let gone = false
+    import('sortablejs').then(({ default: SortableJs }) => {
+      if (gone || !ref.current) return
+      s = SortableJs.create(ref.current, {
+        handle: '.drag-handle', animation: 180, easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)',
+        forceFallback: true, fallbackOnBody: true, fallbackTolerance: 3, // touch events everywhere, no native DnD on iOS
+        scroll: true, scrollSensitivity: 90, scrollSpeed: 16, ghostClass: 'sortable-ghost', chosenClass: 'sortable-chosen',
+        onEnd: (evt) => {
+          // put the DOM back, then let state re-render, so Sortable and Preact never both edit the list
+          const { item, from, oldIndex, newIndex } = evt
+          item.remove()
+          from.insertBefore(item, from.children[oldIndex!] ?? null)
+          if (oldIndex === newIndex) return
+          moveCard(item.dataset.id!, (from.children[newIndex!] as HTMLElement | undefined)?.dataset.id, newIndex! > oldIndex!)
+        },
+      })
     })
-    return () => s.destroy()
+    return () => { gone = true; s?.destroy() }
   }, [])
   return (
     <>

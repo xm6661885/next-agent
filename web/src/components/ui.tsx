@@ -3,8 +3,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks'
 import type { ComponentChildren } from 'preact'
 import { createPortal } from 'preact/compat'
-import { IconBack, IconClose } from './icons'
-import { toasts } from '../lib/store'
+import { IconBack, IconClose, IconCopy, IconEye, IconEyeOff } from './icons'
+import { toast, toastError, toasts } from '../lib/store'
+import { copyText } from '../lib/util'
 import { entryKey, scrollMemory } from '../lib/router'
 
 export function TopBar({ title, subtitle, left, right, scrolled, children }: {
@@ -249,6 +250,27 @@ export function Segmented<T extends string>({ value, options, onChange }: {
           {o.label}
         </button>
       ))}
+    </div>
+  )
+}
+
+/** Input for API keys and tokens: masked until the eye button reveals it, with a copy button. Secrets are never hidden for good. */
+export function SecretInput({ value, onInput, placeholder, label = 'secret' }: {
+  value: string
+  onInput: (v: string) => void
+  placeholder?: string
+  label?: string
+}) {
+  const [shown, setShown] = useState(false)
+  const copy = () => copyText(value).then(() => toast('Copied')).catch(toastError)
+  return (
+    <div class="secret-input">
+      <input class="input mono" type={shown ? 'text' : 'password'} value={value} placeholder={placeholder} autocomplete="off"
+        autocapitalize="off" spellcheck={false} onInput={(e) => onInput((e.target as HTMLInputElement).value)} />
+      <button type="button" class="icon-btn" aria-label={`${shown ? 'Hide' : 'Show'} ${label}`} aria-pressed={shown} onClick={() => setShown(!shown)}>
+        {shown ? <IconEyeOff /> : <IconEye />}
+      </button>
+      <button type="button" class="icon-btn" aria-label={`Copy ${label}`} disabled={!value} onClick={copy}><IconCopy /></button>
     </div>
   )
 }

@@ -1,20 +1,25 @@
-// Shared frame for second-level settings pages, plus a small hook for the Agents/core config form.
+// Shared frame for settings section pages (Back returns to their module page), plus a small hook for the Agents/core config form.
 
 import type { ComponentChildren } from 'preact'
 import { useEffect, useState } from 'preact/hooks'
-import { back } from '../../lib/router'
+import { back, route } from '../../lib/router'
 import { api } from '../../lib/api'
 import { meta, toast, toastError } from '../../lib/store'
 import { BackButton, TopBar, useScrolled } from '../../components/ui'
+import { moduleOf } from './modules'
 import type { ConfigForm } from '../../lib/types'
 
 export function SettingsFrame({ title, dirty, saving, onSave, children }: {
   title: string; dirty?: boolean; saving?: boolean; onSave?: () => void; children: ComponentChildren
 }) {
   const { scrolled, onScroll, ref } = useScrolled()
+  const r = route.value
+  const mod = r.name === 'settings-section' ? moduleOf(r.module) : undefined
   return (
     <div class="page wide-page">
-      <TopBar scrolled={scrolled} left={<BackButton label="Settings" onClick={() => back({ name: 'settings' })} />}
+      <TopBar scrolled={scrolled} left={mod
+        ? <BackButton label={mod.title} onClick={() => back({ name: 'settings-module', module: mod.key })} />
+        : <BackButton label="Settings" onClick={() => back({ name: 'settings' })} />}
         right={onSave && <button class="btn primary small" disabled={!dirty || saving} onClick={onSave}>{saving ? <span class="spinner" /> : 'Save'}</button>}>
         <span class="topbar-center">{title}</span>
       </TopBar>

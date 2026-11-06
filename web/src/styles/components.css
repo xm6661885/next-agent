@@ -157,6 +157,10 @@
 button.row:active, a.row:active { background: var(--line); }
 
 .row .label { flex: 1; min-width: 0; }
+/* A label that starts with an icon (Add ..., Reload ...): center icon and text. Labels with a .hint stay block text. */
+.row .label > svg { vertical-align: middle; }
+.row .label:has(> svg):not(:has(.hint)) { display: flex; align-items: center; gap: 8px; }
+.row .label:has(> svg):not(:has(.hint)) > svg { flex: none; }
 .row .label .hint { display: block; font-size: 13px; color: var(--text-2); margin-top: 1px; }
 .row .value { color: var(--text-2); font-size: 15px; text-align: right; }
 .row .chev { color: var(--text-3); width: 18px; height: 18px; flex: none; }
@@ -646,6 +650,12 @@ svg.crab .eyes { animation: blink 4.5s infinite; transform-origin: center 3px; t
 
 .topbar-actions { display: flex; align-items: center; gap: 2px; }
 
+/* SecretInput: masked input with show and copy buttons */
+.secret-input { display: flex; align-items: center; gap: 2px; }
+.secret-input .input { flex: 1; min-width: 0; }
+.secret-input .icon-btn { color: var(--text-2); }
+.secret-input .icon-btn svg { width: 20px; height: 20px; }
+
 /* ---------- Effort slider ---------- */
 .effort { display: flex; flex-direction: column; gap: 8px; user-select: none; }
 .effort-head { display: flex; justify-content: center; }
@@ -726,6 +736,8 @@ svg.crab .eyes { animation: blink 4.5s infinite; transform-origin: center 3px; t
 .tabbar-item.on .tabbar-icon { background: var(--pink-soft); }
 .tabbar-item:active .tabbar-icon { transform: scale(0.9); }
 .tabbar-icon svg { width: 22px; height: 22px; }
+.tabbar-label { white-space: nowrap; }
+@media (max-width: 360px) { .tabbar-item { font-size: 10px; } }
 .tabbar-badge { position: absolute; top: 2px; right: 8px; width: 8px; height: 8px; border-radius: 50%; background: var(--warn); box-shadow: 0 0 0 2px var(--bg); }
 .with-tabbar { bottom: calc(var(--tabbar-h) + var(--safe-b)) !important; }
 .with-tabbar .page-scroll { padding-bottom: 24px; }

@@ -1,8 +1,9 @@
 // The user's own name and picture in chats ([profile] in chat.toml).
 
 import { useEffect, useRef, useState } from 'preact/hooks'
-import { toast, toastError } from '../../lib/store'
+import { chatVersion, toast, toastError } from '../../lib/store'
 import { Sheet } from '../../components/ui'
+import { IconChevron } from '../../components/icons'
 import { CRAB_COLORS, Crab } from '../../components/crab'
 import { chatApi, type Profile } from './api'
 
@@ -14,6 +15,32 @@ export function UserAvatar({ p, size }: { p: Profile; size: number }) {
     return <span class="avatar" style={{ ...style, background: c.bg }}><Crab color={c.body} /></span>
   }
   return <span class="avatar user-initial" style={{ ...style, fontSize: `${Math.round(size * 0.42)}px` }}>{(p.name || 'You').trim().slice(0, 1).toUpperCase()}</span>
+}
+
+/** Settings home: the chat profile as a card; tap to edit it in the profile sheet. */
+export function ProfileCard() {
+  const [p, setP] = useState<Profile | null>(null)
+  const [open, setOpen] = useState(false)
+  useEffect(() => { chatApi.config().then((c) => setP(c.profile)).catch(() => {}) }, [chatVersion.value])
+  const save = async (next: Profile) => {
+    try {
+      const c = await chatApi.saveConfig({ profile: next })
+      setP(c.profile); chatVersion.value++; toast('Settings saved')
+      return true
+    } catch (e) { toastError(e); return false }
+  }
+  return (
+    <>
+      <div class="group">
+        <button type="button" class="row press" disabled={!p} onClick={() => setOpen(true)}>
+          {p ? <UserAvatar p={p} size={44} /> : <span class="skeleton" style={{ width: '44px', height: '44px', borderRadius: '50%' }} />}
+          <span class="label">{p?.name || 'You'}<span class="hint">Your name and avatar in chats</span></span>
+          <IconChevron class="chev" />
+        </button>
+      </div>
+      {p && <ProfileSheet open={open} p={p} onSave={save} onClose={() => setOpen(false)} />}
+    </>
+  )
 }
 
 export function ProfileSheet({ open, p, onSave, onClose }: { open: boolean; p: Profile; onSave: (p: Profile) => Promise<boolean>; onClose: () => void }) {

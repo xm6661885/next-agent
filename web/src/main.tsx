@@ -6,24 +6,36 @@ import './styles/pages.css'
 import './styles/chat.css'
 import './styles/workflow.css'
 
-// Track the visual viewport so the composer sits right above the iOS keyboard.
+// Track the visual viewport so the composer sits right above the iOS keyboard. Events are coalesced to one
+// update per frame; layout is read before anything is written, and a CSS variable or class is only touched
+// when its value changed, so a burst of resize/scroll events does not keep invalidating layout.
 function syncViewport() {
+  const root = document.documentElement
   const vv = window.visualViewport
-  const h = vv ? vv.height : window.innerHeight
-  document.documentElement.style.setProperty('--app-h', `${h}px`)
-  // Height the keyboard covers at the bottom of the layout viewport. iOS Safari shrinks innerHeight with the
-  // keyboard but not the layout viewport (clientHeight), which is what position: fixed; bottom: 0 uses.
-  const layout = document.documentElement.clientHeight
-  const kb = vv ? Math.max(0, layout - vv.height - Math.max(0, vv.offsetTop)) : 0
-  document.documentElement.style.setProperty('--kb', `${Math.round(kb)}px`)
-  document.documentElement.classList.toggle('kb-open', kb > 80)
+  // Reads first. The keyboard covers the bottom of the layout viewport: iOS Safari shrinks innerHeight with it
+  // but not the layout viewport (clientHeight), which is what position: fixed; bottom: 0 uses.
+  const layout = root.clientHeight
+  const h = `${vv ? vv.height : window.innerHeight}px`
+  const offset = vv ? vv.offsetTop : 0
+  const kb = vv ? Math.max(0, layout - vv.height - Math.max(0, offset)) : 0
+  const kbPx = `${Math.round(kb)}px`
+  // Writes, only on change.
+  if (root.style.getPropertyValue('--app-h') !== h) root.style.setProperty('--app-h', h)
+  if (root.style.getPropertyValue('--kb') !== kbPx) root.style.setProperty('--kb', kbPx)
+  const open = kb > 80
+  if (root.classList.contains('kb-open') !== open) root.classList.toggle('kb-open', open)
   // iOS scrolls the layout viewport when the keyboard opens; pin it back.
-  if (vv && vv.offsetTop > 0) window.scrollTo(0, 0)
+  if (offset > 0) window.scrollTo(0, 0)
+}
+let viewportFrame = 0
+function queueViewport() {
+  if (viewportFrame) return
+  viewportFrame = requestAnimationFrame(() => { viewportFrame = 0; syncViewport() })
 }
 syncViewport()
-window.visualViewport?.addEventListener('resize', syncViewport)
-window.visualViewport?.addEventListener('scroll', syncViewport)
-window.addEventListener('resize', syncViewport)
+window.visualViewport?.addEventListener('resize', queueViewport, { passive: true })
+window.visualViewport?.addEventListener('scroll', queueViewport, { passive: true })
+window.addEventListener('resize', queueViewport, { passive: true })
 
 // Prevent pinch / double-tap zoom in standalone mode, like a native app.
 document.addEventListener('gesturestart', (e) => e.preventDefault())

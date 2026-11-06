@@ -1,4 +1,4 @@
-// More tab: entry cards (Settings, About) and room for future tools.
+// More tab: entry cards (Settings, Claude Code Memory, About) and room for future tools.
 
 import { useEffect, useState } from 'preact/hooks'
 import type { Route } from '../../lib/router'
@@ -8,14 +8,15 @@ import { meta } from '../../lib/store'
 import { Crab } from '../../components/crab'
 import { BackButton, TopBar, useScrolled } from '../../components/ui'
 import { IconChevron, IconSettings, IconBrain } from '../../components/icons'
-import { SettingsHome, SettingsSection } from '../settings/Settings'
+import { SettingsHome, SettingsModulePage, SettingsSection } from '../settings/Settings'
 
 export function MoreRoute(r: Route) {
   switch (r.name) {
     case 'more': return <More />
     case 'about': return <About />
     case 'settings': return <SettingsHome />
-    case 'settings-section': return <SettingsSection section={r.section} />
+    case 'settings-module': return <SettingsModulePage module={r.module} />
+    case 'settings-section': return <SettingsSection module={r.module} section={r.section} />
   }
   return null
 }
@@ -43,7 +44,7 @@ function More() {
             </button>
             <button class="more-card press rise" style={{ '--i': 2 }} onClick={() => navigate({ name: 'memory' })}>
               <span class="more-icon"><IconBrain /></span>
-              <span class="more-text"><span class="n">Memory</span><span class="p">Claude Code memory files</span></span>
+              <span class="more-text"><span class="n">Claude Code Memory</span><span class="p">Memory files of Claude Code agents</span></span>
               <IconChevron class="more-chev" />
             </button>
             <button class="more-card about-card press rise" style={{ '--i': 3 }} onClick={() => navigate({ name: 'about' })}>

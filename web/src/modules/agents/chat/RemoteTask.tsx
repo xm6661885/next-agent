@@ -27,21 +27,29 @@ export function RemoteTaskPanel({ task }: { task: Task }) {
   const [items, setItems] = useState<Item[]>([])
   const [running, setRunning] = useState(true)
   const body = useRef<HTMLDivElement>(null)
+  // Poll every 3 s while the task runs. Self-scheduling, so requests never overlap; it skips a round while the
+  // page is hidden and stops for good once the task is no longer running.
   useEffect(() => {
     let on = true
+    let timer: number | undefined
+    const again = () => { if (on) timer = window.setTimeout(load, 3000) }
     const load = async () => {
+      if (!on) return
+      if (document.hidden) return again()
       try {
         const r = task.module === 'acp' ? await acpApi.items(task.session_id, '', 200) : await api.items(task.session_id, '', 200)
         if (!on) return
         setItems(r.items)
         const live = task.module === 'acp' ? await acpApi.session(task.session_id) : await api.session(task.session_id)
-        if (on) setRunning(live.state === 'running' || live.state === 'interrupting')
-      } catch { /* the session may still be starting */ }
+        if (!on) return
+        const active = live.state === 'running' || live.state === 'interrupting'
+        setRunning(active)
+        if (active) again()
+      } catch { again() /* the session may still be starting */ }
     }
     load()
-    const id = setInterval(load, 3000)
-    return () => { on = false; clearInterval(id) }
-  }, [task.session_id])
+    return () => { on = false; clearTimeout(timer) }
+  }, [task.session_id, task.module])
   useLayoutEffect(() => { const el = body.current; if (el) el.scrollTop = el.scrollHeight }, [items.length])
   const open = () => {
     remoteTaskView.value = null

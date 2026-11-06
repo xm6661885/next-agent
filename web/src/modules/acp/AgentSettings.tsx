@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'preact/hooks'
 import { acpVersion, toast, toastError } from '../../lib/store'
 import { back, navigate } from '../../lib/router'
 import { CRAB_COLORS, Crab, Spark } from '../../components/crab'
-import { BackButton, Switch, TopBar, confirmDialog, useScrolled } from '../../components/ui'
+import { BackButton, SecretInput, Switch, TopBar, confirmDialog, useScrolled } from '../../components/ui'
 import { IconBolt, IconTrash } from '../../components/icons'
 import { acpApi, type AcpAgent, type ConfigOption } from './api'
 import { AcpAvatar } from './chat/Chat'
@@ -124,8 +124,7 @@ export function AcpAgentSettings({ agentId }: { agentId?: string }) {
               </label>
             </div>
             <label class="field"><span class="flabel">Token</span>
-              <input class="input mono" type="password" value={a.token || ''} autocomplete="off" autocapitalize="off" spellcheck={false}
-                placeholder="Optional" onInput={(e) => set('token', (e.target as HTMLInputElement).value)} />
+              <SecretInput value={a.token || ''} placeholder="Optional" label="token" onInput={(v) => set('token', v)} />
               <span class="fhint">Sent as the first line, AUTH &lt;token&gt;, when the connection opens.</span>
             </label>
             <label class="field"><span class="flabel">Working directory on the agent</span>

@@ -1,10 +1,10 @@
-// Workflow tab: Console (what runs right now) and Runs (finished run history).
+// Workflow tab: Console (what runs right now) and the run history page (finished runs, opened from the history button).
 
 import { useEffect, useState } from 'preact/hooks'
-import { confirmDialog } from '../../components/ui'
+import { BackButton, TopBar, confirmDialog, useScrolled } from '../../components/ui'
 import { Spark } from '../../components/crab'
 import { IconChevron, IconTrash } from '../../components/icons'
-import { navigate } from '../../lib/router'
+import { back, navigate } from '../../lib/router'
 import { toastError, workflowVersion } from '../../lib/store'
 import { fmtSecs, fmtTime, wfApi, workflows, type ConsoleSession, type Run } from './api'
 import { WfIcon } from './icons'
@@ -57,7 +57,7 @@ export function WorkflowConsole() {
       {data && <>
         <div class="group-title">Runs</div>
         {runs.length ? <div class="group">{runs.map((r) => <RunRow key={r.id} r={r} now={now} />)}</div>
-          : <p class="fhint" style={{ margin: '0 4px' }}>Nothing running. Finished runs are under Runs.</p>}
+          : <p class="fhint" style={{ margin: '0 4px' }}>Nothing running. Finished runs are in the history (top right).</p>}
         <div class="group-title">Agent sessions</div>
         {sessions.length ? <div class="group">{sessions.map((s) => <SessionRow key={s.session_id} s={s} />)}</div>
           : <p class="fhint" style={{ margin: '0 4px' }}>No agent cards running.</p>}
@@ -75,11 +75,20 @@ export function WorkflowRuns({ workflowId }: { workflowId?: string }) {
     try { await wfApi.deleteRun(r.id); load() } catch (e) { toastError(e) }
   }
   const wf = workflowId ? workflows.value.find((w) => w.id === workflowId) : null
+  const { scrolled, onScroll, ref } = useScrolled()
   return (
-    <TabPage section="runs" subtitle={workflowId ? <>Runs of {wf?.name || 'one workflow'}. <button class="link-btn" onClick={() => navigate({ name: 'wf-runs' }, { replace: true })}>Show all</button></> : 'Finished runs, newest first.'}>
-      {rows === null && <div class="skeleton" style={{ height: '160px', borderRadius: '20px' }} />}
-      {rows && rows.length === 0 && <div class="empty"><h3>No runs yet</h3></div>}
-      {rows && rows.length > 0 && <div class="group">{rows.map((r) => <RunRow key={r.id} r={r} onDelete={() => remove(r)} />)}</div>}
-    </TabPage>
+    <div class="page">
+      <TopBar scrolled={scrolled} left={<BackButton label="Workflow" onClick={() => back({ name: 'workflows' })} />}>
+        <span class="topbar-center">Run history</span>
+      </TopBar>
+      <div class="page-scroll" ref={ref} onScroll={onScroll}>
+        <div class="container">
+          <p class="subtitle rise" style={{ marginTop: '14px' }}>{workflowId ? <>Runs of {wf?.name || 'one workflow'}. <button class="link-btn" onClick={() => navigate({ name: 'wf-runs' }, { replace: true })}>Show all</button></> : 'Finished runs, newest first.'}</p>
+          {rows === null && <div class="skeleton" style={{ height: '160px', borderRadius: '20px' }} />}
+          {rows && rows.length === 0 && <div class="empty"><h3>No runs yet</h3></div>}
+          {rows && rows.length > 0 && <div class="group">{rows.map((r) => <RunRow key={r.id} r={r} onDelete={() => remove(r)} />)}</div>}
+        </div>
+      </div>
+    </div>
   )
 }

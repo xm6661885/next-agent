@@ -5,7 +5,7 @@ import { chatVersion, moduleSessions, toastError } from '../../lib/store'
 import { navigate } from '../../lib/router'
 import { Spark } from '../../components/crab'
 import { TopBar, useScrolled } from '../../components/ui'
-import { IconChat, IconPlus, IconSettings } from '../../components/icons'
+import { IconChat, IconPlus } from '../../components/icons'
 import { haptic, relTime } from '../../lib/util'
 import { DEFAULT_ASSISTANT, chatApi, modelLabel, type Assistant, type ChatMeta, type ChatSession } from './api'
 import { AssistantAvatar } from './chat/Chat'
@@ -46,7 +46,7 @@ export function ChatHome() {
   return (
     <div class="page">
       <TopBar scrolled={scrolled}
-        right={<div class="topbar-actions"><button class="icon-btn" aria-label="Chat settings" onClick={() => navigate({ name: 'settings-section', section: 'chat-providers' })}><IconSettings /></button></div>}>
+        right={<div class="topbar-actions"><button class="icon-btn" aria-label="New assistant" onClick={() => navigate({ name: 'new-assistant' })}><IconPlus /></button></div>}>
         {scrolled && <span class="fade-in">Chat</span>}
       </TopBar>
       <div class="page-scroll" ref={ref} onScroll={onScroll}>
@@ -58,14 +58,12 @@ export function ChatHome() {
           {list === null ? (
             <div class="agent-grid">{[0, 1].map((i) => <div key={i} class="skeleton" style={{ height: '128px', borderRadius: '20px' }} />)}</div>
           ) : list.length === 0 ? (
-            <p class="fhint" style={{ margin: '6px 4px' }}>Assistants keep their own prompt, model and tools. Create one with the button below.</p>
+            <p class="fhint" style={{ margin: '6px 4px' }}>Assistants keep their own prompt, model and tools. Create one with the plus button.</p>
           ) : (
             <div class="agent-grid">{list.map((a, i) => <AssistantCard key={a.id} a={a} index={i} meta={meta} />)}</div>
           )}
-          <div style={{ height: '96px' }} aria-hidden="true" />
         </div>
       </div>
-      <button class="fab" onClick={() => navigate({ name: 'new-assistant' })}><IconPlus /> New assistant</button>
     </div>
   )
 }

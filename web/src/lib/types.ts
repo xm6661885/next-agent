@@ -109,6 +109,24 @@ export interface Session {
   parent?: Record<string, string> | null
 }
 
+/** One row of GET /api/running: a session that is working or waiting for the user, in any module. */
+export interface RunningRow {
+  module: 'agents' | 'more_agents'
+  session_id: string
+  agent_id: string
+  agent_name: string
+  /** Agent avatar spec (`crab:<color>` or `file`). */
+  avatar: string
+  title: string
+  state: SessionState
+  /** > 0: waiting for the user (permission or question). */
+  pending: number
+  unread: boolean
+  updated_at: string
+  preview: string
+  cwd: string
+}
+
 export interface SearchHit {
   session: Session
   /** Text around the first transcript match; empty for a title-only match. */

@@ -176,7 +176,6 @@ h1, h2, h3, .serif {
   display: flex;
   flex-direction: column;
   background: var(--bg);
-  will-change: transform;
 }
 
 .page.enter-forward { animation: page-in-forward 0.42s var(--ease-out) both; }
@@ -184,8 +183,8 @@ h1, h2, h3, .serif {
 .page.enter-fade { animation: page-fade 0.35s var(--ease-out) both; }
 
 @keyframes page-in-forward {
-  from { transform: translate3d(36%, 0, 0); opacity: 0; box-shadow: -20px 0 40px rgba(0, 0, 0, 0.08); }
-  to { transform: none; opacity: 1; box-shadow: none; }
+  from { transform: translate3d(36%, 0, 0); opacity: 0; }
+  to { transform: none; opacity: 1; }
 }
 
 @keyframes page-in-back {
@@ -230,6 +229,16 @@ h1, h2, h3, .serif {
 }
 
 .topbar.scrolled { border-bottom-color: var(--line); }
+
+/* While a route slides or fades in, its top bar is opaque: a backdrop blur over a moving layer is costly on iOS Safari.
+   Each keyframe holds `from` (step-end) for the length of the route animation, then the normal blurred style returns.
+   The enter-* class stays on the route afterwards, so this must be an animation and not a class-based override. */
+@keyframes topbar-solid {
+  from { background: var(--bg); -webkit-backdrop-filter: none; backdrop-filter: none; }
+}
+:is(.route, .page).enter-forward .topbar { animation: topbar-solid 0.42s step-end; }
+:is(.route, .page).enter-back .topbar { animation: topbar-solid 0.38s step-end; }
+:is(.route, .page).enter-fade .topbar { animation: topbar-solid 0.35s step-end; }
 
 .topbar-inner {
   height: var(--header-h);

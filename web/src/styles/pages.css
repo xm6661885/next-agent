@@ -491,7 +491,8 @@
 .about-hero h1 { font-size: 30px; margin: 0; }
 .about-version { color: var(--text-2); margin: 6px 0 0; font-variant-numeric: tabular-nums; }
 .about-made { text-align: center; margin-top: 26px; font-size: 13px; color: var(--text-3); letter-spacing: 0.02em; }
-.kind-switch { margin: 14px 0 14px; max-width: 260px; }
+.kind-switch { margin: 14px 0 14px; max-width: 340px; }
+.running-title { font-weight: 400; color: var(--text-2); }
 .origin-tag { display: inline-block; margin-right: 6px; padding: 0 6px; border-radius: 6px; font-size: 11px; font-weight: 600; line-height: 18px;
   vertical-align: 1px; background: var(--bg-2); color: var(--text-2); }
 
