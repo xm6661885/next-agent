@@ -2,7 +2,7 @@
 
 import { request } from '../../lib/api'
 import type { Item } from '../../lib/types'
-import { uploadTo } from '../acp/api'
+import { uploadTo } from '../more-agents/api'
 
 export type Effort = 'off' | 'low' | 'medium' | 'high' | 'max'
 export const EFFORTS: Effort[] = ['off', 'low', 'medium', 'high', 'max']

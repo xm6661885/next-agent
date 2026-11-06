@@ -1,20 +1,20 @@
-// Settings > ACP agents: connection idle timeout and the ACP agent groups on the Agents tab.
+// Settings > More Agents: connection idle timeout and agent groups.
 
 import { useEffect, useState } from 'preact/hooks'
 import { SettingsFrame } from '../settings/Frame'
 import { IconPlus, IconTrash } from '../../components/icons'
 import { toast, toastError } from '../../lib/store'
-import { acpApi } from './api'
+import { moreAgentsApi } from './api'
 
 type Row = { name: string; from: string }
 
-export function AcpSettings({ title }: { title: string }) {
+export function MoreAgentsSettings({ title }: { title: string }) {
   const [idle, setIdle] = useState<number | null>(null)
   const [rows, setRows] = useState<Row[] | null>(null)
   const [orig, setOrig] = useState('')
   const [saving, setSaving] = useState(false)
   const load = async () => {
-    const [s, g] = await Promise.all([acpApi.settings(), acpApi.groups()])
+    const [s, g] = await Promise.all([moreAgentsApi.settings(), moreAgentsApi.groups()])
     const r = g.groups.map((n) => ({ name: n, from: n }))
     setIdle(s.idle_timeout_min); setRows(r); setOrig(JSON.stringify([s.idle_timeout_min, r]))
   }
@@ -25,8 +25,8 @@ export function AcpSettings({ title }: { title: string }) {
     setSaving(true)
     try {
       const renames = Object.fromEntries(rows.filter((r) => r.from && r.from !== r.name.trim()).map((r) => [r.from, r.name.trim()]))
-      await acpApi.setSettings({ idle_timeout_min: idle })
-      await acpApi.setGroups(rows.map((r) => r.name.trim()).filter(Boolean), renames)
+      await moreAgentsApi.setSettings({ idle_timeout_min: idle })
+      await moreAgentsApi.setGroups(rows.map((r) => r.name.trim()).filter(Boolean), renames)
       await load(); toast('Settings saved')
     } catch (e) { toastError(e) } finally { setSaving(false) }
   }

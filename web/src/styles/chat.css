@@ -17,6 +17,39 @@
 .chat-title .avatar { border-radius: 11px; }
 .back-btn .back-label:empty { display: none; }
 
+.chat-title .titles { flex: 1; min-width: 0; }
+.chat-title .t1 { font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+.chat-title .t2 { font-size: 12px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 6px; }
+
+.context-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: var(--line);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 560;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.cwd-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: var(--line);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 540;
+  color: var(--text-3);
+  transition: background 0.2s;
+}
+
+.cwd-chip:hover { background: var(--line-strong); }
+.cwd-chip:active { background: var(--bg-2); }
+
 .chat-scroll {
   flex: 1;
   overflow-y: auto;
@@ -66,6 +99,17 @@
 @keyframes msg-in {
   from { opacity: 0; transform: translate3d(0, 12px, 0) scale(0.97); }
   to { opacity: 1; transform: none; }
+}
+
+.msg-label {
+  font-size: 11px;
+  font-weight: 560;
+  color: var(--text-3);
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--line);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
 }
 
 .msg-user .bubble {
@@ -125,6 +169,7 @@
 /* ---------- Assistant text (markdown) ---------- */
 
 .msg-assistant { animation: fade-in 0.3s ease both; }
+.msg-assistant.commentary { color: var(--text-2); font-size: 15px; }
 
 .md { font-size: 16px; line-height: 1.62; word-break: break-word; overflow-wrap: anywhere; }
 .md > :first-child { margin-top: 0; }
@@ -358,6 +403,12 @@
 .tool-note.mono { font-family: var(--font-mono); font-size: 12.5px; }
 .tool-note.prewrap { white-space: pre-wrap; }
 
+.tool-execute {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
 .tool-out {
   border-radius: 12px;
   background: var(--code-bg);
@@ -474,6 +525,13 @@
 }
 
 .turn-end.err::before { background: var(--text-3); }
+
+.usage-meta {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
 
 .working {
   display: flex;

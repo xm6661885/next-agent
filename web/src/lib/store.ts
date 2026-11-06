@@ -20,9 +20,11 @@ export interface LiveSession {
 
 /** Session states pushed by /ws/events, keyed by session id. */
 export const liveSessions = signal<Record<string, LiveSession>>({})
-/** Live states of the other modules' sessions (ACP, Chat), keyed by session id. Same shape plus `module`. */
+/** Live states of the other modules' sessions (more_agents, chat), keyed by session id. Same shape plus `module`. */
 export const moduleSessions = signal<Record<string, LiveSession & { module: string; assistant_id?: string }>>({})
-export const acpVersion = signal(0)
+export const moreAgentsVersion = signal(0)
+/** @deprecated Use moreAgentsVersion */
+export const acpVersion = moreAgentsVersion
 export const chatVersion = signal(0)
 export const workflowVersion = signal(0)
 export const schedulesVersion = signal(0)
@@ -38,7 +40,7 @@ export const runningVersion = signal(0)
 export const attention = computed(() => {
   const out = { chat: 0, agents: 0, automations: 0, workflow: 0, more: 0 }
   for (const s of Object.values(liveSessions.value)) if (s.pending) out.agents++
-  for (const s of Object.values(moduleSessions.value)) if (s.pending && s.module === 'acp') out.agents++
+  for (const s of Object.values(moduleSessions.value)) if (s.pending && s.module === 'more_agents') out.agents++
   return out
 })
 
@@ -99,17 +101,17 @@ export function connectEvents() {
       for (const s of msg.sessions || []) map[s.id] = s
       liveSessions.value = map
       const mods: Record<string, any> = {}
-      for (const s of msg.acp_sessions || []) mods[s.id] = { ...s, module: 'acp' }
+      for (const s of msg.more_agents_sessions || []) mods[s.id] = { ...s, module: 'more_agents' }
       for (const s of msg.chat_sessions || []) mods[s.id] = { ...s, module: 'chat' }
       moduleSessions.value = mods
-      acpVersion.value++; chatVersion.value++; workflowVersion.value++; automationsVersion.value++; asrVersion.value++; imagegenVersion.value++
+      moreAgentsVersion.value++; chatVersion.value++; workflowVersion.value++; automationsVersion.value++; asrVersion.value++; imagegenVersion.value++
       agentsVersion.value++
       sessionsVersion.value++
       runningVersion.value++
     } else if (msg.type === 'session_state' && msg.module && msg.module !== 'agents') {
       runningVersion.value++
       moduleSessions.value = { ...moduleSessions.value, [msg.session_id]: { ...moduleSessions.value[msg.session_id], ...msg, id: msg.session_id } }
-    } else if (msg.type === 'acp_agents_changed') { acpVersion.value++
+    } else if (msg.type === 'more_agents_changed') { moreAgentsVersion.value++
     } else if (msg.type === 'schedules_changed') { schedulesVersion.value++
     } else if (msg.type === 'automations_changed') { automationsVersion.value++
     } else if (msg.type === 'chat_changed') { chatVersion.value++

@@ -5,7 +5,7 @@ import { BackButton, TopBar, confirmDialog, useScrolled } from '../../components
 import { Spark } from '../../components/crab'
 import { IconChevron, IconTrash } from '../../components/icons'
 import { back, navigate } from '../../lib/router'
-import { toastError, workflowVersion } from '../../lib/store'
+import { liveSessions, moduleSessions, toastError, workflowVersion } from '../../lib/store'
 import { fmtSecs, fmtTime, wfApi, workflows, type ConsoleSession, type Run } from './api'
 import { WfIcon } from './icons'
 import { TabPage } from './TabPage'
@@ -29,11 +29,12 @@ function RunRow({ r, now, onDelete }: { r: Run; now?: number; onDelete?: () => v
 }
 
 function SessionRow({ s }: { s: ConsoleSession }) {
-  const running = s.state === 'running' || s.state === 'interrupting'
-  const open = () => navigate(s.module === 'acp' ? { name: 'acp-chat', agentId: s.agent_id, sessionId: s.session_id } : { name: 'chat', agentId: s.agent_id, sessionId: s.session_id })
+  const live = s.module === 'more_agents' ? moduleSessions.value[s.session_id] : liveSessions.value[s.session_id]
+  const running = live?.state === 'running' || live?.state === 'interrupting'
+  const open = () => navigate(s.module === 'more_agents' ? { name: 'more-agent-chat', agentId: s.agent_id, sessionId: s.session_id } : { name: 'chat', agentId: s.agent_id, sessionId: s.session_id })
   return (
     <button class="row press" onClick={open}>
-      <span class="wf-block-icon">{running ? <Spark size={16} /> : <WfIcon name={s.module === 'acp' ? 'plug' : 'agent'} size={18} />}</span>
+      <span class="wf-block-icon">{running ? <Spark size={16} /> : <WfIcon name={s.module === 'more_agents' ? 'plug' : 'agent'} size={18} />}</span>
       <span class="label">{s.title || s.agent_id}<span class="hint">{s.agent_id === '_temp' ? 'Temporary chat' : s.agent_id} · {s.state}</span></span>
       <IconChevron class="chev" />
     </button>

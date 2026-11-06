@@ -9,7 +9,7 @@ import { Avatar, Spark } from '../../components/crab'
 import { IconBolt } from '../../components/icons'
 import { relTime, shortPath } from '../../lib/util'
 import type { RunningRow } from '../../lib/types'
-import { AcpAvatar } from '../acp/chat/Chat'
+import { MoreAgentAvatar } from '../more-agents/chat/Chat'
 
 /** Last answer of /api/running. Home shows its length next to the segment label; RunningList renders it. */
 export const running = signal<RunningRow[] | null>(null)
@@ -47,11 +47,11 @@ function RunningItem({ r }: { r: RunningRow }) {
   const busy = r.state === 'running' || r.state === 'interrupting'
   const agent = { id: r.agent_id, avatar: r.avatar, order: 0 }
   const open = () => navigate(r.module === 'more_agents'
-    ? { name: 'acp-chat', agentId: r.agent_id, sessionId: r.session_id }
+    ? { name: 'more-agent-chat', agentId: r.agent_id, sessionId: r.session_id }
     : { name: 'chat', agentId: r.agent_id, sessionId: r.session_id })
   return (
     <button class="row press" onClick={open}>
-      {r.module === 'more_agents' ? <AcpAvatar a={agent} size={40} busy={busy} /> : <Avatar agent={agent} size={40} busy={busy} />}
+      {r.module === 'more_agents' ? <MoreAgentAvatar a={agent} size={40} busy={busy} /> : <Avatar agent={agent} size={40} busy={busy} />}
       <span class="label">
         <span class={`session-title ${r.unread ? 'unread' : ''}`}>{r.agent_name}<span class="running-title"> · {r.title || 'New conversation'}</span></span>
         {r.cwd && <span class="hint mono-label">{shortPath(r.cwd)}</span>}

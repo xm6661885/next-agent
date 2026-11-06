@@ -2,7 +2,7 @@
 
 import type { Json, RunEvent, RunStatus } from './api'
 
-export interface AgentLink { module: 'agents' | 'acp'; agent_id: string; session_id: string }
+export interface AgentLink { module: 'agents' | 'more_agents'; agent_id: string; session_id: string }
 export interface StepState {
   status?: string; label?: string; path?: string; startedAt?: number; error?: string | null; iter?: string
   fields?: Record<string, Json>; default?: string; cached?: boolean; duration?: number

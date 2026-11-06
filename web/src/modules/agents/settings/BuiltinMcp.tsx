@@ -121,7 +121,7 @@ function ScheduleSheet({ v, onChange, onClose }: { v: { id?: string; s: Schedule
       <div class="group-title">Target</div>
       <div class="group">
         <div class="field"><span class="flabel">Agent type</span>
-          <Segmented value={s.target.module} onChange={(m) => set('target', { module: m, agent_id: m === 'agents' ? '_temp' : '', session: 'new' })} options={[{ value: 'agents', label: 'Claude' }, { value: 'acp', label: 'ACP' }]} />
+          <Segmented value={s.target.module} onChange={(m) => set('target', { module: m, agent_id: m === 'agents' ? '_temp' : '', session: 'new' })} options={[{ value: 'agents', label: 'Claude' }, { value: 'more_agents', label: 'More Agents' }]} />
         </div>
         <label class="field"><span class="flabel">Agent ID</span><input class="input mono" value={s.target.agent_id} autocapitalize="off" spellcheck={false} onInput={(e) => set('target', { ...s.target, agent_id: val(e).trim() })} /><span class="fhint">_temp is the temporary chat agent.</span></label>
         <label class="field"><span class="flabel">Session</span><input class="input mono" value={s.target.session} autocapitalize="off" spellcheck={false} onInput={(e) => set('target', { ...s.target, session: val(e).trim() || 'new' })} /><span class="fhint">new starts a fresh session each run, or enter a session ID.</span></label>

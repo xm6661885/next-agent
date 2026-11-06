@@ -24,19 +24,19 @@ function OutBox({ text, result }: { text: string; result?: boolean }) {
   )
 }
 
-/** A Claude or ACP session started by an agent card; opens the normal chat page. */
+/** A Claude or More Agent session started by an agent card; opens the normal chat page. */
 function SessionLink({ s }: { s: AgentLink }) {
-  const live = s.module === 'acp' ? moduleSessions.value[s.session_id] : liveSessions.value[s.session_id]
+  const live = s.module === 'more_agents' ? moduleSessions.value[s.session_id] : liveSessions.value[s.session_id]
   const name = s.module === 'agents' ? (s.agent_id === '_temp' ? 'Temporary chat' : agents.value?.find((a) => a.id === s.agent_id)?.name || s.agent_id) : s.agent_id
   const running = live?.state === 'running' || live?.state === 'interrupting'
   const open = (e: Event) => {
     e.stopPropagation()
-    navigate(s.module === 'acp' ? { name: 'acp-chat', agentId: s.agent_id, sessionId: s.session_id } : { name: 'chat', agentId: s.agent_id, sessionId: s.session_id })
+    navigate(s.module === 'more_agents' ? { name: 'more-agent-chat', agentId: s.agent_id, sessionId: s.session_id } : { name: 'chat', agentId: s.agent_id, sessionId: s.session_id })
   }
   return (
     <button class="row press wf-session" onClick={open}>
-      <span class="wf-block-icon">{running ? <Spark size={16} /> : <WfIcon name={s.module === 'acp' ? 'plug' : 'agent'} size={18} />}</span>
-      <span class="label">{name}<span class="hint">{s.module === 'acp' ? 'ACP session' : 'Claude session'}{live?.title ? ` · ${live.title}` : ''}{running ? ' · running' : live?.pending ? ' · needs you' : ''}</span></span>
+      <span class="wf-block-icon">{running ? <Spark size={16} /> : <WfIcon name={s.module === 'more_agents' ? 'plug' : 'agent'} size={18} />}</span>
+      <span class="label">{name}<span class="hint">{s.module === 'more_agents' ? 'More Agent session' : 'Claude session'}{live?.title ? ` · ${live.title}` : ''}{running ? ' · running' : live?.pending ? ' · needs you' : ''}</span></span>
       <IconChevron class="chev" />
     </button>
   )

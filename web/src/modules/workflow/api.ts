@@ -30,7 +30,7 @@ export interface PluginSchema {
   source?: string; version?: string; requires_env?: string[]; uses_agent_slot?: boolean
 }
 export interface Catalog { plugins: PluginSchema[]; containers: PluginSchema[]; markers: PluginSchema[]; errors: { folder: string; error: string; missing_deps?: boolean }[]; watching?: boolean }
-export interface ConsoleSession { module: 'agents' | 'acp'; agent_id: string; session_id: string; title: string; state: string; parent: Json }
+export interface ConsoleSession { module: 'agents' | 'more_agents'; agent_id: string; session_id: string; title: string; state: string; parent: Json }
 export interface WfSettings { agent_concurrency: number; run_retention: number; plugin_watch: boolean; default_cwd: string; env: Record<string, string> }
 export interface TriggerInfo { enabled: boolean; token: string; path: string; last_used_at: number | null }
 export interface RunOpts { from_block?: string; only_block?: string; stop_after?: string; base_run_id?: string | null }

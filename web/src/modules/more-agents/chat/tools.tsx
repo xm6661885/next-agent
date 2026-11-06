@@ -1,4 +1,4 @@
-// ACP tool call cards. ACP sends a human title, a kind (read, edit, execute, fetch, ...) and a status,
+// More Agent tool call cards. More Agents send a human title, a kind (read, edit, execute, fetch, ...) and a status,
 // with results as text and diffs, so the cards are simpler than the Claude ones.
 
 import { useEffect, useState } from 'preact/hooks'
@@ -39,6 +39,12 @@ export function ToolCard({ it }: { it: AcpToolItem }) {
   const running = !it.result && it.status !== 'completed' && it.status !== 'failed'
   const err = !!it.result?.is_error || it.status === 'failed'
   const diffs = it.result?.diffs || []
+  const kind = it.acp_kind || ''
+  const isExecute = kind === 'execute'
+  const isEdit = kind === 'edit'
+  const isFetch = kind === 'fetch'
+  const isSearch = kind === 'search'
+  const isMcp = it.name?.startsWith('mcp__') || false
   return (
     <div class={`tool ${running ? 'running' : ''} ${err ? 'err' : ''} ${open ? 'open' : ''}`}>
       <button class="tool-head" onClick={() => setOpen(!open)} aria-expanded={open}>
@@ -55,9 +61,15 @@ export function ToolCard({ it }: { it: AcpToolItem }) {
       )}
       {open && (
         <div class="tool-body">
-          {it.input && Object.keys(it.input).length > 0 && <Output text={JSON.stringify(it.input, null, 2)} lang="json" />}
+          {isExecute && it.input?.command && (
+            <div class="tool-execute">
+              <div class="tool-cmd"><span class="prompt">$</span><code dangerouslySetInnerHTML={{ __html: highlightCode(it.input.command, 'bash') }} /></div>
+              {it.input.cwd && <div class="tool-note mono">{shortPath(it.input.cwd)}</div>}
+            </div>
+          )}
+          {!isExecute && !isEdit && it.input && Object.keys(it.input).length > 0 && <Output text={JSON.stringify(it.input, null, 2)} lang="json" />}
           {diffs.map((d, k) => <Diff key={k} d={d} />)}
-          {it.result?.content && <Output text={it.result.content} err={err} />}
+          {it.result?.content && !diffs.length && <Output text={it.result.content} err={err} lang={isExecute ? 'text' : isMcp || isSearch || isFetch ? 'text' : undefined} />}
         </div>
       )}
     </div>

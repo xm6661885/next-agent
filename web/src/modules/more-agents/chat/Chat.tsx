@@ -1,4 +1,4 @@
-// ACP chat page: a copy of the Claude chat trimmed to what ACP supports (no steer, edit, fork, rewind,
+// More Agent chat page: a copy of the Claude chat trimmed to what More Agents support (no steer, edit, fork, rewind,
 // side questions, background tasks or generative UI). Model and other options come from the agent's configOptions.
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
@@ -9,12 +9,12 @@ import { Avatar, Spark } from '../../../components/crab'
 import { BackButton, Sheet, TopBar, promptDialog } from '../../../components/ui'
 import { IconBrain, IconCheck, IconChevron, IconChevronDown, IconCopy, IconMore, IconEdit, IconSelect, IconNewChat, IconTerminal, IconMoon, IconPlug, IconRefresh } from '../../../components/icons'
 import { openViewer } from '../../../components/ImageViewer'
-import { copyText, fmtBytes, fmtDuration, haptic, uid } from '../../../lib/util'
+import { copyText, fmtBytes, fmtDuration, haptic, shortPath, uid } from '../../../lib/util'
 import type { Attachment, Item, TextItem, ThinkingItem, UserItem } from '../../../lib/types'
-import { acpApi, type AcpAgent, type ConfigOption } from '../api'
-import { AcpConn } from './conn'
+import { moreAgentsApi, type MoreAgent, type ConfigOption } from '../api'
+import { MoreAgentConn } from './conn'
 import { Composer } from './Composer'
-import { PermissionCard } from './cards'
+import { PermissionCard, QuestionCard } from './cards'
 import { ToolCard, type AcpToolItem } from './tools'
 import { mathVersion, renderMarkdown, renderStreaming } from './markdown'
 import { clearFade, fadeTail, makeFollower, newFade, unwrapFade } from './fade'
@@ -22,11 +22,11 @@ import { clearFade, fadeTail, makeFollower, newFade, unwrapFade } from './fade'
 const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches
 
 /** Shown in place of the user's avatar choice when the agent has none. */
-export const acpAvatar = (a: AcpAgent | null) => a ? { ...a, avatar: a.avatar, id: a.id, order: a.order } : { id: '', avatar: 'crab:blue', order: 0 }
+export const moreAgentAvatar = (a: MoreAgent | null) => a ? { ...a, avatar: a.avatar, id: a.id, order: a.order } : { id: '', avatar: 'crab:blue', order: 0 }
 
-export function AcpChat({ agentId, sessionId }: { agentId: string; sessionId: string }) {
-  const conn = useMemo(() => new AcpConn(sessionId), [sessionId])
-  const [agent, setAgent] = useState<AcpAgent | null>(null)
+export function MoreAgentChat({ agentId, sessionId }: { agentId: string; sessionId: string }) {
+  const conn = useMemo(() => new MoreAgentConn(sessionId), [sessionId])
+  const [agent, setAgent] = useState<MoreAgent | null>(null)
   const [optionsOpen, setOptionsOpen] = useState(false)
   const [msgMenu, setMsgMenu] = useState<UserItem | null>(null)
   const [selectText, setSelectText] = useState<string | null>(null)
@@ -45,15 +45,16 @@ export function AcpChat({ agentId, sessionId }: { agentId: string; sessionId: st
       const s = conn.session.value
       const empty = s && !s.remote_id && s.turns === 0 && conn.items.value.length === 0
       conn.dispose()
-      if (empty) acpApi.deleteSession(s.id).catch(() => {})
+      if (empty) moreAgentsApi.deleteSession(s.id).catch(() => {})
     }
   }, [conn])
-  useEffect(() => { acpApi.agent(agentId).then(setAgent).catch(() => {}) }, [agentId])
+  useEffect(() => { moreAgentsApi.agent(agentId).then(setAgent).catch(() => {}) }, [agentId])
 
   const items = conn.items.value
   const state = conn.state.value
   const session = conn.session.value
   const perms = conn.perms.value
+  const questions = conn.questions.value
   const busy = state === 'running' || state === 'interrupting'
   const options = session?.config_options || []
   const modelOpt = options.find((o) => o.category === 'model' || o.id === 'model')
@@ -75,7 +76,7 @@ export function AcpChat({ agentId, sessionId }: { agentId: string; sessionId: st
     if (!el || !stick.current) return
     if (firstPaint.current || reduceMotion || el.scrollHeight - el.scrollTop - el.clientHeight > 1500) { follower.jump(); firstPaint.current = false }
     else follower.follow()
-  }, [items, perms, state])
+  }, [items, perms, questions, state])
   useEffect(() => {
     const el = scroller.current, inner = el?.firstElementChild
     if (!el || !inner || typeof ResizeObserver === 'undefined') return
@@ -91,7 +92,7 @@ export function AcpChat({ agentId, sessionId }: { agentId: string; sessionId: st
     const el = scroller.current
     const prevH = el?.scrollHeight || 0
     try {
-      const r = await acpApi.items(sessionId, first.id)
+      const r = await moreAgentsApi.items(sessionId, first.id)
       conn.prependHistory(r.items, r.has_more)
       requestAnimationFrame(() => { if (el) el.scrollTop += el.scrollHeight - prevH })
     } catch (e) { toastError(e) } finally { setLoadingOlder(false) }
@@ -123,27 +124,27 @@ export function AcpChat({ agentId, sessionId }: { agentId: string; sessionId: st
   const rename = async () => {
     const t = await promptDialog({ title: 'Rename conversation', value: session?.title || '', confirm: 'Rename' })
     if (!t?.trim()) return
-    try { conn.session.value = await acpApi.updateSession(sessionId, { title: t.trim() }) } catch (e) { toastError(e) }
+    try { conn.session.value = await moreAgentsApi.updateSession(sessionId, { title: t.trim() }) } catch (e) { toastError(e) }
   }
   const [creating, setCreating] = useState(false)
   const newChat = async () => {
     if (creating) return
     setCreating(true)
     try {
-      const s = await acpApi.createSession(agentId)
+      const s = await moreAgentsApi.createSession(agentId)
       haptic()
-      navigate({ name: 'acp-chat', agentId, sessionId: s.id }, { replace: true })
+      navigate({ name: 'more-agent-chat', agentId, sessionId: s.id }, { replace: true })
     } catch (e) { toastError(e) } finally { setCreating(false) }
   }
   const [linking, setLinking] = useState(false)
   const connect = async (fresh: boolean) => {
     if (linking) return
     setLinking(true)
-    try { conn.session.value = await acpApi.connect(sessionId, fresh); toast(fresh ? 'Reconnected' : 'Connected') } catch (e) { toastError(e) } finally { setLinking(false) }
+    try { conn.session.value = await moreAgentsApi.connect(sessionId, fresh); toast(fresh ? 'Reconnected' : 'Connected') } catch (e) { toastError(e) } finally { setLinking(false) }
   }
   const sleep = async () => {
     setOptionsOpen(false)
-    try { conn.session.value = await acpApi.sleep(sessionId); toast('Disconnected') } catch (e) { toastError(e) }
+    try { conn.session.value = await moreAgentsApi.sleep(sessionId); toast('Disconnected') } catch (e) { toastError(e) }
   }
   const openChatImage = (el: HTMLImageElement) => {
     const all = Array.from(scroller.current?.querySelectorAll<HTMLImageElement>('.msg-assistant img') || [])
@@ -193,7 +194,7 @@ export function AcpChat({ agentId, sessionId }: { agentId: string; sessionId: st
   const last = items[items.length - 1]
   const streamingText = last?.kind === 'text' && (last as TextItem).streaming
   const status = conn.conn.value
-  const shown = acpAvatar(agent)
+  const shown = moreAgentAvatar(agent)
 
   return (
     <div class="page chat-page">
@@ -206,8 +207,14 @@ export function AcpChat({ agentId, sessionId }: { agentId: string; sessionId: st
         <button class="chat-title press" onClick={() => setOptionsOpen(true)}>
           <AvatarFor a={shown} busy={busy} size={32} />
           <span class="titles">
-            <span class="t1">{session?.title || 'New conversation'}</span>
-            <span class="t2">{agent?.name}{state === 'connecting' ? <> · <Spark size={11} /> connecting</> : ''}</span>
+            <span class="t1">
+              {session?.title || 'New conversation'}
+              {session?.context && <span class="context-badge">{session.context.used}/{session.context.max}</span>}
+            </span>
+            <span class="t2">
+              {session?.cwd && <button class="cwd-chip" onClick={(e) => { e.stopPropagation(); copyText(session.cwd); toast('Copied') }}>{shortPath(session.cwd)}</button>}
+              {state === 'connecting' && <><Spark size={11} /> connecting</>}
+            </span>
           </span>
         </button>
       </TopBar>
@@ -225,7 +232,7 @@ export function AcpChat({ agentId, sessionId }: { agentId: string; sessionId: st
             <div class="chat-empty rise">
               <AvatarFor a={shown} size={72} />
               <h2 class="serif">How can I help?</h2>
-              <p>{agent?.info?.title || agent?.info?.name || (agent ? `${agent.host}:${agent.port}` : '')}</p>
+              <p>{agent?.info?.title || agent?.info?.name || (agent && agent.kind === 'acp' ? `${agent.host}:${agent.port}` : '')}</p>
             </div>
           )}
           {rows.map((r) => {
@@ -244,6 +251,8 @@ export function AcpChat({ agentId, sessionId }: { agentId: string; sessionId: st
             )
           })}
           {perms.map((p) => <PermissionCard key={p.id} req={p} conn={conn} />)}
+      {questions.map((q) => <QuestionCard key={q.id} req={q} onReply={(id: string, answers: Record<string, string[]> | null) => conn.send({ type: 'question_reply', id, answers })} />)}
+      {questions.map((q) => <QuestionCard key={q.id} req={q} onReply={(id, answers) => conn.send({ type: 'question_reply', id, answers })} />)}
           {busy && !streamingText && perms.length === 0 && <Working state={state} start={conn.turnStart.value} />}
           <div style={{ height: '8px' }} />
         </div>
@@ -285,7 +294,7 @@ export function AcpChat({ agentId, sessionId }: { agentId: string; sessionId: st
             {state !== 'offline' && <button disabled={busy || linking || state === 'connecting'} onClick={() => connect(true)}><IconRefresh /> Reconnect</button>}
             {state !== 'offline' && <button disabled={busy} onClick={sleep}><IconMoon /> Disconnect</button>}
           </div>
-          {agent?.info && <div class="init-info"><span>{agent.info.title || agent.info.name}{agent.info.version ? ` ${agent.info.version}` : ''}</span><span>{agent.host}:{agent.port}</span></div>}
+          {agent?.info && agent.kind === 'acp' && <div class="init-info"><span>{agent.info.title || agent.info.name}{agent.info.version ? ` ${agent.info.version}` : ''}</span><span>{agent.host}:{agent.port}</span></div>}
         </div>
       </Sheet>
       <Sheet open={selectText !== null} onClose={() => setSelectText(null)} title="Select text">
@@ -304,15 +313,15 @@ export function AcpChat({ agentId, sessionId }: { agentId: string; sessionId: st
 }
 
 function AvatarFor({ a, size, busy }: { a: { id: string; avatar: string; order: number }; size: number; busy?: boolean }) {
-  // Uploaded avatars of ACP agents are served by the ACP routes, not the Claude ones.
+  // Uploaded avatars of More Agents are served by the More Agent routes, not the Claude ones.
   if (a.avatar === 'file') return (
     <span class={`avatar ${busy ? 'busy' : ''}`} style={{ width: `${size}px`, height: `${size}px` }}>
-      <img src={acpApi.avatarUrl(a)} alt="" loading="lazy" decoding="async" />
+      <img src={moreAgentsApi.avatarUrl(a)} alt="" loading="lazy" decoding="async" />
     </span>
   )
   return <Avatar agent={a} size={size} busy={busy} />
 }
-export { AvatarFor as AcpAvatar }
+export { AvatarFor as MoreAgentAvatar }
 
 function Working({ state, start }: { state: string; start: number | null }) {
   const [now, setNow] = useState(Date.now())
@@ -330,8 +339,8 @@ function Working({ state, start }: { state: string; start: number | null }) {
   )
 }
 
-/** Messages sent while the agent works; ACP sends them in order once the turn ends. */
-function QueueTray({ items, conn, onEdit }: { items: Item[]; conn: AcpConn; onEdit: (text: string) => void }) {
+/** Messages sent while the agent works; More Agents send them in order once the turn ends. */
+function QueueTray({ items, conn, onEdit }: { items: Item[]; conn: MoreAgentConn; onEdit: (text: string) => void }) {
   const queued = items.filter((x): x is UserItem => x.kind === 'user' && x.pending && !!x.queued)
   if (!queued.length) return null
   const edit = async (u: UserItem) => {
@@ -364,10 +373,12 @@ const ItemView = memo(function ItemView({ it, reply, onUserMenu, onImage }: {
     case 'result': {
       const r = it as any
       const stopped = r.stop_reason === 'cancelled', lost = r.stop_reason === 'disconnected'
+      const u = r.usage
       return (
         <div class={`turn-end ${lost ? 'err' : ''}`}>
-          {stopped ? 'Stopped' : lost ? 'Connection lost' : r.stop_reason && r.stop_reason !== 'end_turn' ? `Ended: ${r.stop_reason.replace(/_/g, ' ')}` : 'Done'}
-          {r.duration_ms ? ` in ${fmtDuration(r.duration_ms)}` : ''}
+          <span>{stopped ? 'Stopped' : lost ? 'Connection lost' : r.stop_reason && r.stop_reason !== 'end_turn' ? `Ended: ${r.stop_reason.replace(/_/g, ' ')}` : 'Done'}
+          {r.duration_ms ? ` in ${fmtDuration(r.duration_ms)}` : ''}</span>
+          {u && (u.input || u.output) && <span class="usage-meta"> · {u.input || 0}{u.cached_input ? `+${u.cached_input}` : ''}→{u.output || 0}{u.reasoning ? `+${u.reasoning}` : ''}</span>}
           {reply && <CopyReply text={reply} />}
         </div>
       )
@@ -412,6 +423,7 @@ function CopyReply({ text }: { text: string }) {
 function UserBubble({ it, onMenu }: { it: UserItem; onMenu: (u: UserItem) => void }) {
   const images = it.attachments?.filter((a) => a.is_image) || []
   const files = it.attachments?.filter((a) => !a.is_image) || []
+  const steered = (it as any).steered
   const press = useRef<{ timer?: number; x: number; y: number }>({ x: 0, y: 0 })
   const startPress = (e: TouchEvent) => {
     const t = e.touches[0]
@@ -424,6 +436,7 @@ function UserBubble({ it, onMenu }: { it: UserItem; onMenu: (u: UserItem) => voi
   const endPress = () => clearTimeout(press.current.timer)
   return (
     <div class={`msg-user ${it.pending ? 'pending' : ''}`}>
+      {steered && <div class="msg-label">Steered</div>}
       {images.length > 0 && (
         <div class="msg-images">
           {images.map((a, i) => (
@@ -461,8 +474,9 @@ function AssistantText({ it, onImage }: { it: TextItem; onImage: (el: HTMLImageE
       setTimeout(() => { btn.textContent = 'Copy' }, 1400)
     })
   }
+  const phase = (it as any).phase
   return (
-    <div class={`msg-assistant md ${it.streaming ? 'streaming' : ''}`} ref={ref} onClick={onClick}
+    <div class={`msg-assistant md ${it.streaming ? 'streaming' : ''} ${phase === 'commentary' ? 'commentary' : ''}`} ref={ref} onClick={onClick}
       onAnimationEnd={(e) => unwrapFade(e.target as Element)}
       dangerouslySetInnerHTML={{ __html: it.streaming ? renderStreaming(it.text) : renderMarkdown(it.text) }} />
   )

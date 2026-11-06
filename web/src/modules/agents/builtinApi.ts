@@ -2,7 +2,7 @@
 
 import { request } from '../../lib/api'
 
-export interface ScheduleTarget { module: 'agents' | 'acp'; agent_id: string; session: string }
+export interface ScheduleTarget { module: 'agents' | 'more_agents'; agent_id: string; session: string }
 export interface Schedule {
   id: string; title: string; prompt: string; cron: string | null; at: string | null
   target: ScheduleTarget; model: string; effort: string; enabled: boolean
@@ -11,7 +11,7 @@ export interface Schedule {
   last_result: { session_id: string | null; is_error: boolean; error: string | null } | null
 }
 export interface Task {
-  task_id: string; module: 'agents' | 'acp'; agent_id: string; session_id: string; title: string
+  task_id: string; module: 'agents' | 'more_agents'; agent_id: string; session_id: string; title: string
   state: string; result: { text: string; is_error: boolean; error: string | null } | null; created_at: number
 }
 export type ScheduleInput = Omit<Schedule, 'id' | 'created_by' | 'created_at' | 'next_run' | 'last_run' | 'last_result'>
