@@ -4,7 +4,7 @@
 import { signal } from '@preact/signals'
 import { authed, wsUrl } from '../../../lib/store'
 import type { Item } from '../../../lib/types'
-import type { Permission, MoreSession, SessionState } from '../api'
+import type { Permission, Question, MoreSession, SessionState } from '../api'
 
 export type ConnStatus = 'connecting' | 'open' | 'reconnecting' | 'closed'
 
@@ -16,6 +16,7 @@ export class MoreAgentConn {
   /** Local Date.now() at which the current turn started, from the server's elapsed_ms. */
   turnStart = signal<number | null>(null)
   perms = signal<Permission[]>([])
+  questions = signal<Question[]>([])
   conn = signal<ConnStatus>('connecting')
   loaded = signal(false)
 
@@ -165,6 +166,7 @@ export class MoreAgentConn {
         this.state.value = msg.state || 'offline'
         this.turnStart.value = typeof msg.elapsed_ms === 'number' ? Date.now() - msg.elapsed_ms : null
         this.perms.value = msg.permissions || []
+        this.questions.value = msg.questions || []
         this.loaded.value = true
         this.conn.value = 'open'
         this.retry = 0

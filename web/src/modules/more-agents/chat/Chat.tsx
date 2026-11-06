@@ -14,7 +14,7 @@ import type { Attachment, Item, TextItem, ThinkingItem, UserItem } from '../../.
 import { moreAgentsApi, type MoreAgent, type ConfigOption } from '../api'
 import { MoreAgentConn } from './conn'
 import { Composer } from './Composer'
-import { PermissionCard } from './cards'
+import { PermissionCard, QuestionCard } from './cards'
 import { ToolCard, type AcpToolItem } from './tools'
 import { mathVersion, renderMarkdown, renderStreaming } from './markdown'
 import { clearFade, fadeTail, makeFollower, newFade, unwrapFade } from './fade'
@@ -54,6 +54,7 @@ export function MoreAgentChat({ agentId, sessionId }: { agentId: string; session
   const state = conn.state.value
   const session = conn.session.value
   const perms = conn.perms.value
+  const questions = conn.questions.value
   const busy = state === 'running' || state === 'interrupting'
   const options = session?.config_options || []
   const modelOpt = options.find((o) => o.category === 'model' || o.id === 'model')
@@ -75,7 +76,7 @@ export function MoreAgentChat({ agentId, sessionId }: { agentId: string; session
     if (!el || !stick.current) return
     if (firstPaint.current || reduceMotion || el.scrollHeight - el.scrollTop - el.clientHeight > 1500) { follower.jump(); firstPaint.current = false }
     else follower.follow()
-  }, [items, perms, state])
+  }, [items, perms, questions, state])
   useEffect(() => {
     const el = scroller.current, inner = el?.firstElementChild
     if (!el || !inner || typeof ResizeObserver === 'undefined') return
@@ -250,6 +251,8 @@ export function MoreAgentChat({ agentId, sessionId }: { agentId: string; session
             )
           })}
           {perms.map((p) => <PermissionCard key={p.id} req={p} conn={conn} />)}
+      {questions.map((q) => <QuestionCard key={q.id} req={q} onReply={(id: string, answers: Record<string, string[]> | null) => conn.send({ type: 'question_reply', id, answers })} />)}
+      {questions.map((q) => <QuestionCard key={q.id} req={q} onReply={(id, answers) => conn.send({ type: 'question_reply', id, answers })} />)}
           {busy && !streamingText && perms.length === 0 && <Working state={state} start={conn.turnStart.value} />}
           <div style={{ height: '8px' }} />
         </div>
