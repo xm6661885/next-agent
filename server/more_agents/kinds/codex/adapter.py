@@ -121,7 +121,11 @@ class CodexRuntime:
         return {'currentModeId':self.session.get('mode') or self.manager.agent(self.session['agent_id']).mode,
                 'availableModes':[{'id':k,'name':v['name'],'description':v['description']} for k,v in MODES.items()]}
     def _set_option(self,key,value):
-        if key=='model': return {'model':value,'effort':self.session.get('effort','') if value else '' ,'config_options':self._options()}
+        if key=='model':
+            effort=self.session.get('effort','')
+            supported=self.manager.model_efforts(value)
+            if supported and effort not in supported: effort=''
+            return {'model':value,'effort':effort,'config_options':self._options()}
         if key=='effort': return {'effort':value,'config_options':self._options()}
         raise ValueError('Unknown config option')
     async def _worker(self):
