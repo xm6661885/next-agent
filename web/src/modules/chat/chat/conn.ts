@@ -177,8 +177,14 @@ export class ChatConn {
         this.turnStart.value = typeof msg.elapsed_ms === 'number' ? Date.now() - msg.elapsed_ms : null
         if (this.conn.value !== 'open') { this.conn.value = 'open'; this.retry = 0; this.flush() }
         break
-      case 'truncate': this.cut(msg.uuid, true); break
-      case 'truncate_after': this.cut(msg.uuid, false); break
+      case 'items': {
+        // A version switch, retry or edit replaced the visible branch.
+        const items: Item[] = msg.items || []
+        this.reindex(items)
+        this.items.value = items
+        this.hasMore.value = !!msg.has_more
+        break
+      }
       case 'session': this.session.value = msg.session; break
       case 'error': {
         const w = msg.req_id && this.waiters.get(msg.req_id)
@@ -233,15 +239,6 @@ export class ChatConn {
     const list = this.items.value.slice()
     const cur = list[i] as any
     list[i] = { ...cur, [field]: (cur[field] || '') + text }
-    this.items.value = list
-  }
-
-  /** Drop the user item `uuid` (with = true) or only what follows it. */
-  private cut(uuid: string, withIt: boolean) {
-    const i = this.items.value.findIndex((x) => x.kind === 'user' && (x.uuid === uuid || x.id === uuid))
-    if (i < 0) return
-    const list = this.items.value.slice(0, withIt ? i : i + 1)
-    this.reindex(list)
     this.items.value = list
   }
 

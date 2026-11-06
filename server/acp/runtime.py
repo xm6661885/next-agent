@@ -230,6 +230,13 @@ class AcpRuntime:
             elif typ=='sleep':
                 if self.active or self.queued: raise HTTPException(409, 'Session is running')
                 await self._disconnect()
+            elif typ=='connect':
+                await self._connect()
+                self.last_activity = time.monotonic()
+            elif typ=='reconnect':
+                if self.active or self.queued: raise HTTPException(409, 'Session is running')
+                await self._disconnect()
+                await self._connect()
             elif typ in ('set_config', 'set_mode'):
                 await self._connect()
                 if typ=='set_config':
@@ -345,7 +352,7 @@ class AcpManager:
                       live=sum(bool(r.client and r.client.writer and not r.client.closed.done()) for r in runtimes),
                       pending=sum(len(r.permissions) for r in runtimes),
                       last_session={k: sessions[0][k] for k in ('id', 'title', 'updated_at', 'preview')} if sessions else None)
-        return {**agent.model_dump(), 'token': '', 'token_set': bool(agent.token), 'kind': 'acp', 'status': status, 'info': self.info.get(agent.id)}
+        return {**agent.model_dump(), 'kind': 'acp', 'status': status, 'info': self.info.get(agent.id)}
 
     def agents(self):
         return [self.agent_view(a) for a in sorted(self.config.data.agents, key=lambda a: (a.order, a.created_at))]
@@ -394,6 +401,13 @@ class AcpManager:
         runtime = self.runtime(sid)
         if runtime.active or runtime.queued or runtime.state not in ('offline', 'idle'): raise HTTPException(409, 'Session is running')
         await runtime.submit('sleep')
+        return self.view(sid)
+
+    async def connect(self, sid, fresh=False):
+        runtime = self.runtime(sid)
+        if fresh and (runtime.active or runtime.queued or runtime.state not in ('offline', 'idle')):
+            raise HTTPException(409, 'Session is running')
+        await runtime.submit('reconnect' if fresh else 'connect')
         return self.view(sid)
 
     def mark_read(self, sid):

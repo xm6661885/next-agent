@@ -1,6 +1,7 @@
 """Authenticated Chat REST and WebSocket endpoints."""
 import asyncio
 from typing import Literal
+import httpx
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
@@ -12,6 +13,7 @@ from .store import IMAGE_MIMES, page
 
 class ConfigPatch(BaseModel):
     defaults: dict = Field(default_factory=dict)
+    profile: dict = Field(default_factory=dict)
     providers: list[Provider] = Field(default_factory=list)
     mcp_servers: dict[str, McpServer] = Field(default_factory=dict)
 
@@ -39,13 +41,16 @@ class Reorder(BaseModel):
 
 
 class Command(BaseModel):
-    type: Literal['resume', 'ping', 'send', 'stop', 'edit', 'regenerate', 'set_model', 'set_effort', 'set_mcp']
+    type: Literal['resume', 'ping', 'send', 'stop', 'edit', 'regenerate', 'edit_reply', 'switch', 'set_model', 'set_effort', 'set_mcp']
     seq: int | None = Field(default=None, ge=0)
     req_id: str | int | None = None
     client_id: str | None = None
     text: str = ''
     attachments: list[str] = Field(default_factory=list)
     uuid: str | None = None
+    id: str | None = None
+    key: str | None = None
+    index: int | None = None
     model: str | None = None
     effort: Effort | Literal[''] | None = None
     mcp: list[str] | None = None
@@ -114,7 +119,13 @@ async def session_socket(ws, sid, core, manager):
                     runtime.idle()
                     attachments = [manager.store.attachment(sid, fid) for fid in message.attachments]
                     runtime.send(message.text, attachments, message.client_id, message.uuid if typ=='edit' else None)
-                elif typ=='regenerate': runtime.regenerate()
+                elif typ=='regenerate': runtime.regenerate(message.uuid)
+                elif typ=='edit_reply':
+                    if message.id is None: raise ValueError('id is required')
+                    runtime.edit_reply(message.id, message.text)
+                elif typ=='switch':
+                    if message.key is None or message.index is None: raise ValueError('key and index are required')
+                    runtime.switch(message.key, message.index)
                 elif typ=='stop': await asyncio.shield(runtime.stop())
                 else:
                     field = typ[4:]
@@ -142,7 +153,8 @@ def router(core, manager):
     async def meta():
         config = manager.config.data
         return dict(models=[dict(id=p.id+'/'+m, provider=p.id, model=m, format=p.format) for p in config.providers for m in p.models],
-                    efforts=['off', 'low', 'medium', 'high', 'max'], defaults=config.defaults.model_dump(), mcp_servers=list(config.mcp_servers))
+                    efforts=['off', 'low', 'medium', 'high', 'max'], defaults=config.defaults.model_dump(),
+                    mcp_servers=list(config.mcp_servers), profile=config.profile.model_dump())
 
     @api.get('/api/chat/config')
     async def config(): return manager.config_view()
@@ -150,11 +162,33 @@ def router(core, manager):
     @api.patch('/api/chat/config')
     async def update_config(body: ConfigPatch): return manager.patch_config(body)
 
+    @api.post('/api/chat/providers/models')
+    async def provider_models(body: Provider):
+        if not body.api_key:
+            body.api_key = next((p.api_key for p in manager.config.data.providers if p.id==body.id), '')
+        try: return {'models': await providers.list_models(body)}
+        except (providers.ProviderError, httpx.HTTPError) as exc: raise HTTPException(502, str(exc)) from exc
+
     @api.post('/api/chat/providers/{pid}/test')
     async def test_provider(pid: str):
         provider = next((p for p in manager.config.data.providers if p.id==pid), None)
         if provider is None: raise HTTPException(404, 'Provider not found')
         return await providers.test(provider)
+
+    @api.get('/api/chat/profile/avatar')
+    async def profile_avatar():
+        path = manager.store.avatars / '_user'
+        if not path.exists(): raise HTTPException(404, 'Avatar not found')
+        return FileResponse(path, media_type=(manager.store.avatars / '_user.mime').read_text())
+
+    @api.post('/api/chat/profile/avatar')
+    async def upload_profile_avatar(file: UploadFile = File(...)):
+        if file.content_type not in IMAGE_MIMES: raise HTTPException(415, 'Unsupported avatar type')
+        content = await file.read(2*1024*1024+1)
+        if len(content)>2*1024*1024: raise HTTPException(413, 'Avatar is too large')
+        atomic_write(manager.store.avatars / '_user', content)
+        atomic_write(manager.store.avatars / '_user.mime', file.content_type)
+        return {'profile': manager.patch_config(ConfigPatch(profile={'avatar': 'file'}))['profile']}
 
     @api.get('/api/chat/assistants')
     async def assistants(): return manager.assistants()

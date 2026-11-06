@@ -25,6 +25,11 @@ class Defaults(Settings):
     title_model: str = ''
 
 
+class Profile(BaseModel):
+    name: str = Field(default='You', min_length=1)
+    avatar: str = ''
+
+
 class DefaultAssistant(Settings):
     name: str = Field(default='Temporary chat', min_length=1)
     avatar: str = 'crab:gray'
@@ -67,6 +72,7 @@ class McpServer(BaseModel):
 
 class ChatConfig(BaseModel):
     defaults: Defaults = Field(default_factory=Defaults)
+    profile: Profile = Field(default_factory=Profile)
     providers: list[Provider] = Field(default_factory=list)
     mcp_servers: dict[str, McpServer] = Field(default_factory=dict)
     default_assistant: DefaultAssistant = Field(default_factory=DefaultAssistant)
@@ -90,6 +96,10 @@ temperature = -1
 max_tokens = 0
 mcp = []
 title_model = ""
+
+[profile]
+name = "You"
+avatar = ""
 
 [default_assistant]
 name = "Temporary chat"

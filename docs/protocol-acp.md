@@ -49,19 +49,19 @@ description = ""
 group = ""
 host = "mi-10"
 port = 8788
-token = ""                  # sent as AUTH line when non-empty; never returned by the API (see token_set)
+token = ""                  # sent as AUTH line when non-empty; returned as stored
 cwd = "/"                   # passed to session/new and session/load
 config_defaults = {}        # configId -> value applied with set_config_option right after session/new
 as_subagent = false         # allowed as a subagent by the built-in collaboration tools
 created_at = "..."
 order = 0
 ```
-`[server]` in acp.toml is ACP-only (no Claude CLI involved). `token` is write-only in the API: GET returns
-`token: ""` and `token_set: bool`; PATCH with `token` omitted or `null` keeps it, `""` clears it.
+`[server]` in acp.toml is ACP-only (no Claude CLI involved). GET returns `token` as stored; PATCH with `token`
+omitted or `null` keeps it, `""` clears it.
 
 ## Data shapes
 ### AcpAgent (API view)
-All config fields above (token masked) plus computed `kind: "acp"`, `status: {running, live, pending, last_session}`
+All config fields above (token included) plus computed `kind: "acp"`, `status: {running, live, pending, last_session}`
 (same meaning as Claude agents; `live` = sessions with an open TCP connection) and `info: {name, title, version} | null`
 (`agentInfo` from the last successful initialize, cached in memory).
 
@@ -114,6 +114,7 @@ patched at most once per second and at turn end). The remote replay during `sess
 | GET/PATCH/DELETE | `/api/acp/sessions/{sid}` | PATCH `{title?}` | `AcpSession` / `{ok}` |
 | POST | `/api/acp/sessions/{sid}/read` | | `AcpSession` |
 | POST | `/api/acp/sessions/{sid}/sleep` | | `AcpSession` (closes the TCP connection; never while running: `409`) |
+| POST | `/api/acp/sessions/{sid}/connect` | `?fresh=false` | `AcpSession` (opens the TCP connection; `fresh=true` replaces it, never while running: `409`) |
 | GET | `/api/acp/sessions/{sid}/items` | `?before=&limit=200` | `{items, has_more}` |
 | POST | `/api/acp/sessions/{sid}/uploads` | multipart `files` | `[Attachment]` stored in `data/acp/uploads/<sid>/` |
 | GET | `/api/acp/uploads/{sid}/{fid}` | | bytes |
@@ -140,6 +141,7 @@ Client -> server:
 | `permission_reply` | `{id, option_id}` | answer the request (`option_id` null = cancelled) |
 | `set_config` | `{config_id, value}` | `session/set_config_option` (connects if offline); updates `config_options`, emits `session` |
 | `set_mode` | `{mode_id}` | `session/set_mode` |
+| `connect` | `{}` | Open the TCP connection and load session options/modes |
 
 ## Connection lifecycle
 One TCP connection per session runtime, opened on demand by a single worker task that owns it. On open:

@@ -31,11 +31,20 @@ export function ModelPicker({ value, onChange, noneLabel }: {
 
   useEffect(() => { if (editing) setTimeout(() => input.current?.focus(), 30) }, [editing])
 
+  // A value set elsewhere (old config, API) may not be in the shared list yet; keep it before switching away.
+  const pick = (m: string) => {
+    setEditing(false)
+    if (isCustom && m !== value) addCustomModel(value).catch(toastError)
+    onChange(m)
+  }
+
   const commit = () => {
     const m = draft.trim()
     setEditing(false)
     if (!m) return
-    addCustomModel(m).catch(toastError)
+    const cur = meta.value?.defaults.custom_models || []
+    const add = [isCustom ? value : '', m].filter((x) => x && !cur.includes(x) && !known.includes(x))
+    if (add.length) saveCustomModels([...cur, ...add]).catch(toastError)
     if (m !== value) onChange(m)
   }
 
@@ -43,7 +52,7 @@ export function ModelPicker({ value, onChange, noneLabel }: {
     <div class="model-picker">
       <div class="model-chips">
         {list.map((m) => (
-          <button type="button" key={m || 'default'} class={`chip ${value === m ? 'pink' : ''}`} onClick={() => { setEditing(false); onChange(m) }}>
+          <button type="button" key={m || 'default'} class={`chip ${value === m ? 'pink' : ''}`} onClick={() => pick(m)}>
             {m || noneLabel}
           </button>
         ))}

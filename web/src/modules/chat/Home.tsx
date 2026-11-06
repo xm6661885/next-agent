@@ -62,6 +62,7 @@ export function ChatHome() {
           ) : (
             <div class="agent-grid">{list.map((a, i) => <AssistantCard key={a.id} a={a} index={i} meta={meta} />)}</div>
           )}
+          <div style={{ height: '96px' }} aria-hidden="true" />
         </div>
       </div>
       <button class="fab" onClick={() => navigate({ name: 'new-assistant' })}><IconPlus /> New assistant</button>
@@ -81,7 +82,7 @@ function DefaultCard({ meta }: { meta: ChatMeta | null }) {
   const rows = (list || []).slice(0, 5)
   const start = async () => { haptic(); try { await openNewChat(DEFAULT_ASSISTANT) } catch (e) { toastError(e) } }
   return (
-    <section class="temp-section rise" style={{ '--i': 2, marginTop: 0 }}>
+    <section class="temp-section rise" style={{ '--i': 2, marginTop: 0, paddingBottom: 0 }}>
       <div class="group-title">Temporary</div>
       <div class="temp-card">
         <button class="temp-card-top press" onClick={() => navigate({ name: 'assistant', assistantId: DEFAULT_ASSISTANT })}>

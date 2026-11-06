@@ -7,16 +7,22 @@ import { toast, toastError } from '../../../lib/store'
 import { back, navigate, parentOf, route } from '../../../lib/router'
 import { Avatar, Spark } from '../../../components/crab'
 import { BackButton, Sheet, Switch, TopBar, confirmDialog, promptDialog } from '../../../components/ui'
-import { IconBrain, IconCheck, IconChevron, IconChevronDown, IconCopy, IconMore, IconEdit, IconSelect, IconNewChat, IconPlug, IconRefresh, IconTrash, IconClose } from '../../../components/icons'
+import { IconBrain, IconChevronDown, IconCopy, IconMore, IconEdit, IconSelect, IconNewChat, IconPlug, IconRefresh, IconTrash, IconClose } from '../../../components/icons'
 import { openViewer } from '../../../components/ImageViewer'
-import { copyText, fmtDuration, haptic, uid } from '../../../lib/util'
-import type { Attachment, Item, TextItem, ThinkingItem, UserItem } from '../../../lib/types'
+import { copyText, fmtDuration, fmtTokens, haptic, uid } from '../../../lib/util'
+import type { Attachment, Item, TextItem, UserItem as BaseUser } from '../../../lib/types'
 import { EFFORTS, chatApi, modelLabel, type Assistant, type ChatMeta, type Effort } from '../api'
 import { ChatConn } from './conn'
 import { Composer } from './Composer'
 import { ToolCard } from './tools'
+import { CopyAct, Act, MsgHead, ThinkingCard, Versions } from './messages'
+import { UserAvatar } from '../profile'
 import { mathVersion, renderMarkdown, renderStreaming } from './markdown'
 import { clearFade, fadeTail, makeFollower, newFade, unwrapFade } from './fade'
+
+// Chat items carry version info (docs/protocol-chat.md, Versions).
+type UserItem = BaseUser & { group?: string; version?: [number, number]; reply_version?: [number, number] }
+type ResultItem = { id: string; kind: 'result'; duration_ms: number; usage?: { input: number; output: number }; model?: string; stop_reason?: string }
 
 const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches
 
@@ -129,6 +135,14 @@ export function LlmChat({ assistantId, sessionId }: { assistantId: string; sessi
     const next = mcpOn.includes(id) ? mcpOn.filter((x) => x !== id) : [...mcpOn, id]
     command({ type: 'set_mcp', mcp: next })
   }
+  const [replyEdit, setReplyEdit] = useState<{ id: string; text: string } | null>(null)
+  const switchTo = (key: string, index: number) => { stick.current = false; command({ type: 'switch', key, index }) }
+  const saveReply = async () => {
+    if (!replyEdit) return
+    const err = await conn.send({ type: 'edit_reply', id: replyEdit.id, text: replyEdit.text })
+    if (err) return toast(err, 'error')
+    setReplyEdit(null)
+  }
   const startEdit = (u: UserItem) => {
     setMsgMenu(null)
     if (busy) return toast('Wait for the reply to finish', 'error')
@@ -160,52 +174,31 @@ export function LlmChat({ assistantId, sessionId }: { assistantId: string; sessi
     openViewer(all.map((x) => ({ src: x.src, name: x.alt })), Math.max(0, all.indexOf(el)))
   }
 
-  // Finished turns fold their process (thinking, tools) behind one row and show only the answer, as in the Claude chat.
-  const { rows, replies } = useMemo(() => {
-    const top = items
-    const replies = new Map<string, string>()
-    let buf: string[] = []
-    for (const it of top) {
-      if (it.kind === 'user') buf = []
-      else if (it.kind === 'text' && it.text.trim()) buf.push(it.text.trim())
-      else if (it.kind === 'result') { if (buf.length) replies.set(it.id, buf.join('\n\n')); buf = [] }
+  // One block per user message and one per reply (everything up to the next user message).
+  const turns = useMemo(() => {
+    type Turn = { user: UserItem } | { reply: Item[]; to: UserItem | null; result: ResultItem | null; text: TextItem | null; copy: string }
+    const out: Turn[] = []
+    let cur: Item[] | null = null, to: UserItem | null = null
+    const close = () => {
+      if (!cur) return
+      const texts = cur.filter((x): x is TextItem => x.kind === 'text' && !!x.text.trim())
+      out.push({ reply: cur, to, result: ([...cur].reverse().find((x) => x.kind === 'result') as unknown as ResultItem) || null,
+        text: texts.at(-1) || null, copy: texts.map((x) => x.text.trim()).join('\n\n') })
+      cur = null
     }
-    type Row = { it: Item } | { fold: string; items: Item[]; tools: number; ms: number }
-    const rows: Row[] = []
-    const turns: Item[][] = [[]]
-    for (const it of top) { if (it.kind === 'user') turns.push([it], []); else turns[turns.length - 1].push(it) }
-    turns.forEach((turn, ti) => {
-      const live = busy && ti === turns.length - 1
-      if (live || turn[0]?.kind === 'user') { for (const it of turn) rows.push({ it }); return }
-      let run: Item[] = []
-      const close = (next?: Item) => {
-        if (!run.length) return
-        const t0 = Date.parse(run[0].ts || ''), t1 = Date.parse(next?.ts || run.at(-1)!.ts || '')
-        rows.push({ fold: run[0].id, items: run, tools: run.filter((x) => x.kind === 'tool').length, ms: t1 - t0 })
-        run = []
-      }
-      for (const it of turn) {
-        if (it.kind === 'text' && !it.text.trim() && !it.streaming) { if (run.length) run.push(it); continue }
-        if (it.kind === 'tool' || it.kind === 'thinking') run.push(it)
-        else { close(it); rows.push({ it }) }
-      }
-      close()
-    })
-    return { rows, replies }
+    for (const it of items) {
+      if (it.kind === 'user') { close(); out.push({ user: it }); to = it; cur = [] }
+      else (cur ||= []).push(it)
+    }
+    close()
+    return out.filter((t) => !('reply' in t) || t.reply.length || busy)
   }, [items, busy])
-  const [unfolded, setUnfolded] = useState<Set<string>>(new Set())
-  const toggleFold = (id: string) => {
-    stick.current = false
-    markUser()
-    setUnfolded((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n })
-  }
 
   const last = items[items.length - 1]
   const streamingText = last?.kind === 'text' && (last as TextItem).streaming
   const status = conn.conn.value
   const shown = asst || { id: assistantId, avatar: 'crab:gray', order: 0, name: 'Chat' }
-  const lastUser = [...items].reverse().find((x): x is UserItem => x.kind === 'user')
-  const canRegen = !busy && !!lastUser && last?.kind !== 'user'
+  const me = meta?.profile || { name: 'You', avatar: '' }
 
   return (
     <div class="page chat-page">
@@ -240,23 +233,41 @@ export function LlmChat({ assistantId, sessionId }: { assistantId: string; sessi
               <p>{asst?.description || modelLabel(model)}</p>
             </div>
           )}
-          {rows.map((r) => {
-            const one = (it: Item) => <ItemView key={it.id} it={it} reply={replies.get(it.id)} onUserMenu={setMsgMenu} onImage={openChatImage}
-              onRegen={canRegen && it.kind === 'result' && it === last ? () => command({ type: 'regenerate' }) : undefined} />
-            if ('it' in r) return <div key={r.it.id} style={{ display: 'contents' }}>{one(r.it)}</div>
-            const open = unfolded.has(r.fold)
-            const secs = r.ms > 0 ? fmtDuration(r.ms) : ''
+          {turns.map((t, ti) => {
+            if ('user' in t) {
+              const u = t.user
+              return (
+                <div key={u.id} class="turn turn-user">
+                  <MsgHead right avatar={<UserAvatar p={me} size={26} />} name={me.name} ts={u.ts} />
+                  <UserBubble it={u} onMenu={setMsgMenu} />
+                  {!u.pending && <div class="msg-actions right">
+                    <Versions v={u.version} disabled={busy} onSwitch={(i) => switchTo(`u:${u.group || u.id}`, i)} />
+                    {u.text && <CopyAct text={u.text} />}
+                    <Act label="Edit" disabled={busy} onClick={() => startEdit(u)}><IconEdit width={15} height={15} /></Act>
+                  </div>}
+                </div>
+              )
+            }
+            const live = busy && ti === turns.length - 1
+            const r = t.result, u = r?.usage, to = t.to
             return (
-              <div key={'fold-' + r.fold} class={`fold ${open ? 'open' : ''}`}>
-                <button class="fold-head" onClick={() => toggleFold(r.fold)} aria-expanded={open}>
-                  <span>{r.tools ? 'Worked' : 'Thought'}{secs ? ` for ${secs}` : ''}{r.tools ? ` · ${r.tools} tool call${r.tools > 1 ? 's' : ''}` : ''}</span>
-                  <IconChevron class="fold-chev" width={14} height={14} />
-                </button>
-                {open && <div class="fold-body">{r.items.map(one)}</div>}
+              <div key={'r-' + (t.reply[0]?.id || ti)} class="turn turn-reply">
+                <MsgHead avatar={<AssistantAvatar a={shown} busy={live} size={26} />} name={shown.name} ts={t.reply[0]?.ts} />
+                {t.reply.map((it) => <ItemView key={it.id} it={it} onImage={openChatImage} />)}
+                {live && !streamingText && <Working start={conn.turnStart.value} />}
+                {!live && <div class="msg-actions">
+                  {to && <Versions v={to.reply_version} disabled={busy} onSwitch={(i) => switchTo(`r:${to.uuid || to.id}`, i)} />}
+                  {t.copy && <CopyAct text={t.copy} />}
+                  {to && <Act label="Retry" disabled={busy} onClick={() => command({ type: 'regenerate', uuid: to.uuid || to.id })}><IconRefresh width={15} height={15} /></Act>}
+                  {t.text && <Act label="Edit reply" disabled={busy} onClick={() => setReplyEdit({ id: t.text!.id, text: t.text!.text })}><IconEdit width={15} height={15} /></Act>}
+                  {r && <span class="msg-meta">
+                    {r.stop_reason === 'edited' ? 'Edited' : [r.model && modelLabel(r.model), r.duration_ms ? fmtDuration(r.duration_ms) : '',
+                      u && (u.input || u.output) ? `${fmtTokens(u.input)} in · ${fmtTokens(u.output)} out` : ''].filter(Boolean).join(' · ')}
+                  </span>}
+                </div>}
               </div>
             )
           })}
-          {busy && !streamingText && <Working start={conn.turnStart.value} />}
           <div style={{ height: '8px' }} />
         </div>
       </div>
@@ -323,6 +334,12 @@ export function LlmChat({ assistantId, sessionId }: { assistantId: string; sessi
           </div>
         )}
       </Sheet>
+      <Sheet open={!!replyEdit} onClose={() => setReplyEdit(null)} title="Edit reply"
+        actions={<button class="btn primary small" disabled={busy} onClick={saveReply}>Save</button>}>
+        {replyEdit && <textarea class="input reply-edit" rows={12} value={replyEdit.text}
+          onInput={(e) => setReplyEdit({ ...replyEdit, text: (e.target as HTMLTextAreaElement).value })} />}
+        <p class="fhint">Saved as a new version of this reply. Later messages use the edited text as context.</p>
+      </Sheet>
     </div>
   )
 }
@@ -353,41 +370,15 @@ function Working({ start }: { start: number | null }) {
   )
 }
 
-const ItemView = memo(function ItemView({ it, reply, onUserMenu, onImage, onRegen }: {
-  it: Item; reply?: string; onUserMenu: (u: UserItem) => void; onImage: (el: HTMLImageElement) => void; onRegen?: () => void
-}) {
+const ItemView = memo(function ItemView({ it, onImage }: { it: Item; onImage: (el: HTMLImageElement) => void }) {
   switch (it.kind) {
-    case 'user': return <UserBubble it={it} onMenu={onUserMenu} />
     case 'text': return <AssistantText it={it} onImage={onImage} />
-    case 'thinking': return <Thinking it={it} />
+    case 'thinking': return <ThinkingCard it={it} />
     case 'tool': return <ToolCard it={it} />
     case 'notice': return <div class={`notice ${it.level}`}>{it.text}</div>
-    case 'result': {
-      const r = it as any
-      const u = r.usage
-      return (
-        <div class="turn-end">
-          {r.model ? modelLabel(r.model) : 'Done'}
-          {r.duration_ms ? ` · ${fmtDuration(r.duration_ms)}` : ''}
-          {u && (u.input || u.output) ? ` · ${u.output} tokens` : ''}
-          {reply && <CopyReply text={reply} />}
-          {onRegen && <button type="button" class="copy-reply press" onClick={onRegen} aria-label="Regenerate"><IconRefresh width={14} height={14} />Retry</button>}
-        </div>
-      )
-    }
   }
   return null
 })
-
-function CopyReply({ text }: { text: string }) {
-  const [done, setDone] = useState(false)
-  const copy = () => copyText(text).then(() => { haptic(); setDone(true); setTimeout(() => setDone(false), 1400) }).catch(() => toast('Copy failed', 'error'))
-  return (
-    <button type="button" class={`copy-reply press ${done ? 'done' : ''}`} onClick={copy} aria-label="Copy reply">
-      {done ? <IconCheck width={14} height={14} /> : <IconCopy width={14} height={14} />}{done ? 'Copied' : 'Copy'}
-    </button>
-  )
-}
 
 function UserBubble({ it, onMenu }: { it: UserItem; onMenu: (u: UserItem) => void }) {
   const images = it.attachments?.filter((a) => a.is_image) || []
@@ -439,20 +430,5 @@ function AssistantText({ it, onImage }: { it: TextItem; onImage: (el: HTMLImageE
     <div class={`msg-assistant md ${it.streaming ? 'streaming' : ''}`} ref={ref} onClick={onClick}
       onAnimationEnd={(e) => unwrapFade(e.target as Element)}
       dangerouslySetInnerHTML={{ __html: it.streaming ? renderStreaming(it.text) : renderMarkdown(it.text) }} />
-  )
-}
-
-function Thinking({ it }: { it: ThinkingItem }) {
-  const [open, setOpen] = useState(false)
-  if (!it.text && !it.streaming) return null
-  return (
-    <div class={`thinking ${open ? 'open' : ''} ${it.streaming ? 'streaming' : ''}`}>
-      <button class="thinking-head" onClick={() => setOpen(!open)}>
-        <IconBrain width={15} height={15} />
-        <span class={it.streaming ? 'shimmer-text' : ''}>{it.streaming ? 'Thinking' : 'Thought process'}</span>
-        <IconChevronDown class="thinking-chev" width={15} height={15} />
-      </button>
-      {open && <div class="thinking-body">{it.text}</div>}
-    </div>
   )
 }

@@ -7,7 +7,7 @@ export interface ConfigOption { id: string; name: string; category?: string; typ
 export interface AcpStatus { running: number; live: number; pending: number; last_session: { id: string; title: string; updated_at: string; preview: string } | null }
 export interface AcpAgent {
   id: string; kind: 'acp'; name: string; avatar: string; description: string; group: string
-  host: string; port: number; token: string; token_set: boolean; cwd: string
+  host: string; port: number; token: string; cwd: string
   config_defaults: Record<string, string>; as_subagent: boolean; created_at: string; order: number
   status?: AcpStatus; info?: { name: string; title?: string; version?: string } | null
 }
@@ -45,6 +45,7 @@ export const acpApi = {
   updateSession: (sid: string, p: { title?: string }) => request<AcpSession>('PATCH', `/api/acp/sessions/${enc(sid)}`, p),
   deleteSession: (sid: string) => request<{ ok: boolean }>('DELETE', `/api/acp/sessions/${enc(sid)}`),
   markRead: (sid: string) => post<AcpSession>(`/api/acp/sessions/${enc(sid)}/read`),
+  connect: (sid: string, fresh = false) => post<AcpSession>(`/api/acp/sessions/${enc(sid)}/connect${fresh ? '?fresh=true' : ''}`),
   sleep: (sid: string) => post<AcpSession>(`/api/acp/sessions/${enc(sid)}/sleep`),
   items: (sid: string, before: string, limit = 200) => get<{ items: Item[]; has_more: boolean }>(`/api/acp/sessions/${enc(sid)}/items?before=${enc(before)}&limit=${limit}`),
   search: (id: string, q: string) => get<{ session: AcpSession; snippet: string }[]>(`/api/acp/agents/${enc(id)}/search?q=${enc(q)}`),

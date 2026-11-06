@@ -23,7 +23,7 @@ export function AcpAgentSettings({ agentId }: { agentId?: string }) {
   const fileRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
-    if (!isNew) acpApi.agent(agentId!).then((x) => { setA({ ...x, token: '' }); setOrig(JSON.stringify({ ...x, token: '' })) }).catch(toastError)
+    if (!isNew) acpApi.agent(agentId!).then((x) => { setA(x); setOrig(JSON.stringify(x)) }).catch(toastError)
     acpApi.groups().then((g) => setGroups(g.groups)).catch(() => {})
   }, [agentId])
 
@@ -40,25 +40,20 @@ export function AcpAgentSettings({ agentId }: { agentId?: string }) {
     if (!a.name?.trim()) return toast('Give the agent a name', 'error')
     if (!a.host?.trim() || !a.port) return toast('Host and port are required', 'error')
     const body: Partial<AcpAgent> = { ...a }
-    delete body.status; delete body.info; delete body.token_set
-    // An empty token field keeps the stored token; use Clear to remove it.
-    if (!isNew && !body.token) delete body.token
+    delete body.status; delete body.info
     setSaving(true)
     try {
       const saved = isNew ? await acpApi.create(body) : await acpApi.update(agentId!, body)
       acpVersion.value++
       toast(isNew ? 'Agent added' : 'Saved')
       if (isNew) navigate({ name: 'acp', agentId: saved.id }, { replace: true })
-      else { setA({ ...saved, token: '' }); setOrig(JSON.stringify({ ...saved, token: '' })) }
+      else { setA(saved); setOrig(JSON.stringify(saved)) }
     } catch (e) { toastError(e) } finally { setSaving(false) }
   }
   const test = async () => {
     if (isNew || dirty) return toast('Save first, then test the connection', 'error')
     setTesting(true); setTested(null)
     try { setTested(await acpApi.test(agentId!)) } catch (e) { toastError(e) } finally { setTesting(false) }
-  }
-  const clearToken = async () => {
-    try { const saved = await acpApi.update(agentId!, { token: '' }); setA({ ...a, token_set: saved.token_set }); toast('Token cleared') } catch (e) { toastError(e) }
   }
   const remove = async () => {
     if (!await confirmDialog({ title: `Delete ${a.name}?`, body: 'The agent and its conversation list are removed from next-agent.', confirm: 'Delete agent', danger: true })) return
@@ -130,8 +125,8 @@ export function AcpAgentSettings({ agentId }: { agentId?: string }) {
             </div>
             <label class="field"><span class="flabel">Token</span>
               <input class="input mono" type="password" value={a.token || ''} autocomplete="off" autocapitalize="off" spellcheck={false}
-                placeholder={a.token_set ? 'Saved. Type to replace' : 'Optional'} onInput={(e) => set('token', (e.target as HTMLInputElement).value)} />
-              <span class="fhint">Sent as the first line, AUTH &lt;token&gt;, when the connection opens.{a.token_set && <> <button type="button" class="link-btn" onClick={clearToken}>Clear saved token</button></>}</span>
+                placeholder="Optional" onInput={(e) => set('token', (e.target as HTMLInputElement).value)} />
+              <span class="fhint">Sent as the first line, AUTH &lt;token&gt;, when the connection opens.</span>
             </label>
             <label class="field"><span class="flabel">Working directory on the agent</span>
               <input class="input mono" value={a.cwd} placeholder="/" autocapitalize="off" spellcheck={false} onInput={(e) => set('cwd', (e.target as HTMLInputElement).value)} />

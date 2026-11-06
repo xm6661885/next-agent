@@ -271,6 +271,24 @@ async def test_load_replay_missing_session_and_titles(acp):
     assert sum(r['method']=='session/set_config_option' for r in acp.peer.requests)==2
 
 
+async def test_connect_and_fresh_reconnect(acp):
+    m = acp.manager
+    sid = m.create_session('phone')['id']
+    assert m.view(sid)['state']=='offline'
+    session = await m.connect(sid)
+    assert session['state']=='idle' and session['config_options']
+    assert session['config_options'][0]['id']=='model'
+    initialized = sum(r['method']=='initialize' for r in acp.peer.requests)
+    await m.connect(sid, fresh=True)
+    assert sum(r['method']=='initialize' for r in acp.peer.requests)==initialized+1
+    task = asyncio.create_task(m.run_turn('phone', 'hold', session_id=sid))
+    await until(lambda: m.view(sid)['state']=='running')
+    with pytest.raises(HTTPException) as exc: await m.connect(sid, fresh=True)
+    assert exc.value.status_code==409
+    await m.stop(sid)
+    await asyncio.wait_for(task, 3)
+
+
 async def test_permission_queue_cancel_and_interrupt(acp):
     m = acp.manager
     sid = m.start_turn('phone', 'permission')
@@ -326,10 +344,10 @@ async def test_disconnect_rpc_error_and_shutdown(acp):
 async def test_rest_config_sessions_uploads_and_auth(acp):
     c, m = acp.http, acp.manager
     agent = (await c.get('/api/acp/agents/phone')).json()
-    assert agent['kind']=='acp' and agent['token']=='' and agent['token_set'] is True
+    assert agent['kind']=='acp' and agent['token']=='secret'
     assert (await c.patch('/api/acp/agents/phone', json={'token': None, 'name': 'New name'})).status_code==200
     assert m.agent('phone').token=='secret'
-    assert (await c.patch('/api/acp/agents/phone', json={'token': ''})).json()['token_set'] is False
+    assert (await c.patch('/api/acp/agents/phone', json={'token': ''})).json()['token']==''
     assert (await c.post('/api/acp/agents', json={'name': 'Phone', 'host': 'localhost', 'port': 1})).status_code==409
     for body in ({'id': '../bad', 'name': 'Bad', 'host': 'x', 'port': 1}, {'name': 'Bad', 'host': 'x', 'port': 0}, {'name': 'Bad', 'host': 'x', 'port': 1, 'token': 'x\ny'}):
         assert (await c.post('/api/acp/agents', json=body)).status_code==422

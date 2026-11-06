@@ -226,7 +226,7 @@ async def test_config_assistants_uploads_and_delete(chat):
     assert (await c.delete('/api/chat/assistants/_default')).status_code==400
     config = (await c.get('/api/chat/config')).json()
     provider = config['providers'][0]
-    assert provider['api_key']=='' and provider.pop('api_key_set') is True
+    assert provider['api_key']!=''
     provider.pop('api_key')
     provider['name'] = 'Renamed'
     response = await c.patch('/api/chat/config', json={'providers': [provider], 'defaults': {'effort': 'max'}})
@@ -336,15 +336,23 @@ def test_websocket_edit_regenerate_stop_resume_and_disconnect(tmp_path, monkeypa
             assert runtime.items[0]['text']=='original'
             ws.send_json({'type': 'edit', 'uuid': user['uuid'], 'text': 'edited', 'client_id': 'two'})
             events = idle(ws)
-            assert any(e['type']=='truncate' and e['uuid']==user['uuid'] for e in events)
+            assert any(e['type']=='items' and e['items'][0]['version']==[1, 2] for e in events)
             assert runtime.items[0]['text']=='edited' and sum(i['kind']=='user' for i in runtime.items)==1
             user = runtime.items[0]
             old_text_id = runtime.items[-2]['id']
-            ws.send_json({'type': 'regenerate'})
+            ws.send_json({'type': 'regenerate', 'uuid': user['uuid']})
             events = idle(ws)
-            assert any(e['type']=='truncate_after' and e['uuid']==user['uuid'] for e in events)
+            assert any(e['type']=='items' and e['items'][0]['reply_version']==[1, 2] for e in events)
             assert runtime.items[0]['id']==user['id'] and runtime.items[-2]['id']!=old_text_id
             assert sum(i['kind']=='result' for i in runtime.items)==1
+            ws.send_json({'type': 'edit_reply', 'id': runtime.items[-2]['id'], 'text': 'Edited over WS'})
+            event = receive_until(ws, lambda e: e['type']=='items')[-1]
+            assert event['items'][-2]['text']=='Edited over WS' and event['items'][-1]['stop_reason']=='edited'
+            ws.send_json({'type': 'switch', 'key': 'r:'+user['uuid'], 'index': 0})
+            event = receive_until(ws, lambda e: e['type']=='items')[-1]
+            assert event['items'][-2]['id']==old_text_id and event['items'][0]['reply_version']==[0, 3]
+            ws.send_json({'type': 'switch', 'key': 'r:'+user['uuid'], 'req_id': 'missing-index'})
+            assert receive_until(ws, lambda e: e['type']=='error')[-1]['req_id']=='missing-index'
             ws.send_json({'type': 'set_model', 'model': 'local/large'})
             receive_until(ws, lambda e: e['type']=='session' and e['session']['overrides']['model']=='local/large')
             ws.send_json({'type': 'set_effort', 'effort': 'off'})
@@ -358,6 +366,9 @@ def test_websocket_edit_regenerate_stop_resume_and_disconnect(tmp_path, monkeypa
             ws.send_json({'type': 'send', 'text': 'busy', 'req_id': 'busy'})
             error = receive_until(ws, lambda e: e['type']=='error')[-1]
             assert error['message']=='Still replying' and error['req_id']=='busy'
+            ws.send_json({'type': 'switch', 'key': 'r:'+user['uuid'], 'index': 1, 'req_id': 'busy-switch'})
+            error = receive_until(ws, lambda e: e['type']=='error')[-1]
+            assert error['message']=='Still replying' and error['req_id']=='busy-switch'
             ws.send_json({'type': 'stop'})
             events = idle(ws)
             assert any(e.get('item', {}).get('text')=='Stopped' for e in events)
@@ -434,3 +445,242 @@ async def test_title_fallback_and_mcp_failure_notice(chat):
     assert any(i['kind']=='notice' and i['text']=='MCP broken: refused' for i in runtime.items)
     assert runtime.items[-1]['stop_reason']!='error'
     assert peer.closed==[True]
+
+
+async def test_user_versions_switch_and_reload(chat):
+    m = chat.manager
+    sid = m.create_session('_default', 'Versions')['id']
+    runtime = m.runtime(sid)
+    runtime.send('original')
+    await runtime.task
+    first = runtime.items[0]
+    group = first['group']
+    assert group==first['id'] and first['version']==first['reply_version']==[0, 1]
+    runtime.send('later original turn')
+    await runtime.task
+    original_ids = [i['id'] for i in runtime.items]
+    for text in ('edit one', 'edit two'):
+        runtime.send(text, uuid=runtime.items[0]['uuid'])
+        await runtime.task
+    key = 'u:'+group
+    latest_ids = [i['id'] for i in runtime.items]
+    assert runtime.items[0]['group']==group and runtime.items[0]['version']==[2, 3]
+    assert runtime.forks[key]['active']==2 and runtime.forks[key]['versions'][2] is None
+    runtime.switch(key, 0)
+    assert [i['id'] for i in runtime.items]==original_ids
+    assert runtime.items[0]['text']=='original' and runtime.items[0]['version']==[0, 3]
+    assert any(i.get('text')=='Answer ready' for i in runtime.items)
+    runtime.switch(key, 2)
+    assert [i['id'] for i in runtime.items]==latest_ids
+    assert not m.search('_default', 'later original turn')
+    m.store = ChatStore(m.core.paths.root)
+    m.runtimes.pop(sid)
+    runtime = m.runtime(sid)
+    assert runtime.items[0]['version']==[2, 3]
+    assert runtime.forks==m.store.load_forks(sid)
+    runtime.switch(key, 0)
+    assert [i['id'] for i in runtime.items]==original_ids
+    runtime.switch(key, 2)
+    assert [i['id'] for i in runtime.items]==latest_ids
+    await m.delete_session(sid)
+    assert not (m.store.root/'messages'/f'{sid}.forks.json').exists()
+
+
+async def test_reply_versions_and_visible_provider_history(chat):
+    m, peer = chat.manager, chat.peer
+    sid = m.create_session('_default', 'Replies')['id']
+    runtime = m.runtime(sid)
+    runtime.send('first turn')
+    await runtime.task
+    user = runtime.items[0]
+    old_reply = [i['id'] for i in runtime.items[1:]]
+    runtime.send('hidden later turn')
+    await runtime.task
+    original_ids = [i['id'] for i in runtime.items]
+    runtime.regenerate(user['uuid'])
+    await runtime.task
+    key = 'r:'+user['uuid']
+    regenerated_ids = [i['id'] for i in runtime.items]
+    assert user['reply_version']==[1, 2]
+    assert not set(old_reply)&{i['id'] for i in runtime.items}
+    runtime.switch(key, 0)
+    assert [i['id'] for i in runtime.items]==original_ids
+    assert user['reply_version']==[0, 2]
+    runtime.switch(key, 1)
+    assert [i['id'] for i in runtime.items]==regenerated_ids
+    requests = len(peer.requests)
+    expected = providers.history([*runtime.items, {'kind': 'user', 'text': 'next visible turn'}], chat.format)
+    if chat.format=='openai': expected.insert(0, {'role': 'system', 'content': 'Be helpful'})
+    runtime.send('next visible turn')
+    await runtime.task
+    messages = peer.requests[requests][1]['messages']
+    assert messages==expected
+    assert 'hidden later turn' not in json.dumps(messages)
+    assert 'version' not in json.dumps(messages)
+
+
+async def test_edit_reply_preserves_turn_and_later_branch(chat):
+    m, peer = chat.manager, chat.peer
+    sid = m.create_session('_default', 'Edited replies')['id']
+    runtime = m.runtime(sid)
+    runtime.send('first')
+    await runtime.task
+    user = runtime.items[0]
+    turn = runtime.items[1:]
+    target = next(i for i in reversed(turn) if i['kind']=='text')
+    runtime.send('later turn')
+    await runtime.task
+    original_ids = [i['id'] for i in runtime.items]
+    usage, requests = dict(runtime.session['usage']), len(peer.requests)
+    runtime.edit_reply(target['id'], 'Manually edited reply')
+    assert len(peer.requests)==requests and runtime.state=='idle'
+    assert runtime.session['usage']==usage and user['reply_version']==[1, 2]
+    assert [i['kind'] for i in runtime.items[1:]]==[i['kind'] for i in turn]
+    assert not {i['id'] for i in turn}&{i['id'] for i in runtime.items[1:]}
+    assert runtime.items[-2]['text']=='Manually edited reply'
+    result = runtime.items[-1]
+    assert result['stop_reason']=='edited' and result['duration_ms']==0
+    assert result['usage']=={'input': 0, 'output': 0} and result['model']=='' and result['ts']
+    messages = json.dumps(providers.history(runtime.items, chat.format))
+    assert 'Manually edited reply' in messages and 'edited"' not in messages
+    assert 'later turn' not in messages
+    edited_ids = [i['id'] for i in runtime.items]
+    runtime.switch('r:'+user['uuid'], 0)
+    assert [i['id'] for i in runtime.items]==original_ids
+    runtime.switch('r:'+user['uuid'], 1)
+    assert [i['id'] for i in runtime.items]==edited_ids
+    for id in (user['id'], 'missing', result['id']):
+        with pytest.raises(ValueError, match='Reply text not found'): runtime.edit_reply(id, 'bad')
+    orphan = m.runtime(m.create_session('_default', 'Orphan')['id'])
+    text = orphan.add('text', text='No user', streaming=False)
+    with pytest.raises(ValueError, match='Reply text not found'): orphan.edit_reply(text['id'], 'bad')
+    user = orphan.add('user', text='User', attachments=[])
+    text = orphan.add('text', text='Streaming', streaming=True)
+    with pytest.raises(ValueError, match='Reply text not found'): orphan.edit_reply(text['id'], 'bad')
+
+
+async def test_nested_versions_and_switch_errors(chat):
+    m = chat.manager
+    sid = m.create_session('_default', 'Nested')['id']
+    runtime = m.runtime(sid)
+    runtime.send('root original')
+    await runtime.task
+    root = runtime.items[0]
+    runtime.send('child original')
+    await runtime.task
+    child = next(i for i in runtime.items if i['kind']=='user' and i['id']!=root['id'])
+    runtime.send('child edit', uuid=child['uuid'])
+    await runtime.task
+    child_key, root_key = 'u:'+child['group'], 'u:'+root['group']
+    child_ids = [i['id'] for i in runtime.items]
+    runtime.send('root edit', uuid=root['uuid'])
+    await runtime.task
+    with pytest.raises(ValueError, match='Version not visible'): runtime.switch(child_key, 0)
+    runtime.switch(root_key, 0)
+    assert [i['id'] for i in runtime.items]==child_ids
+    assert next(i for i in runtime.items if i.get('text')=='child edit')['version']==[1, 2]
+    runtime.switch(child_key, 0)
+    assert any(i.get('text')=='child original' for i in runtime.items)
+    runtime.switch(child_key, 1)
+    runtime.switch(root_key, 1)
+    runtime.switch(root_key, 0)
+    assert [i['id'] for i in runtime.items]==child_ids
+    seq = runtime.seq
+    runtime.switch(root_key, 0)
+    assert runtime.seq==seq
+    with pytest.raises(ValueError, match='Version not found'): runtime.switch('u:missing', 0)
+    for index in (-1, 2):
+        with pytest.raises(ValueError, match='out of range'): runtime.switch(root_key, index)
+    runtime.send('hold running')
+    for op in (lambda: runtime.switch(root_key, 1), lambda: runtime.send('edit', uuid=root['uuid']),
+               runtime.regenerate, lambda: runtime.edit_reply('missing', 'bad')):
+        with pytest.raises(ValueError, match='Still replying'): op()
+    await runtime.stop()
+
+
+def test_old_chat_config_and_items(tmp_path):
+    from server.chat.config import ChatConfig
+    assert ChatConfig.model_validate({}).profile.model_dump()=={'name': 'You', 'avatar': ''}
+    _, core, _ = make_app(tmp_path)
+    m = core.modules['chat']
+    sid = m.create_session('_default')['id']
+    m.store.save_items(sid, [{'id': 'old', 'uuid': 'old', 'kind': 'user', 'text': 'Old message'}])
+    assert m.store.load_items(sid)[0]['group']=='old'
+    user = m.runtime(sid).items[0]
+    assert user['group']=='old' and user['version']==user['reply_version']==[0, 1]
+
+
+async def test_profile_patch_avatar_and_reload(chat):
+    m, c = chat.manager, chat.http
+    path = '/api/chat/profile/avatar'
+    assert (await c.get('/api/chat/config')).json()['profile']=={'name': 'You', 'avatar': ''}
+    assert (await c.get(path)).status_code==404
+    assert (await c.patch('/api/chat/config', json={'profile': {'name': 'Alice', 'avatar': 'crab:pink'}})).json()['profile']=={
+        'name': 'Alice', 'avatar': 'crab:pink'}
+    assert (await c.patch('/api/chat/config', json={'profile': {'name': ''}})).status_code==422
+    response = await c.post(path, files={'file': ('user.png', b'user-avatar', 'image/png')})
+    assert response.json()=={'profile': {'name': 'Alice', 'avatar': 'file'}}
+    avatar = await c.get(path)
+    assert avatar.content==b'user-avatar' and avatar.headers['content-type']=='image/png'
+    assert (m.store.avatars/'_user').read_bytes()==b'user-avatar'
+    assert (m.store.avatars/'_user.mime').read_text()=='image/png'
+    assert (await c.post(path, files={'file': ('a.svg', b'<svg/>', 'image/svg+xml')})).status_code==415
+    assert (await c.post(path, files={'file': ('a.png', b'x'*(2*1024*1024+1), 'image/png')})).status_code==413
+    assert (await c.patch('/api/chat/config', json={'profile': {'name': 'Renamed'}})).json()['profile']=={
+        'name': 'Renamed', 'avatar': 'file'}
+    m.config.replace_raw(m.config.path.read_text())
+    assert (await c.get('/api/chat/meta')).json()['profile']=={'name': 'Renamed', 'avatar': 'file'}
+    assert m.config.doc['profile']['name']=='Renamed'
+    c.cookies.clear()
+    assert (await c.post(path, files={'file': ('a.png', b'x', 'image/png')})).status_code==401
+
+
+async def test_fetch_models_keys_headers_and_errors(chat, monkeypatch):
+    m, c = chat.manager, chat.http
+    requests = []
+    response = httpx.Response(200, json={'data': [{'id': 'z'}, {'id': 'a'}, {'id': 'z'}]})
+
+    def handle(request):
+        requests.append(request)
+        return response
+
+    monkeypatch.setattr(providers, 'client', lambda: httpx.AsyncClient(transport=httpx.MockTransport(handle)))
+    body = m.config.data.providers[0].model_dump()
+    path = '/api/chat/providers/models'
+    for key in (None, '', 'unsaved-key'):
+        body.pop('api_key', None)
+        if key is not None: body['api_key'] = key
+        result = await c.post(path, json=body)
+        assert result.status_code==200 and result.json()=={'models': ['a', 'z']}
+        request = requests[-1]
+        assert request.method=='GET' and str(request.url)=='https://provider.test/v1/models'
+        assert request.headers['x-extra']=='yes'
+        expected = key or 'secret'
+        if chat.format=='openai': assert request.headers['authorization']=='Bearer '+expected
+        else: assert request.headers['x-api-key']==expected and request.headers['anthropic-version']=='2023-06-01'
+    assert m.config.data.providers[0].api_key=='secret'
+    if chat.format=='openai':
+        assert (await c.post('/api/chat/providers/local/test')).json()=={'ok': True, 'models': ['a', 'z']}
+    body.pop('api_key')
+    body['id'] = 'new'
+    assert (await c.post(path, json=body)).status_code==200
+    assert requests[-1].headers.get('x-api-key', requests[-1].headers.get('authorization')) in ('', 'Bearer ')
+    for invalid in ({}, {'data': {}}, {'data': [None]}, {'data': [{'id': 3}]}, []):
+        response = httpx.Response(200, json=invalid)
+        result = await c.post(path, json=body)
+        assert result.status_code==502 and result.json()['detail']=='Invalid models response'
+    response = httpx.Response(200, content=b'not json')
+    assert (await c.post(path, json=body)).status_code==502
+    response = httpx.Response(503, text='models unavailable')
+    result = await c.post(path, json=body)
+    assert result.status_code==502 and '503: models unavailable' in result.json()['detail']
+
+    def unavailable(request): raise httpx.ConnectError('Connection refused', request=request)
+
+    monkeypatch.setattr(providers, 'client', lambda: httpx.AsyncClient(transport=httpx.MockTransport(unavailable)))
+    result = await c.post(path, json=body)
+    assert result.status_code==502 and 'Connection refused' in result.json()['detail']
+    body['format'] = 'invalid'
+    assert (await c.post(path, json=body)).status_code==422
+    c.cookies.clear()
+    assert (await c.post(path, json=body)).status_code==401

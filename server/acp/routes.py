@@ -25,7 +25,7 @@ class Groups(BaseModel):
 
 
 class Command(BaseModel):
-    type: Literal['resume', 'ping', 'send', 'cancel_queued', 'interrupt', 'permission_reply', 'set_config', 'set_mode']
+    type: Literal['resume', 'ping', 'send', 'cancel_queued', 'interrupt', 'permission_reply', 'connect', 'set_config', 'set_mode']
     seq: int | None = Field(default=None, ge=0)
     req_id: str | int | None = None
     client_id: str | None = None
@@ -253,6 +253,9 @@ def router(core, manager):
 
     @api.post('/api/acp/sessions/{sid}/sleep')
     async def sleep(sid: str): return await manager.sleep(sid)
+
+    @api.post('/api/acp/sessions/{sid}/connect')
+    async def connect(sid: str, fresh: bool = False): return await manager.connect(sid, fresh)
 
     @api.get('/api/acp/sessions/{sid}/items')
     async def items(sid: str, before: str | None = None, limit: int = Query(default=200, ge=1, le=200)):

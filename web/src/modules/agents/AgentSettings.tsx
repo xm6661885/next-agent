@@ -1,7 +1,7 @@
 // Create or edit an agent. Every config.toml field is reachable here, grouped by topic.
 
 import { useEffect, useRef, useState } from 'preact/hooks'
-import { api } from '../../lib/api'
+import { api, request } from '../../lib/api'
 import { agents, meta, toast, toastError } from '../../lib/store'
 import { TEMP_AGENT, back, navigate } from '../../lib/router'
 import { Avatar, CRAB_COLORS, Crab } from '../../components/crab'
@@ -39,6 +39,8 @@ export function AgentSettings({ agentId }: { agentId?: string }) {
   const [json, setJson] = useState({ env: '{}', mcp_servers: '{}', agents: '{}', extra_args: '{}' })
   const [jsonErr, setJsonErr] = useState<Record<string, string>>({})
   const fileRef = useRef<HTMLInputElement>(null)
+  const [globalMcp, setGlobalMcp] = useState<{ path: string; servers: Record<string, any> } | null>(null)
+  useEffect(() => { request<{ path: string; servers: Record<string, any> }>('GET', '/api/mcp/global').then(setGlobalMcp).catch(() => {}) }, [])
 
   useEffect(() => {
     if (!meta.value) api.meta().then((m) => { meta.value = m }).catch(() => {})
@@ -327,6 +329,25 @@ export function AgentSettings({ agentId }: { agentId?: string }) {
               <Switch on={!!a.as_subagent} onChange={(v) => set('as_subagent', v)} label="Available as a subagent" />
             </div>
           </div>
+
+          {globalMcp && <>
+            <div class="group-title">Global MCP servers</div>
+            <span class="fhint" style={{ display: 'block', padding: '0 4px 8px' }}>From {globalMcp.path} (user scope). Loaded when User is a setting source{(a.setting_sources || []).includes('user') ? '' : ', which is off for this agent'}. Turning one off adds mcp__name to Blocked tools.</span>
+            <div class="group">
+              {Object.entries(globalMcp.servers).map(([n, c]) => {
+                const rule = `mcp__${n}`
+                const on = (a.setting_sources || []).includes('user') && !(a.disallowed_tools || []).includes(rule)
+                return (
+                  <div key={n} class="row">
+                    <span class="label">{n}<span class="hint mono">{c.type === 'http' || c.type === 'sse' ? c.url : [c.command, ...(c.args || [])].join(' ')}</span></span>
+                    <Switch on={on} disabled={!(a.setting_sources || []).includes('user')} label={`Use ${n}`}
+                      onChange={(v) => set('disallowed_tools', v ? (a.disallowed_tools || []).filter((x) => x !== rule) : [...(a.disallowed_tools || []), rule])} />
+                  </div>
+                )
+              })}
+              {!Object.keys(globalMcp.servers).length && <div class="row"><span class="label"><span class="hint">No user-scope MCP servers. Add one with claude mcp add -s user.</span></span></div>}
+            </div>
+          </>}
 
           <div class="group-title">Advanced</div>
           <div class="group">

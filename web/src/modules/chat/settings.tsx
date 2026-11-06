@@ -3,10 +3,11 @@
 import { useEffect, useState } from 'preact/hooks'
 import { chatVersion, toast, toastError } from '../../lib/store'
 import { Segmented, Sheet, Switch, confirmDialog, promptDialog } from '../../components/ui'
-import { IconPlus, IconTrash, IconBolt } from '../../components/icons'
+import { IconPlus, IconTrash, IconBolt, IconChevron, IconRefresh } from '../../components/icons'
 import { Spark } from '../../components/crab'
 import { SettingsFrame } from '../settings/Frame'
 import { EFFORTS, chatApi, modelLabel, type ChatConfig, type McpServer, type Provider } from './api'
+import { ProfileSheet, UserAvatar } from './profile'
 
 /** Load chat.toml as a form, edit a draft, PATCH the changed part. */
 function useChatConfig() {
@@ -17,7 +18,7 @@ function useChatConfig() {
   useEffect(() => { chatApi.config().then(load).catch(toastError) }, [])
   const save = async (patch: Partial<ChatConfig>) => {
     setSaving(true)
-    try { load(await chatApi.saveConfig(patch)); chatVersion.value++; toast('Settings saved') } catch (e) { toastError(e) } finally { setSaving(false) }
+    try { load(await chatApi.saveConfig(patch)); chatVersion.value++; toast('Settings saved'); return true } catch (e) { toastError(e); return false } finally { setSaving(false) }
   }
   return { cfg, setCfg, dirty: cfg !== null && JSON.stringify(cfg) !== orig, saving, save }
 }
@@ -27,86 +28,135 @@ const val = (e: Event) => (e.target as HTMLInputElement).value
 const BLANK_PROVIDER: Provider = { id: '', name: '', format: 'openai', base_url: '', api_key: '', models: [], headers: {} }
 
 export function ChatProviders({ title }: { title: string }) {
-  const { cfg, setCfg, dirty, saving, save } = useChatConfig()
-  const [edit, setEdit] = useState<number | null>(null)
+  const { cfg, save } = useChatConfig()
+  const [edit, setEdit] = useState<{ i: number | null; p: Provider } | null>(null)
+  const [profile, setProfile] = useState(false)
   const [testing, setTesting] = useState<string | null>(null)
-  const [tests, setTests] = useState<Record<string, { ok: boolean; error?: string; models?: string[] }>>({})
+  const [tests, setTests] = useState<Record<string, { ok: boolean; error?: string }>>({})
   const list = cfg?.providers || []
-  const setList = (l: Provider[]) => setCfg((c) => c && { ...c, providers: l })
   const test = async (id: string) => {
-    if (dirty) return toast('Save first, then test', 'error')
     setTesting(id)
     try { const r = await chatApi.testProvider(id); setTests((t) => ({ ...t, [id]: r })) } catch (e) { toastError(e) } finally { setTesting(null) }
   }
-  const add = () => { setList([...list, { ...BLANK_PROVIDER }]); setEdit(list.length) }
-  const remove = async (i: number) => {
-    if (!await confirmDialog({ title: `Remove ${list[i].name || 'provider'}?`, body: 'Assistants that use its models fall back to the default model.', confirm: 'Remove', danger: true })) return
-    setEdit(null); setList(list.filter((_, k) => k !== i))
+  // Each sheet saves on its own; the list itself has nothing to save.
+  const saveOne = async (p: Provider) => {
+    if (!edit) return false
+    const next = edit.i === null ? [...list, p] : list.map((x, k) => k === edit.i ? p : x)
+    return save({ providers: next })
   }
+  const remove = async () => {
+    if (edit?.i == null) return setEdit(null)
+    const p = list[edit.i]
+    if (!await confirmDialog({ title: `Remove ${p.name || 'provider'}?`, body: 'Assistants that use its models fall back to the default model.', confirm: 'Remove', danger: true })) return
+    if (await save({ providers: list.filter((_, k) => k !== edit.i) })) setEdit(null)
+  }
+  const me = cfg?.profile
   return (
-    <SettingsFrame title={title} dirty={dirty} saving={saving} onSave={() => cfg && save({ providers: cfg.providers })}>
+    <SettingsFrame title={title}>
       {!cfg ? <Skeleton /> : <>
         <span class="fhint" style={{ display: 'block', padding: '0 4px' }}>Chat only. Agents and Workflow use the Claude CLI settings.</span>
+        <div class="group-title">You</div>
+        <div class="group">
+          <button type="button" class="row press" onClick={() => setProfile(true)}>
+            {me && <UserAvatar p={me} size={32} />}
+            <span class="label">{me?.name || 'You'}<span class="hint">Your name and picture in chats</span></span>
+            <IconChevron width={14} height={14} />
+          </button>
+        </div>
         <div class="group-title">Providers</div>
         <div class="group">
           {list.map((p, i) => {
             const t = tests[p.id]
             return (
-              <div key={i} class="row">
-                <button type="button" class="label" style={{ textAlign: 'left', background: 'none', flex: 1 }} onClick={() => setEdit(i)}>
-                  {p.name || p.id || 'New provider'}
+              <div key={p.id} class="row">
+                <button type="button" class="label" style={{ textAlign: 'left', background: 'none', flex: 1 }} onClick={() => setEdit({ i, p: { ...p } })}>
+                  {p.name || p.id}
                   <span class="hint">{p.format === 'anthropic' ? 'Anthropic' : 'OpenAI'} · {p.models.length} model{p.models.length === 1 ? '' : 's'}{t ? (t.ok ? ' · Connected' : ` · ${t.error}`) : ''}</span>
                 </button>
-                {p.id && <button class="icon-btn" aria-label={`Test ${p.name}`} disabled={testing === p.id} onClick={() => test(p.id)}>{testing === p.id ? <Spark size={16} /> : <IconBolt width={18} height={18} />}</button>}
+                <button class="icon-btn" aria-label={`Test ${p.name}`} disabled={testing === p.id} onClick={() => test(p.id)}>{testing === p.id ? <Spark size={16} /> : <IconBolt width={18} height={18} />}</button>
               </div>
             )
           })}
-          <button class="row press" onClick={add}><span class="label"><IconPlus width={16} height={16} /> Add provider</span></button>
+          <button class="row press" onClick={() => setEdit({ i: null, p: { ...BLANK_PROVIDER } })}><span class="label"><IconPlus width={16} height={16} /> Add provider</span></button>
         </div>
       </>}
-      <ProviderSheet p={edit !== null ? list[edit] : null} found={edit !== null ? tests[list[edit]?.id]?.models : undefined}
-        onChange={(p) => setList(list.map((x, k) => k === edit ? p : x))} onRemove={() => edit !== null && remove(edit)} onClose={() => setEdit(null)} />
+      {edit && <ProviderSheet key={edit.i ?? 'new'} init={edit.p} isNew={edit.i === null} onSave={saveOne} onRemove={remove} onClose={() => setEdit(null)} />}
+      {me && <ProfileSheet open={profile} p={me} onSave={(p) => save({ profile: p })} onClose={() => setProfile(false)} />}
     </SettingsFrame>
   )
 }
 
-function ProviderSheet({ p, found, onChange, onRemove, onClose }: {
-  p: Provider | null; found?: string[]; onChange: (p: Provider) => void; onRemove: () => void; onClose: () => void
+function ProviderSheet({ init, isNew, onSave, onRemove, onClose }: {
+  init: Provider; isNew: boolean; onSave: (p: Provider) => Promise<boolean>; onRemove: () => void; onClose: () => void
 }) {
+  const [p, setP] = useState(init)
   const [model, setModel] = useState('')
-  if (!p) return <Sheet open={false} onClose={onClose} title="">{null}</Sheet>
-  const set = <K extends keyof Provider>(k: K, v: Provider[K]) => onChange({ ...p, [k]: v })
-  const addModel = (m: string) => { m = m.trim(); if (m && !p.models.includes(m)) set('models', [...p.models, m]); setModel('') }
+  const [found, setFound] = useState<string[] | null>(null)
+  const [fetching, setFetching] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const dirty = JSON.stringify(p) !== JSON.stringify(init)
+  const set = <K extends keyof Provider>(k: K, v: Provider[K]) => setP((x) => ({ ...x, [k]: v }))
+  const addModel = (m: string) => { m = m.trim(); if (m) setP((x) => x.models.includes(m) ? x : { ...x, models: [...x.models, m] }); setModel('') }
+  const fetchModels = async () => {
+    if (!p.base_url) return toast('Enter the base URL first', 'error')
+    setFetching(true)
+    try { const r = await chatApi.fetchModels(p); setFound(r.models); if (!r.models.length) toast('The provider returned no models') } catch (e) { toastError(e) } finally { setFetching(false) }
+  }
+  const submit = async () => {
+    if (!p.id || !p.name || !p.base_url) return toast('Name, ID and base URL are required', 'error')
+    setSaving(true)
+    const ok = await onSave(p)
+    setSaving(false)
+    if (ok) onClose()
+  }
+  const close = async () => {
+    if (dirty && !await confirmDialog({ title: 'Discard changes?', body: 'This provider has unsaved edits.', confirm: 'Discard', danger: true })) return
+    onClose()
+  }
+  const rest = (found || []).filter((m) => !p.models.includes(m))
   return (
-    <Sheet open onClose={onClose} title={p.name || 'Provider'}>
+    <Sheet open onClose={close} title={isNew ? 'New provider' : p.name || 'Provider'}
+      actions={<button class="btn primary small" disabled={saving || (!dirty && !isNew)} onClick={submit}>{saving ? <span class="spinner" /> : 'Save'}</button>}>
       <div class="group">
         <label class="field"><span class="flabel">Name</span><input class="input" value={p.name} placeholder="DeepSeek" onInput={(e) => set('name', val(e))} /></label>
         <label class="field"><span class="flabel">ID</span>
-          <input class="input mono" value={p.id} autocapitalize="off" spellcheck={false} maxLength={40} placeholder="deepseek" onInput={(e) => set('id', val(e).toLowerCase())} />
-          <span class="fhint">Models are saved as id/model, so renaming it changes those references.</span>
+          <input class="input mono" value={p.id} autocapitalize="off" spellcheck={false} maxLength={40} placeholder="deepseek" disabled={!isNew} onInput={(e) => set('id', val(e).toLowerCase())} />
+          {isNew && <span class="fhint">Models are saved as id/model. The ID can't be changed later.</span>}
         </label>
         <div class="field"><span class="flabel">Format</span>
           <Segmented value={p.format} onChange={(v) => set('format', v as Provider['format'])} options={[{ value: 'openai', label: 'OpenAI' }, { value: 'anthropic', label: 'Anthropic' }]} />
         </div>
         <label class="field"><span class="flabel">Base URL</span>
-          <input class="input mono" value={p.base_url} autocapitalize="off" spellcheck={false} placeholder={p.format === 'anthropic' ? 'https://api.anthropic.com' : 'https://api.openai.com/v1'} onInput={(e) => set('base_url', val(e).trim())} />
+          <input class="input mono" value={p.base_url} autocapitalize="off" spellcheck={false} placeholder={p.format === 'anthropic' ? 'https://api.anthropic.com/v1' : 'https://api.openai.com/v1'} onInput={(e) => set('base_url', val(e).trim())} />
+          <span class="fhint">Include /v1, e.g. {p.format === 'anthropic' ? 'https://api.anthropic.com/v1' : 'https://api.openai.com/v1'}</span>
         </label>
         <label class="field"><span class="flabel">API key</span>
-          <input class="input mono" type="password" value={p.api_key} autocomplete="off" placeholder={p.api_key_set ? 'Saved. Type to replace' : 'sk-...'} onInput={(e) => set('api_key', val(e))} />
+          <input class="input mono" type="password" value={p.api_key} autocomplete="off" placeholder="sk-..." onInput={(e) => set('api_key', val(e))} />
         </label>
       </div>
-      <div class="group-title">Models</div>
+      <div class="group-title" style={{ display: 'flex', alignItems: 'center' }}>
+        <span style={{ flex: 1 }}>Models</span>
+        <button class="btn small ghost" disabled={fetching} onClick={fetchModels}>{fetching ? <span class="spinner" /> : <IconRefresh width={14} height={14} />} Fetch from /models</button>
+      </div>
       <div class="chips" style={{ padding: '2px 2px 10px' }}>
         {p.models.map((m) => <button key={m} class="chip pink" onClick={() => set('models', p.models.filter((x) => x !== m))} aria-label={`Remove ${m}`}>{m} ×</button>)}
-        {(found || []).filter((m) => !p.models.includes(m)).slice(0, 40).map((m) => <button key={m} class="chip" onClick={() => addModel(m)}>+ {m}</button>)}
+        {!p.models.length && <span class="fhint">No models yet.</span>}
       </div>
-      <div class="field-row">
+      {rest.length > 0 && <>
+        <div class="field-row" style={{ alignItems: 'center', padding: '0 2px 6px' }}>
+          <span class="fhint" style={{ flex: 1 }}>{rest.length} more offered by the provider</span>
+          <button class="btn small ghost" onClick={() => setP((x) => ({ ...x, models: [...x.models, ...rest] }))}>Add all</button>
+        </div>
+        <div class="chips model-found">
+          {rest.map((m) => <button key={m} class="chip" onClick={() => addModel(m)}>+ {m}</button>)}
+        </div>
+      </>}
+      <div class="field-row" style={{ alignItems: 'center', gap: '8px', marginTop: '10px' }}>
         <input class="input mono" style={{ flex: 1 }} value={model} placeholder="model id" autocapitalize="off" spellcheck={false}
           onInput={(e) => setModel(val(e))} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addModel(model) } }} />
         <button class="btn small" onClick={() => addModel(model)}>Add</button>
       </div>
-      <p class="fhint">Test the connection after saving to list the models the provider offers.</p>
-      <button class="btn danger block" style={{ marginTop: '18px' }} onClick={onRemove}><IconTrash width={18} height={18} /> Remove provider</button>
+      {!isNew && <button class="btn danger block" style={{ marginTop: '18px' }} onClick={onRemove}><IconTrash width={18} height={18} /> Remove provider</button>}
     </Sheet>
   )
 }

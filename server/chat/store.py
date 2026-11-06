@@ -41,15 +41,26 @@ class ChatStore:
 
     def load_items(self, sid):
         path = self.root / 'messages' / f'{sid}.jsonl'
-        return [json.loads(line) for line in path.read_text().splitlines() if line] if path.exists() else []
+        items = [json.loads(line) for line in path.read_text().splitlines() if line] if path.exists() else []
+        for item in items:
+            if item['kind']=='user': item.setdefault('group', item['id'])
+        return items
 
     def save_items(self, sid, items):
         atomic_write(self.root / 'messages' / f'{sid}.jsonl', ''.join(json.dumps(i, ensure_ascii=False)+'\n' for i in items))
+
+    def load_forks(self, sid):
+        path = self.root / 'messages' / f'{sid}.forks.json'
+        return json.loads(path.read_text()) if path.exists() else {}
+
+    def save_forks(self, sid, forks):
+        atomic_write(self.root / 'messages' / f'{sid}.forks.json', json.dumps(forks, ensure_ascii=False))
 
     def delete(self, sid):
         del self.sessions[sid]
         self.save()
         (self.root / 'messages' / f'{sid}.jsonl').unlink(missing_ok=True)
+        (self.root / 'messages' / f'{sid}.forks.json').unlink(missing_ok=True)
         shutil.rmtree(self.root / 'uploads' / sid, ignore_errors=True)
 
     def upload_index(self, sid):

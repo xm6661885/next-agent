@@ -5,12 +5,28 @@ import { SettingsFrame, useConfigForm } from '../../settings/Frame'
 import { Segmented, Sheet, Switch, confirmDialog } from '../../../components/ui'
 import { IconPlus, IconTrash } from '../../../components/icons'
 import { schedulesVersion, toast, toastError } from '../../../lib/store'
+import { api, request } from '../../../lib/api'
 import { builtinApi, type Schedule, type ScheduleInput } from '../builtinApi'
 
 const CATS = [
-  { key: 'schedules', label: 'Schedules', hint: 'Let agents create timed or recurring tasks.' },
-  { key: 'history', label: 'History', hint: 'Let an agent search and read its own past conversations.' },
-  { key: 'collab', label: 'Collaboration', hint: 'Let an agent hand work to other agents as subagents.' },
+  { key: 'schedules', label: 'Schedules', hint: 'Let agents create timed or recurring tasks.', tools: [
+    ['schedule_create', 'Run a prompt on a cron or once at a time, on this agent, another agent or an ACP agent, in a new or the current session.'],
+    ['schedule_list', 'Schedules this agent created.'],
+    ['schedule_delete', 'Delete one of its own schedules.'],
+  ] },
+  { key: 'history', label: 'History', hint: 'Let an agent search and read its own past conversations.', tools: [
+    ['history_list', 'Recent conversations of the same agent.'],
+    ['history_search', 'Text search over them.'],
+    ['history_read', 'Read one as plain user, assistant and tool lines.'],
+  ] },
+  { key: 'collab', label: 'Collaboration', hint: 'Let an agent hand work to other agents as subagents.', tools: [
+    ['agents_list', 'The agents below: name and description, so the model can pick one.'],
+    ['task_create', 'Start a task (a new session) on one of them, optionally waiting for the answer.'],
+    ['task_status', 'State and last reply of a task.'],
+    ['task_send', 'Send a follow-up into the task.'],
+    ['task_stop', 'Stop it.'],
+    ['task_list', 'Tasks started by this conversation.'],
+  ] },
 ] as const
 
 const BLANK: ScheduleInput = { title: '', prompt: '', cron: '0 9 * * *', at: null, target: { module: 'agents', agent_id: '_temp', session: 'new' }, model: '', effort: '', enabled: true }
@@ -24,6 +40,13 @@ export function BuiltinMcpSettings({ title }: { title: string }) {
   useEffect(() => { builtinApi.schedules().then(setList).catch(toastError) }, [schedulesVersion.value])
   const b = form?.builtin_mcp
   const set = (k: string, v: boolean) => setForm((f) => f && { ...f, builtin_mcp: { ...f.builtin_mcp, [k]: v } })
+  const [subs, setSubs] = useState<{ module: string; id: string; name: string; description: string }[] | null>(null)
+  useEffect(() => {
+    Promise.all([api.agents(), request<{ id: string; name: string; description: string; as_subagent: boolean }[]>('GET', '/api/acp/agents').catch(() => [])]).then(([a, c]) => setSubs([
+      ...a.filter((x) => x.as_subagent).map((x) => ({ module: 'Claude', id: x.id, name: x.name, description: x.description })),
+      ...c.filter((x) => x.as_subagent).map((x) => ({ module: 'ACP', id: x.id, name: x.name, description: x.description })),
+    ])).catch(toastError)
+  }, [])
   const toggle = async (s: Schedule, on: boolean) => { try { await builtinApi.updateSchedule(s.id, { enabled: on }) } catch (e) { toastError(e) } }
   return (
     <SettingsFrame title={title} dirty={dirty} saving={saving} onSave={() => form && save({ builtin_mcp: form.builtin_mcp })}>
@@ -37,6 +60,22 @@ export function BuiltinMcpSettings({ title }: { title: string }) {
           ))}
         </div>
       </>}
+      <div class="group-title">What the model gets</div>
+      <span class="fhint" style={{ display: 'block', padding: '0 4px 8px' }}>One MCP server named next. Tools show up as mcp__next__&lt;name&gt; and never ask for permission. Subagent sessions don't get Collaboration, so tasks can't start more tasks.</span>
+      {CATS.map((c) => (
+        <div key={c.key} class="group tool-doc">
+          <div class="tool-doc-head">{c.label}</div>
+          {c.tools.map(([n, d]) => <div key={n} class="tool-doc-row"><code>{n}</code><span>{d}</span></div>)}
+        </div>
+      ))}
+      <div class="group-title">Available subagents</div>
+      <span class="fhint" style={{ display: 'block', padding: '0 4px 8px' }}>agents_list returns these. The description is all the model sees when it picks one, so say what each agent is good at. Turn an agent on with Available as a subagent in its settings.</span>
+      <div class="group">
+        {!subs ? <div class="row"><span class="spinner" /></div> : !subs.length ? <div class="row"><span class="label"><span class="hint">No agent is available as a subagent yet.</span></span></div>
+          : subs.map((x) => (
+            <div key={x.module + x.id} class="row"><span class="label">{x.name}<span class="hint">{x.module} · {x.description || 'No description. The model only sees the name.'}</span></span></div>
+          ))}
+      </div>
       <div class="group-title">Schedules</div>
       <div class="group">
         {(list || []).map((s) => (

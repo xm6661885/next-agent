@@ -200,14 +200,22 @@ async def complete(provider, model, messages, system='', max_tokens=64):
     return ''.join(b['text'] for b in data['content'] if b['type']=='text')
 
 
+async def list_models(provider) -> list[str]:
+    async with client() as http:
+        response = await http.get(url(provider, 'models'), headers=headers(provider))
+        await check(response)
+        try: data = response.json()
+        except ValueError as exc: raise ProviderError('Invalid models response') from exc
+    entries = data.get('data') if isinstance(data, dict) else None
+    if not isinstance(entries, list) or any(not isinstance(m, dict) or not isinstance(m.get('id'), str) for m in entries):
+        raise ProviderError('Invalid models response')
+    return sorted({m['id'] for m in entries})
+
+
 async def test(provider):
     try:
         if provider.format=='openai':
-            async with client() as http:
-                response = await http.get(url(provider, 'models'), headers=headers(provider))
-                await check(response)
-                models = [m['id'] for m in response.json()['data']]
-            return {'ok': True, 'models': models}
+            return {'ok': True, 'models': await list_models(provider)}
         if not provider.models: raise ProviderError('No models configured')
         await complete(provider, provider.models[0], [{'role': 'user', 'content': 'Hi'}], max_tokens=1)
         return {'ok': True}

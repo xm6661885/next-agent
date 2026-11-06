@@ -20,6 +20,8 @@ class ChatRuntime:
         self.manager, self.sid = manager, sid
         self.session = manager.store.sessions[sid]
         self.items = manager.store.load_items(sid)
+        self.forks = manager.store.load_forks(sid)
+        self.annotate()
         self.state, self.seq = 'idle', 0
         self.ring = deque(maxlen=500)
         self.subscribers = set()
@@ -41,12 +43,31 @@ class ChatRuntime:
 
     def flush(self):
         self.manager.store.save_items(self.sid, [i for i in self.items if not i.get('streaming')])
+        if self.forks: self.manager.store.save_forks(self.sid, self.forks)
 
-    def add(self, kind, **fields):
+    def annotate(self):
+        for item in self.items:
+            if item['kind']!='user': continue
+            item.setdefault('group', item['id'])
+            for field, key in (('version', 'u:'+item['group']), ('reply_version', 'r:'+item['id'])):
+                fork = self.forks.get(key)
+                item[field] = [fork['active'], len(fork['versions'])] if fork else [0, 1]
+
+    def fork(self, key, start):
+        fork = self.forks.setdefault(key, {'active': 0, 'versions': [None]})
+        fork['versions'][fork['active']] = copy.deepcopy(self.items[start:])
+        fork['versions'].append(None)
+        fork['active'] = len(fork['versions'])-1
+        del self.items[start:]
+
+    def add(self, kind, *, broadcast=True, **fields):
         item = dict(id=uuid4().hex, kind=kind, ts=now(), **fields)
-        if kind=='user': item['uuid'] = item['id']
+        if kind=='user':
+            item['uuid'] = item['id']
+            item.setdefault('group', item['id'])
         self.items.append(item)
-        self.emit({'type': 'item', 'item': item})
+        if kind=='user': self.annotate()
+        if broadcast: self.emit({'type': 'item', 'item': item})
         if not item.get('streaming'): self.flush()
         return item
 
@@ -82,24 +103,68 @@ class ChatRuntime:
         self.idle()
         attachments = attachments or []
         if not text.strip() and not attachments: raise ValueError('Message is empty')
+        group = None
         if uuid is not None:
             at = next((i for i, item in enumerate(self.items) if item['kind']=='user' and item['uuid']==uuid), None)
             if at is None: raise ValueError('User message not found')
-            del self.items[at:]
-            self.flush()
-            self.emit({'type': 'truncate', 'uuid': uuid})
-        self.add('user', text=text, attachments=attachments, client_id=client_id, pending=False)
+            group = self.items[at]['group']
+            self.fork('u:'+group, at)
+        self.add('user', broadcast=uuid is None, text=text, attachments=attachments, client_id=client_id,
+                 pending=False, **({'group': group} if group else {}))
+        if uuid is not None: self.emit({'type': 'items', **page(self.items)})
         self.manager.update_session(self.sid, preview=text[:120])
         self.start()
 
-    def regenerate(self):
+    def regenerate(self, uuid=None):
         self.idle()
-        at = next((i for i in range(len(self.items)-1, -1, -1) if self.items[i]['kind']=='user'), None)
+        at = next((i for i in range(len(self.items)-1, -1, -1) if self.items[i]['kind']=='user'
+                   and (uuid is None or self.items[i]['uuid']==uuid)), None)
         if at is None: raise ValueError('No user message to regenerate')
-        del self.items[at+1:]
+        self.fork('r:'+self.items[at]['uuid'], at+1)
+        self.annotate()
         self.flush()
-        self.emit({'type': 'truncate_after', 'uuid': self.items[at]['uuid']})
+        self.emit({'type': 'items', **page(self.items)})
         self.start()
+
+    def edit_reply(self, id, text):
+        self.idle()
+        target = next((i for i, item in enumerate(self.items) if item['id']==id and item['kind']=='text'
+                       and not item.get('streaming')), None)
+        if target is None: raise ValueError('Reply text not found')
+        at = next((i for i in range(target-1, -1, -1) if self.items[i]['kind']=='user'), None)
+        if at is None: raise ValueError('Reply text not found')
+        end = next((i for i in range(at+1, len(self.items)) if self.items[i]['kind']=='user'), len(self.items))
+        items = copy.deepcopy(self.items[at+1:end])
+        for item in items:
+            if item['id']==id: item['text'] = text
+            item['id'] = uuid4().hex
+        items = [item for item in items if item['kind']!='result']
+        items.append(dict(id=uuid4().hex, kind='result', ts=now(), duration_ms=0, usage={'input': 0, 'output': 0},
+                          model='', stop_reason='edited'))
+        self.fork('r:'+self.items[at]['uuid'], at+1)
+        self.items.extend(items)
+        self.annotate()
+        self.flush()
+        self.emit({'type': 'items', **page(self.items)})
+
+    def switch(self, key, index):
+        self.idle()
+        if key not in self.forks: raise ValueError('Version not found')
+        fork = self.forks[key]
+        if not 0<=index<len(fork['versions']): raise ValueError('Version index out of range')
+        if index==fork['active']: return
+        kind, _, value = key.partition(':')
+        at = next((i for i, item in enumerate(self.items) if item['kind']=='user'
+                   and (item['group'] if kind=='u' else item['uuid'])==value), None)
+        if at is None: raise ValueError('Version not visible')
+        start = at if kind=='u' else at+1
+        fork['versions'][fork['active']] = copy.deepcopy(self.items[start:])
+        self.items[start:] = copy.deepcopy(fork['versions'][index])
+        fork['versions'][index] = None
+        fork['active'] = index
+        self.annotate()
+        self.flush()
+        self.emit({'type': 'items', **page(self.items)})
 
     def start(self):
         self.state, self.started = 'running', False
@@ -301,13 +366,13 @@ class ChatManager:
     def config_view(self):
         data = self.config.data
         return dict(defaults=data.defaults.model_dump(), mcp_servers={k: v.model_dump(exclude_unset=True) for k, v in data.mcp_servers.items()},
-                    providers=[{**p.model_dump(), 'api_key': '', 'api_key_set': bool(p.api_key)} for p in data.providers])
+                    providers=[p.model_dump() for p in data.providers], profile=data.profile.model_dump())
 
     def save_config(self, changes):
         try: ChatConfig.model_validate({**self.config.data.model_dump(), **changes})
         except ValidationError as exc: raise HTTPException(422, str(exc)) from exc
         for key, value in changes.items():
-            if isinstance(value, dict) and key in ('defaults', 'default_assistant'):
+            if isinstance(value, dict) and key in ('defaults', 'default_assistant', 'profile'):
                 if key not in self.config.doc: self.config.doc[key] = tomlkit.table()
                 self.config.doc[key].update(value)
             else: self.config.doc[key] = tomlkit.item(value)
@@ -316,7 +381,8 @@ class ChatManager:
 
     def patch_config(self, body):
         changes = body.model_dump(exclude_unset=True)
-        if 'defaults' in changes: changes['defaults'] = {**self.config.data.defaults.model_dump(), **changes['defaults']}
+        for key in ('defaults', 'profile'):
+            if key in changes: changes[key] = {**getattr(self.config.data, key).model_dump(), **changes[key]}
         if 'providers' in changes:
             keys = {p.id: p.api_key for p in self.config.data.providers}
             for provider in changes['providers']:

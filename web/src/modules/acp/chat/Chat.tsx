@@ -7,7 +7,7 @@ import { toast, toastError } from '../../../lib/store'
 import { back, navigate, parentOf, route } from '../../../lib/router'
 import { Avatar, Spark } from '../../../components/crab'
 import { BackButton, Sheet, TopBar, promptDialog } from '../../../components/ui'
-import { IconBrain, IconCheck, IconChevron, IconChevronDown, IconCopy, IconMore, IconEdit, IconSelect, IconNewChat, IconTerminal, IconMoon } from '../../../components/icons'
+import { IconBrain, IconCheck, IconChevron, IconChevronDown, IconCopy, IconMore, IconEdit, IconSelect, IconNewChat, IconTerminal, IconMoon, IconPlug, IconRefresh } from '../../../components/icons'
 import { openViewer } from '../../../components/ImageViewer'
 import { copyText, fmtBytes, fmtDuration, haptic, uid } from '../../../lib/util'
 import type { Attachment, Item, TextItem, ThinkingItem, UserItem } from '../../../lib/types'
@@ -134,6 +134,12 @@ export function AcpChat({ agentId, sessionId }: { agentId: string; sessionId: st
       haptic()
       navigate({ name: 'acp-chat', agentId, sessionId: s.id }, { replace: true })
     } catch (e) { toastError(e) } finally { setCreating(false) }
+  }
+  const [linking, setLinking] = useState(false)
+  const connect = async (fresh: boolean) => {
+    if (linking) return
+    setLinking(true)
+    try { conn.session.value = await acpApi.connect(sessionId, fresh); toast(fresh ? 'Reconnected' : 'Connected') } catch (e) { toastError(e) } finally { setLinking(false) }
   }
   const sleep = async () => {
     setOptionsOpen(false)
@@ -271,10 +277,12 @@ export function AcpChat({ agentId, sessionId }: { agentId: string; sessionId: st
               </div>
             </div>
           ))}
-          {!options.length && <p class="fhint">Options appear after the agent connects.</p>}
+          {!options.length && <p class="fhint">{state === 'offline' ? 'Connect to load model, effort and permission options.' : 'This agent offers no options.'}</p>}
           <div class="group-title">Session</div>
           <div class="menu" style={{ padding: '4px 0 0' }}>
             <button onClick={() => { setOptionsOpen(false); rename() }}><IconEdit /> Rename</button>
+            {state === 'offline' && <button disabled={linking} onClick={() => connect(false)}><IconPlug /> {linking ? 'Connecting...' : 'Connect'}</button>}
+            {state !== 'offline' && <button disabled={busy || linking || state === 'connecting'} onClick={() => connect(true)}><IconRefresh /> Reconnect</button>}
             {state !== 'offline' && <button disabled={busy} onClick={sleep}><IconMoon /> Disconnect</button>}
           </div>
           {agent?.info && <div class="init-info"><span>{agent.info.title || agent.info.name}{agent.info.version ? ` ${agent.info.version}` : ''}</span><span>{agent.host}:{agent.port}</span></div>}

@@ -8,12 +8,13 @@ export type Effort = 'off' | 'low' | 'medium' | 'high' | 'max'
 export const EFFORTS: Effort[] = ['off', 'low', 'medium', 'high', 'max']
 export const DEFAULT_ASSISTANT = '_default'
 
-export interface Provider { id: string; name: string; format: 'openai' | 'anthropic'; base_url: string; api_key: string; api_key_set?: boolean; models: string[]; headers: Record<string, string> }
+export interface Provider { id: string; name: string; format: 'openai' | 'anthropic'; base_url: string; api_key: string; models: string[]; headers: Record<string, string> }
 export interface ChatDefaults { model: string; effort: Effort; system_prompt: string; temperature: number; max_tokens: number; mcp: string[]; title_model: string }
 export type McpServer = { type?: 'stdio'; command: string; args?: string[]; env?: Record<string, string> } | { type: 'http' | 'sse'; url: string; headers?: Record<string, string> }
-export interface ChatConfig { defaults: ChatDefaults; providers: Provider[]; mcp_servers: Record<string, McpServer> }
+export interface Profile { name: string; avatar: string }
+export interface ChatConfig { defaults: ChatDefaults; providers: Provider[]; mcp_servers: Record<string, McpServer>; profile: Profile }
 export interface ModelRef { id: string; provider: string; model: string; format: string }
-export interface ChatMeta { models: ModelRef[]; efforts: Effort[]; defaults: ChatDefaults; mcp_servers: string[] }
+export interface ChatMeta { models: ModelRef[]; efforts: Effort[]; defaults: ChatDefaults; mcp_servers: string[]; profile: Profile }
 export interface Assistant {
   id: string; name: string; avatar: string; description: string; model: string; effort: Effort | ''
   system_prompt: string; temperature: number; mcp: string[]; created_at?: string; order: number
@@ -26,6 +27,7 @@ export interface ChatSession {
 }
 
 const enc = encodeURIComponent
+let avatarRev = 0
 const get = <T>(p: string) => request<T>('GET', p)
 const post = <T>(p: string, b?: unknown) => request<T>('POST', p, b ?? {})
 const patch = <T>(p: string, b: unknown) => request<T>('PATCH', p, b)
@@ -35,6 +37,9 @@ export const chatApi = {
   config: () => get<ChatConfig>('/api/chat/config'),
   saveConfig: (c: Partial<ChatConfig>) => patch<ChatConfig>('/api/chat/config', c),
   testProvider: (id: string) => post<{ ok: boolean; error?: string; models?: string[] }>(`/api/chat/providers/${enc(id)}/test`),
+  fetchModels: (p: Provider) => post<{ models: string[] }>('/api/chat/providers/models', p),
+  profileAvatarUrl: (p: Profile) => `/api/chat/profile/avatar?v=${enc(p.avatar)}-${avatarRev}`,
+  uploadProfileAvatar: (f: File) => { avatarRev++; const fd = new FormData(); fd.append('file', f); return request<{ profile: Profile }>('POST', '/api/chat/profile/avatar', fd) },
   assistants: () => get<Assistant[]>('/api/chat/assistants'),
   assistant: (id: string) => get<Assistant>(`/api/chat/assistants/${enc(id)}`),
   create: (a: Partial<Assistant>) => post<Assistant>('/api/chat/assistants', a),

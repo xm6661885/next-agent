@@ -494,3 +494,9 @@
 .kind-switch { margin: 14px 0 14px; max-width: 260px; }
 .origin-tag { display: inline-block; margin-right: 6px; padding: 0 6px; border-radius: 6px; font-size: 11px; font-weight: 600; line-height: 18px;
   vertical-align: 1px; background: var(--bg-2); color: var(--text-2); }
+
+/* Settings > Built-in tools: per-category tool reference */
+.tool-doc { padding: 4px 0; }
+.tool-doc-head { padding: 10px 16px 4px; font-weight: 600; font-size: 14px; }
+.tool-doc-row { display: flex; gap: 10px; padding: 6px 16px; font-size: 13px; color: var(--text-2); line-height: 1.45; }
+.tool-doc-row code { flex: none; width: 128px; font-family: var(--font-mono); font-size: 12px; color: var(--text); }

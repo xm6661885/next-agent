@@ -2,6 +2,7 @@
 import base64
 import asyncio
 import os
+import json
 import mimetypes
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -117,6 +118,13 @@ def create_app(data_dir=None):
         return PlainTextResponse('Message Sent',headers={'X-Session-Id':sid})
     @app.get('/api/me')
     async def me(_:None=Depends(require)): return {'authenticated':True}
+    @app.get('/api/mcp/global')
+    async def global_mcp(_:None=Depends(require)):
+        path=Path.home()/'.claude.json'
+        try: data=json.loads(path.read_text())
+        except (FileNotFoundError,json.JSONDecodeError): data={}
+        if not isinstance(data, dict): data={}
+        return {'path':str(path),'servers':data.get('mcpServers') or {}}
     @app.get('/api/agents')
     async def agents_list(_:None=Depends(require)): return agents.list()
     @app.post('/api/agents')

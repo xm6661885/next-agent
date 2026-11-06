@@ -24,6 +24,21 @@ def test_avatar_limits(logged,tmp_path):
     assert logged.post(url,files={'file':('a.png',b'PNG','image/png')}).json()['avatar']=='file'
     assert logged.get(url).content==b'PNG'
 
+def test_global_mcp(logged,tmp_path,monkeypatch):
+    monkeypatch.setenv('HOME',str(tmp_path))
+    path=tmp_path/'.claude.json'
+    expected={'path':str(path),'servers':{}}
+    assert logged.get('/api/mcp/global').json()==expected
+    for content in ('not json','{}','{"mcpServers":null}'):
+        path.write_text(content)
+        assert logged.get('/api/mcp/global').json()==expected
+    path.write_text('{"mcpServers":{"fetch":{"type":"http","url":"https://mcp.test"}},"other":true}')
+    response=logged.get('/api/mcp/global')
+    assert response.status_code==200
+    assert response.json()=={'path':str(path),'servers':{'fetch':{'type':'http','url':'https://mcp.test'}}}
+    logged.cookies.clear()
+    assert logged.get('/api/mcp/global').status_code==401
+
 def test_groups(logged,tmp_path):
     assert logged.get('/api/groups').json()=={'groups':[]}
     assert logged.put('/api/groups',json={'groups':['Work','Home']}).json()=={'groups':['Work','Home']}
