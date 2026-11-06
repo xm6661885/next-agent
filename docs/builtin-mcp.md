@@ -52,7 +52,7 @@ offers them. A `cron` schedule fires repeatedly; an `at` schedule fires once and
  "created_at": 0, "next_run": 0 | null, "last_run": 0 | null,
  "last_result": {"session_id": "...", "is_error": false, "error": null} | null}
 ```
-Times are epoch seconds. Stored in `data/schedules.json` (atomic writes). Schedules created in the UI have
+Times are epoch seconds. Stored in `data/builtin/schedules.json` (atomic writes). Schedules created in the UI have
 `created_by: null`.
 
 **Scheduler**: one background task (`core.background`) sleeps until the earliest `next_run` (re-checks at most every
@@ -77,8 +77,8 @@ agent is an error. For the temporary agent "same agent" means every `_temp` sess
 ### collab (other agents as subagents)
 | Tool | Input | Result |
 |---|---|---|
-| `agents_list` | `{}` | `[{module, agent_id, name, description}]`: Claude agents with `as_subagent`, More Agents agents with `as_subagent`, never the caller's own agent |
-| `task_create` | `{module, agent_id, prompt, title?, wait?: false, model?, effort?}` | `Task` (when `wait`, after the turn ends) |
+| `agents_list` | `{}` | `[{module, agent_id, name, description, kind, needs_cwd, models?}]`: Claude agents with `as_subagent`, More Agents agents with `as_subagent`, never the caller's own agent |
+| `task_create` | `{module, agent_id, prompt, title?, wait?: false, model?, effort?, cwd?}` | `Task` (when `wait`, after the turn ends) |
 | `task_status` | `{task_id}` | `Task` plus `last_text` (last assistant text, up to 4000 chars) |
 | `task_send` | `{task_id, prompt}` | `Task`. Sends a follow-up message into the task's session |
 | `task_stop` | `{task_id}` | `Task` |

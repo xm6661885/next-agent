@@ -35,7 +35,7 @@ Tables as before minus `settings`, `env_vars`, `api_keys`, `agent_sessions`: `gr
 |---|---|---|---|
 | `builtin.temp_task` | Temporary task | `prompt`*, `cwd`, `model`, `effort`, `permission_mode`, `append_system_prompt`, `output_schema` (json), `allowed_tools`, `disallowed_tools`, `add_dirs`, `max_turns`, `max_budget_usd`, `env` (json), `session_id` | `run_claude('_temp', ...)` |
 | `builtin.agent_task` | Agent task | `agent`* (type `agent`), `prompt`*, `session_id`, `model`, `effort`, `append_system_prompt`, `output_schema` | `run_claude(agent, ...)` |
-| `builtin.more_agent_task` | More Agents agent task | `agent`* (type `more_agent`), `prompt`*, `session_id` | `run_more(agent, ...)` |
+| `builtin.more_agent_task` | More Agents agent task | `agent`* (type `more_agent`), `prompt`*, `cwd` (required for new sessions), `model`, `effort`, `session_id` | `run_more(agent, cwd=..., ...)` |
 
 Empty inputs mean "use the agent's own setting" (for the temporary task: the temporary chat agent settings in
 Agents settings). `cwd` empty = the temp agent default (home); relative = against `default_cwd`. `model`, `effort`,

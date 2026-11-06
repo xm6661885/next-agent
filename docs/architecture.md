@@ -20,7 +20,7 @@ Workflow never starts a CLI itself: its agent cards create normal Agents session
 (`AgentBridge`), so the concurrency gate, idle reaper and chat UI are the Agents ones.
 
 ## Bridges (the only cross-module calls)
-- `server/bridge.py` `AgentBridge`: run a turn on a Claude session (temporary or a named agent) or an ACP session and
+- `server/bridge.py` `AgentBridge`: run a turn on a Claude session (temporary or a named agent) or a More Agents session and
   wait for the result. Used by Workflow cards, the scheduler and the built-in collaboration tools.
 - `core.emit` (`server/core.py`, served by `/ws/events` in `app.py`): the global feed. Every module emits `session_state` events tagged with `module`.
 
@@ -39,13 +39,14 @@ Runs work on Agents-module sessions for other modules. Claude sessions go throug
 ```python
 async def run_claude(agent_id, prompt, *, session_id=None, title='', origin='workflow', parent=None,
                      cwd=None, overrides=None, extra=None) -> dict
+
     # agent_id '_temp' (or None) = temporary session in `cwd` (default home) using the temp agent settings.
     # overrides: {model, effort, permission_mode} (None/'' = agent value); extra: see Session.extra.
     # Creates a session unless session_id is given; sends prompt (waits behind a running turn); waits for the result.
     # -> {session_id, text, structured, cost_usd, is_error, error}
 def start_claude(...same args...) -> str        # session id; does not wait
 async def wait_claude(session_id) -> dict       # wait for the current/next turn result, same dict
-async def run_more(agent_id, prompt, *, session_id=None, title='', origin='workflow', parent=None) -> dict
+async def run_more(agent_id, prompt, *, cwd, session_id=None, title='', origin='workflow', parent=None, model='', effort='') -> dict
     # -> {session_id, text, stop_reason, is_error, error}
 def start_more(...) -> str
 async def send(module, session_id, prompt)      # module 'agents' | 'more_agents'; like typing in the chat
