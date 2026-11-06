@@ -1,5 +1,5 @@
 """Supervised JSON-RPC stdio process for a Codex app-server."""
-import asyncio, json, logging, os
+import asyncio, json, logging, os, pathlib
 
 log = logging.getLogger(__name__)
 LINE_LIMIT = 64 * 1024 * 1024
@@ -29,8 +29,13 @@ class CodexProcess:
 
     async def start(self):
         env = os.environ.copy(); env.update(self.agent.env)
+        command = [self.agent.command]
+        args = list(self.agent.args)
+        if pathlib.Path(self.agent.command).name.startswith('python') and args and pathlib.Path(args[0]).suffix == '.py':
+            command.extend(args); args = []
+        command.extend(['app-server', '--listen', 'stdio://', '-c', 'analytics.enabled=false', *args])
         self.proc = await asyncio.create_subprocess_exec(
-            self.agent.command, 'app-server', '--listen', 'stdio://', '-c', 'analytics.enabled=false', *self.agent.args,
+            *command,
             stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
             env=env, limit=LINE_LIMIT)
         self.reader_task = asyncio.create_task(self._read_loop())
