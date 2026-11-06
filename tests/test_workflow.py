@@ -319,7 +319,7 @@ def test_crud_settings_raw_and_feed(logged, app, tmp_path, monkeypatch):
     assert logged.delete(prefix+f"/runs/{answer['run_id']}").status_code==200
     assert core.modules['overview_workflow']()=={'workflows': 3, 'runs': 0}
     tables = logged.portal.call(manager.db.fetchall, "SELECT name FROM sqlite_master WHERE type='table'")
-    assert {t['name'] for t in tables}=={'groups', 'workflows', 'runs', 'run_events', 'step_outputs'}
+    assert {t['name'] for t in tables}=={'groups', 'workflows', 'triggers', 'runs', 'run_events', 'step_outputs'}
 
 
 def test_auth_and_api_trigger(logged, app):
