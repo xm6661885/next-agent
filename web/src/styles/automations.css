@@ -1,0 +1,50 @@
+/* Automations module. Uses base.css variables only. */
+.auto-list { display: flex; flex-direction: column; gap: 10px; margin-top: 6px; }
+.auto-filter { margin: 4px 0 14px; }
+.auto-card {
+  background: var(--surface); border: 1px solid var(--line); border-radius: 18px; padding: 14px 16px;
+  cursor: pointer; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+  transition: transform 0.18s var(--ease-spring);
+}
+.auto-card:active { transform: scale(0.985); }
+.auto-card.off { opacity: 0.55; }
+.auto-card-top { display: flex; align-items: center; gap: 8px; }
+.auto-name { flex: 1; min-width: 0; font-weight: 640; font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.auto-more { width: 32px; height: 32px; margin: -4px -8px -4px 0; color: var(--text-3); }
+.auto-desc { color: var(--text-2); font-size: 14px; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.auto-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; margin-top: 8px; font-size: 13px; color: var(--text-2); }
+.auto-sep::before { content: ''; display: inline-block; width: 3px; height: 3px; border-radius: 50%; background: var(--text-3); vertical-align: middle; margin-right: 10px; }
+.auto-switch { margin-left: auto; display: inline-flex; }
+
+.auto-warn {
+  display: flex; align-items: center; gap: 10px; width: 100%; padding: 12px 16px; margin: 0 0 8px;
+  border-radius: 16px; border: 0; background: color-mix(in srgb, var(--danger) 12%, var(--surface)); color: var(--text);
+  font-size: 15px; font-weight: 560;
+}
+.auto-warn:active { transform: scale(0.985); }
+.auto-warn-go { color: var(--danger); font-size: 13.5px; }
+
+.auto-badge { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; font-weight: 600; white-space: nowrap; color: var(--text-2); }
+.auto-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-3); flex: none; display: inline-block; }
+.auto-dot.failed, .auto-badge.failed .auto-dot { background: var(--danger); }
+.auto-badge.ok .auto-dot { background: var(--ok); }
+.auto-badge.pending .auto-dot { background: var(--warn); }
+.auto-badge.failed { color: var(--danger); }
+
+.auto-head { display: flex; align-items: flex-start; gap: 12px; }
+.auto-title { margin: 0 0 6px; overflow-wrap: anywhere; }
+.auto-actions { display: flex; flex-wrap: wrap; gap: 10px; margin: 16px 0 6px; }
+.auto-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.auto-chips .chip { height: 26px; padding: 0 10px; font-family: var(--font-mono); font-size: 12.5px; }
+.auto-copy-row { display: flex; flex-wrap: wrap; gap: 8px; padding: 4px 16px 14px; }
+.auto-url { color: var(--text); }
+.auto-id { color: var(--text-3); font-weight: 400; }
+.auto-run .label { text-align: left; }
+.auto-error { padding: 0 4px; margin: 14px 0 0; }
+
+.auto-run-head { margin-bottom: 14px; }
+.auto-log {
+  margin: 0; padding: 12px 14px; border-radius: 14px; background: var(--code-bg, var(--surface)); border: 1px solid var(--line);
+  font-family: var(--font-mono); font-size: 12.5px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere;
+  user-select: text; -webkit-user-select: text; min-height: 120px;
+}

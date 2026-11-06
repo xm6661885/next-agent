@@ -27,6 +27,11 @@ export type Route =
   | { name: 'new-assistant' }
   | { name: 'llm-chat'; assistantId: string; sessionId: string }
   | { name: 'automations' }
+  | { name: 'automation-task'; taskId: string }
+  | { name: 'automation-edit'; taskId: string }
+  | { name: 'automation-new' }
+  | { name: 'automation-run'; runId: string }
+  | { name: 'automation-runs' }
   | { name: 'workflows' }
   | { name: 'wf-editor'; workflowId: string }
   | { name: 'wf-run'; runId: string }
@@ -69,6 +74,11 @@ export function parse(path: string): Route {
   if (p[0] === 'chat' && p[1] && p[2] === 's' && p[3]) return { name: 'llm-chat', assistantId: p[1], sessionId: p[3] }
   if (p[0] === 'chat' && p[1]) return { name: 'assistant', assistantId: p[1] }
   if (p[0] === 'chat') return { name: 'chats' }
+  if (p[0] === 'automations' && p[1] === 'new') return { name: 'automation-new' }
+  if (p[0] === 'automations' && p[1] === 'runs') return { name: 'automation-runs' }
+  if (p[0] === 'automations' && p[1] === 'r' && p[2]) return { name: 'automation-run', runId: p[2] }
+  if (p[0] === 'automations' && p[1] === 't' && p[2] && p[3] === 'edit') return { name: 'automation-edit', taskId: p[2] }
+  if (p[0] === 'automations' && p[1] === 't' && p[2]) return { name: 'automation-task', taskId: p[2] }
   if (p[0] === 'automations') return { name: 'automations' }
   if (p[0] === 'workflow' && p[1] === 'w' && p[2]) return { name: 'wf-editor', workflowId: p[2] }
   if (p[0] === 'workflow' && p[1] === 'r' && p[2]) return { name: 'wf-run', runId: p[2] }
@@ -106,6 +116,11 @@ export function href(r: Route): string {
     case 'assistant-memory': return `/chat/${e(r.assistantId)}/memory`
     case 'llm-chat': return `/chat/${e(r.assistantId)}/s/${e(r.sessionId)}`
     case 'automations': return '/automations'
+    case 'automation-new': return '/automations/new'
+    case 'automation-runs': return '/automations/runs'
+    case 'automation-run': return `/automations/r/${e(r.runId)}`
+    case 'automation-task': return `/automations/t/${e(r.taskId)}`
+    case 'automation-edit': return `/automations/t/${e(r.taskId)}/edit`
     case 'workflows': return '/workflow'
     case 'wf-editor': return `/workflow/w/${e(r.workflowId)}`
     case 'wf-run': return `/workflow/r/${e(r.runId)}`
@@ -177,6 +192,8 @@ export function parentOf(r: Route): Route {
     case 'acp-chat': case 'acp-settings': return { name: 'acp', agentId: r.agentId }
     case 'llm-chat': case 'assistant-settings': case 'assistant-files': case 'assistant-memory': return { name: 'assistant', assistantId: r.assistantId }
     case 'assistant': case 'new-assistant': return { name: 'chats' }
+    case 'automation-task': case 'automation-new': case 'automation-runs': case 'automation-run': return { name: 'automations' }
+    case 'automation-edit': return { name: 'automation-task', taskId: r.taskId }
     case 'wf-editor': case 'wf-run': case 'wf-runs': case 'wf-console': return { name: 'workflows' }
     case 'settings-section': return { name: 'settings-module', module: r.module }
     case 'settings-module': return { name: 'settings' }
