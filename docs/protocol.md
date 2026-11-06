@@ -59,7 +59,7 @@ All JSON. Timestamps are ISO-8601 UTC strings. IDs are strings.
   "max_budget_usd": 0,          // 0 = unlimited
   "env": {},
   "mcp_servers": {},            // passed straight to ClaudeAgentOptions.mcp_servers
-  "builtin_mcp": {},            // optional enabled/schedules/history/collab booleans override the global switches
+  "builtin_mcp": {},            // optional enabled/history/collab booleans override the global switches
   "as_subagent": false,         // collaboration tools may start tasks on this agent
   "agents": {},                 // subagent definitions: name -> {description, prompt, tools?, model?}
   "enable_file_checkpointing": true,
@@ -290,7 +290,6 @@ Config stays in the central `data/config/` directory; generated data belongs to 
 | `data/agents/sessions.json` | Claude Agents: session index and upload records |
 | `data/agents/profiles/<agent-id>/` | Claude Agents: uploaded `avatar.*` and custom `CLAUDE.md` |
 | `data/agents/uploads/<session-id>/` | Claude Agents: fallback uploads when the session cwd is unavailable |
-| `data/builtin/schedules.json` | Built-in MCP: persistent schedules |
 | `data/more_agents/` | More Agents: sessions, transcripts, uploads, avatars and Codex model caches |
 | `data/chat/` | Chat: sessions, messages, uploads, assistant files and memory |
 | `data/workflow/` | Workflow: `app.db`, plugins and workspace |
@@ -300,7 +299,7 @@ Config stays in the central `data/config/` directory; generated data belongs to 
 
 Other modules keep generated data under `data/<module-dir>/`. `NEXT_AGENT_DATA` changes the entire data root.
 Before starting on an existing installation, run `python scripts/migrate/core.py --data DIR` (preview with
-`--dry-run`). It moves the old root-level `secret.key`, `sessions.json`, `uploads/`, `schedules.json`, and
+`--dry-run`). It moves the old root-level `secret.key`, `sessions.json`, `uploads/`, and
 `agents/<agent-id>/` profiles to the paths above, skipping destinations that already exist. It rewrites only upload
 record paths beginning with the old absolute `DIR/uploads/` prefix, leaving cwd uploads unchanged, using a
 temporary file and rename without creating backups in `data/`. Before migrations, the integrator copies the
@@ -308,7 +307,7 @@ whole data directory to `~/Deprecated`. If both upload directories exist, resolv
 before rerunning; their records retain the old paths until then. The script is safe to rerun; the server uses only
 the new paths and does no layout migration at startup. Then run
 `uv run python scripts/migrate/more_agents.py --data DIR` (also supports `--dry-run`) to migrate ACP config,
-sessions, attachments, workflow cards, schedule targets and Claude session parents; see
+sessions, attachments, workflow cards and Claude session parents; see
 `docs/protocol-more-agents.md` for the migration contract.
 
 ### Config files

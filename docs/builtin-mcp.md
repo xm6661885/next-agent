@@ -8,12 +8,11 @@ Global, in `agents.toml`:
 ```toml
 [builtin_mcp]
 enabled = false      # master switch
-schedules = true     # category switches (only matter when enabled)
-history = true
+history = true       # category switches (only matter when enabled)
 collab = true
 ```
 Per agent (`[[agents]]` and `[temp_agent]`), new `AgentSettings` fields:
-- `builtin_mcp: {enabled?, schedules?, history?, collab?}`: each key that is present overrides the global value;
+- `builtin_mcp: {enabled?, history?, collab?}`: each key that is present overrides the global value;
   absent keys follow the global value. Default `{}`.
 - `as_subagent: bool = false`: whether collaboration tools may start tasks on this agent. More Agents agents use the existing
   `as_subagent` in `more_agents.toml`.
@@ -29,39 +28,6 @@ session id).
 
 ## Tools
 Results are JSON text (`{"content":[{"type":"text","text": json}]}`). Errors return `is_error: true` with a message.
-
-### schedules
-| Tool | Input | Result |
-|---|---|---|
-| `schedule_create` | `{prompt, title?, cron?, at?, target?: {module?: "agents"\|"more_agents", agent_id?, session?: "new"\|"this"\|<session id>, cwd?}, model?, effort?}` | `Schedule` |
-| `schedule_list` | `{}` | `[Schedule]` created by this agent |
-| `schedule_delete` | `{id}` | `{ok: true}` (only schedules created by this agent) |
-
-Exactly one of `cron` (5-field, server local time, via `croniter`) or `at` (ISO 8601 local datetime, must be in the
-future) is required. `target` defaults to this agent and `session: "new"`. `"this"` means the calling session and is
-only valid for this agent; it is stored as the concrete session id. For More Agents targets, `session` is `"new"` or a More Agents
-session id of that agent, and `model`/`effort` are applied as More Agents config options (`model`, `effort`) when the agent
-offers them (ACP uses categories `model` / `thought_level`). New More Agents targets require `target.cwd`; existing sessions retain their cwd. Claude targets reject cwd. A `cron` schedule fires repeatedly; an `at` schedule fires once and then sets `enabled = false`.
-
-`Schedule`:
-```json
-{"id": "s_ab12cd", "title": "", "prompt": "...", "cron": "0 9 * * *" | null, "at": "2026-11-05T09:00" | null,
- "target": {"module": "agents", "agent_id": "dev", "session": "new" | "<sid>"},
- "model": "", "effort": "", "enabled": true,
- "created_by": {"module": "agents", "agent_id": "dev", "session_id": "<sid>"} | null,
- "created_at": 0, "next_run": 0 | null, "last_run": 0 | null,
- "last_result": {"session_id": "...", "is_error": false, "error": null} | null}
-```
-Times are epoch seconds. Stored in `data/builtin/schedules.json` (atomic writes). Schedules created in the UI have
-`created_by: null`.
-
-**Scheduler**: one background task (`core.background`) sleeps until the earliest `next_run` (re-checks at most every
-30 s and immediately on any change). A due schedule fires through `core.bridge.start_claude` / `start_more` with
-`origin = "schedule"`, `title = schedule.title or "Scheduled: <first 40 chars of prompt>"`, the stored session id
-when `session` is not `"new"`, and `overrides = {model, effort}` (empty values = agent default; Claude only). It does
-not wait for the turn; it waits for the result in a separate task and stores `last_result`. A missed run (server was
-down) fires once at startup if it was due less than 1 hour ago, otherwise it is skipped to the next time. A target
-that no longer exists sets `last_result.error` and disables the schedule.
 
 ### history (same agent only)
 | Tool | Input | Result |
@@ -98,16 +64,10 @@ is the target session state. Tasks live in memory in the builtin module (the ses
 ## REST
 | Method | Path | Body | Result |
 |---|---|---|---|
-| GET | `/api/builtin/schedules` | | `[Schedule]` |
-| POST | `/api/builtin/schedules` | `Schedule` fields (no id/created_*) | `Schedule` |
-| PATCH | `/api/builtin/schedules/{id}` | any of `title, prompt, cron, at, target, model, effort, enabled` | `Schedule` |
-| DELETE | `/api/builtin/schedules/{id}` | | `{ok: true}` |
-| POST | `/api/builtin/schedules/{id}/run` | | `{session_id}` (fire now, keeps the timetable) |
 | GET | `/api/builtin/tasks?session_id=<sid>` | | `[Task]` started by that session (small-window list in the chat) |
 
 The global switches go through the existing `PATCH /api/config` (`builtin_mcp`); the per-agent fields through the
-normal agent PATCH. Global `/ws/events` gets `{"type": "schedules_changed", "module": "builtin"}` after any change
-or run.
+normal agent PATCH.
 
 ## Chat UI
 `mcp__next__task_*` tool items show a compact card with the target agent avatar and state; tapping opens the

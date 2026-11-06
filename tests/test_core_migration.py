@@ -17,7 +17,6 @@ def files(data):
 def test_migration_dry_run_and_twice(tmp_path):
     data=tmp_path/'data'; data.mkdir()
     (data/'secret.key').write_text('secret')
-    (data/'schedules.json').write_text('{"schedule": {}}')
     profile=data/'agents'/'alice'; profile.mkdir(parents=True)
     (profile/'avatar.png').write_bytes(b'avatar')
     (profile/'CLAUDE.md').write_text('instructions')
@@ -37,7 +36,6 @@ def test_migration_dry_run_and_twice(tmp_path):
     output=run(data)
     assert 'Rewrite 1 upload path(s)' in output
     assert (data/'core'/'secret.key').read_text()=='secret'
-    assert (data/'builtin'/'schedules.json').read_text()=='{"schedule": {}}'
     assert (data/'agents'/'profiles'/'alice'/'avatar.png').read_bytes()==b'avatar'
     assert (data/'agents'/'profiles'/'alice'/'CLAUDE.md').read_text()=='instructions'
     assert (data/'agents'/'uploads'/'sid'/'file.txt').read_text()=='upload'
@@ -45,7 +43,7 @@ def test_migration_dry_run_and_twice(tmp_path):
     index['uploads']['fallback']['path']=str(data/'agents'/'uploads'/'sid'/'file.txt')
     assert json.loads((data/'agents'/'sessions.json').read_text())==index
     assert (config/'core.toml').read_text()=='[server]'
-    for old in ('secret.key','sessions.json','schedules.json','uploads','agents/alice'):
+    for old in ('secret.key','sessions.json','uploads','agents/alice'):
         assert not (data/old).exists()
     migrated=files(data)
     assert run(data)==''
@@ -55,7 +53,7 @@ def test_migration_dry_run_and_twice(tmp_path):
 
 def test_migration_keeps_existing_destinations(tmp_path):
     pairs=[('secret.key','core/secret.key'),('sessions.json','agents/sessions.json'),
-           ('schedules.json','builtin/schedules.json'),('agents/alice/avatar.png','agents/profiles/alice/avatar.png'),
+           ('agents/alice/avatar.png','agents/profiles/alice/avatar.png'),
            ('uploads/sid/file.txt','agents/uploads/sid/file.txt')]
     for old,new in pairs:
         for path,content in ((tmp_path/old,'old'),(tmp_path/new,'new')):

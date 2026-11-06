@@ -1,4 +1,4 @@
-"""The session bridge used by Workflow, schedules and collaboration tools."""
+"""The session bridge used by Workflow and collaboration tools."""
 import asyncio
 from pathlib import Path
 from .config import TEMP_AGENT

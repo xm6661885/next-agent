@@ -26,7 +26,7 @@ const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches
 import { ModelPicker } from '../../../components/ModelPicker'
 import { EffortSlider } from '../../../components/EffortSlider'
 import { openViewer } from '../../../components/ImageViewer'
-import { MODE_LABELS, copyText, fmtBytes, fmtCost, fmtDuration, fmtTokens, haptic, shortPath, uid } from '../../../lib/util'
+import { MODE_LABELS, copyText, fmtBytes, fmtCost, fmtDuration, fmtTokens, haptic, uid } from '../../../lib/util'
 import type { Activity, Agent, Attachment, Item, TextItem, ThinkingItem, ToolItem, UserItem } from '../../../lib/types'
 
 // Claude Code's completion verbs ("Cooked for 1m 3s"), picked stably per fold.
@@ -394,9 +394,12 @@ export function Chat({ agentId, sessionId }: { agentId: string; sessionId: strin
         <button class="chat-title press" onClick={() => setControls(true)}>
           {agent && <Avatar agent={agent} size={32} busy={busy} />}
           <span class="titles">
-            <span class="t1">{session?.title || 'New conversation'}</span>
+            <span class="t1">
+              {status === 'open' && conn.loaded.value && <span class="conn-dot" role="img" aria-label="Connected" title="Connected" />}
+              {session?.title || 'New conversation'}
+            </span>
             <span class="t2">
-              {session?.cwd ? shortPath(session.cwd) : agent?.name}
+              {agent?.name}
               {state === 'queued' ? ' · waiting for a free slot' : state === 'starting' ? <> · <Spark size={11} /> loading</> : ''}
               {ctx ? ` · ${Math.round(ctx.percent)}% context` : ''}
             </span>

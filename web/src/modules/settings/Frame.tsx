@@ -14,7 +14,8 @@ export function SettingsFrame({ title, dirty, saving, onSave, children }: {
 }) {
   const { scrolled, onScroll, ref } = useScrolled()
   const r = route.value
-  const mod = r.name === 'settings-section' ? moduleOf(r.module) : undefined
+  const m = r.name === 'settings-section' ? moduleOf(r.module) : undefined
+  const mod = m?.direct ? undefined : m
   return (
     <div class="page wide-page">
       <TopBar scrolled={scrolled} left={mod

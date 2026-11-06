@@ -79,12 +79,6 @@ def migrate(root, dry=False):
         before = json.loads(path.read_text()); values = json.loads(path.read_text())
         attachments(values,root)
         changed_json(path,values,before,dry)
-    for path in (root/'schedules.json',root/'builtin'/'schedules.json'):
-        if not path.exists(): continue
-        before=json.loads(path.read_text()); values=json.loads(path.read_text())
-        for schedule in values.values():
-            if schedule['target']['module']=='acp': schedule['target']['module']='more_agents'
-        changed_json(path,values,before,dry)
     for path in (root/'sessions.json',root/'agents'/'sessions.json'):
         if not path.exists(): continue
         before=json.loads(path.read_text()); values=json.loads(path.read_text())

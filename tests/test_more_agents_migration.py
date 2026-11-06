@@ -25,10 +25,8 @@ def test_migrate_dry_run_idempotence_and_preservation(tmp_path,capsys,nested):
     (old/'items'/'s.jsonl').write_text(''.join(json.dumps(i)+'\n' for i in items))
     uploads=old/'uploads'/'s';uploads.mkdir(parents=True)
     (uploads/'index.json').write_text(json.dumps({'f':attachment}));(uploads/'f').write_bytes(b'original bytes')
-    schedules=root/'builtin'/'schedules.json' if nested else root/'schedules.json'
     parents=root/'agents'/'sessions.json' if nested else root/'sessions.json'
-    for p in (schedules,parents): p.parent.mkdir(exist_ok=True)
-    schedules.write_text(json.dumps({'job':{'target':dict(module='acp',agent_id='phone',session='new')}}))
+    parents.parent.mkdir(exist_ok=True)
     parents.write_text(json.dumps({'sessions':{'child':{'parent':dict(module='acp',session_id='s')}},'uploads':{}}))
     db=root/'workflow'/'app.db';db.parent.mkdir()
     with sqlite3.connect(db) as conn:
@@ -53,8 +51,6 @@ def test_migrate_dry_run_idempotence_and_preservation(tmp_path,capsys,nested):
     assert mapped[3]['phase'] is None
     assert (new/'uploads'/'s'/'f').read_bytes()==b'original bytes'
     assert json.loads((new/'uploads'/'s'/'index.json').read_text())['f']['url']=='/api/more-agents/uploads/s/f'
-    assert json.loads(schedules.read_text())['job']['target']['module']=='more_agents'
-    assert 'cwd' not in json.loads(schedules.read_text())['job']['target']
     assert json.loads(parents.read_text())['sessions']['child']['parent']['module']=='more_agents'
     with sqlite3.connect(db) as conn: definition=json.loads(conn.execute('SELECT definition FROM workflows').fetchone()[0])
     assert definition['blocks']==[dict(type='builtin.more_agent_task',params={'agent':'phone','prompt':'hi'})]
@@ -76,7 +72,6 @@ def test_core_then_more_agents_migrations(tmp_path):
     (config/'acp.toml').write_text('[[agents]]\nid="phone"\nname="Phone"\nhost="localhost"\nport=1\ncwd="/remote/project"\n')
     old=tmp_path/'acp';old.mkdir()
     (old/'sessions.json').write_text(json.dumps({'remote':{'id':'remote','agent_id':'phone'}}))
-    (tmp_path/'schedules.json').write_text(json.dumps({'job':{'target':{'module':'acp','agent_id':'phone','session':'new'}}}))
     upload=tmp_path/'uploads'/'child'/'file';upload.parent.mkdir(parents=True);upload.write_bytes(b'upload')
     (tmp_path/'sessions.json').write_text(json.dumps({
         'sessions':{'child':{'id':'child','parent':{'module':'acp','session_id':'remote'}},
@@ -96,10 +91,9 @@ def test_core_then_more_agents_migrations(tmp_path):
     assert index['sessions']['unrelated']['parent']=={'module':'workflow','run_id':'run'}
     assert index['uploads']['file']['path']==str(tmp_path/'agents'/'uploads'/'child'/'file')
     assert (tmp_path/'agents'/'uploads'/'child'/'file').read_bytes()==b'upload'
-    assert json.loads((tmp_path/'builtin'/'schedules.json').read_text())['job']['target']['module']=='more_agents'
     assert json.loads((tmp_path/'more_agents'/'sessions.json').read_text())['remote']['cwd']=='/remote/project'
     assert tomlkit.parse((config/'more_agents.toml').read_text())['agents'][0]['kind']=='acp'
-    for path in ('acp','config/acp.toml','sessions.json','schedules.json','uploads'):
+    for path in ('acp','config/acp.toml','sessions.json','uploads'):
         assert not (tmp_path/path).exists()
     after={str(p.relative_to(tmp_path)):p.read_bytes() for p in tmp_path.rglob('*') if p.is_file()}
     assert run('core.py')==run('more_agents.py')==''

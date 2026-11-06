@@ -28,7 +28,7 @@ export const SECTIONS: Section[] = [
   { key: 'claude-cli', module: 'agents', title: 'Claude Code CLI', hint: 'CLI path, API, concurrency. Shared with Workflow', icon: IconTerminal, Component: ClaudeCliSettings },
   { key: 'agent-defaults', module: 'agents', title: 'Agent defaults', hint: 'Model, permissions, prompts, sleep', icon: IconAgents, Component: DefaultsSettings },
   { key: 'agent-models', module: 'agents', title: 'Models and pricing', hint: 'Custom model IDs and token prices', icon: IconCode, Component: ModelsSettings },
-  { key: 'builtin-mcp', module: 'agents', title: 'Built-in tools', hint: 'Schedules, conversation history, agent collaboration', icon: IconBolt, Component: BuiltinMcpSettings },
+  { key: 'builtin-mcp', module: 'agents', title: 'Built-in tools', hint: 'Conversation history, agent collaboration', icon: IconBolt, Component: BuiltinMcpSettings },
   { key: 'more-agents', module: 'agents', title: 'More Agents', hint: 'External agents: ACP endpoints and Codex', icon: IconGlobe, Component: MoreAgentsSettings },
   { key: 'automations', module: 'automations', title: 'Tasks and webhooks', hint: 'Scripts directory, interpreters, webhook secret', icon: IconAutomation, Component: AutomationsSettings },
   { key: 'workflow', module: 'workflow', title: 'Workflow', hint: 'Run history, plugins, environment, API keys', icon: IconLayers, Component: WorkflowSettings },

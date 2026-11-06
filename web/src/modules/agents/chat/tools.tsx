@@ -42,7 +42,7 @@ export function toolSummary(it: ToolItem): { verb: string; arg: string } {
   }
   if (n.startsWith('mcp__next__')) {
     const t = n.slice(11)
-    const label: Record<string, string> = { schedule_create: 'Schedule', schedule_list: 'Schedules', schedule_delete: 'Delete schedule',
+    const label: Record<string, string> = {
       history_list: 'History', history_search: 'Search history', history_read: 'Read history', agents_list: 'List agents',
       task_create: 'Delegate', task_status: 'Task status', task_send: 'Message task', task_stop: 'Stop task', task_list: 'Tasks' }
     return { verb: label[t] || t, arg: short(i.title || i.prompt || i.query || i.agent_id || i.task_id || i.session_id || '', 70) }

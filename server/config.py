@@ -107,7 +107,7 @@ def claude_code_defaults():
 
 EFFORT_VALUES = ('low', 'medium', 'high', 'xhigh', 'max')
 THINKING_VALUES = ('adaptive', 'enabled', 'disabled')
-BUILTIN_DEFAULTS = dict(enabled=False, schedules=True, history=True, collab=True)
+BUILTIN_DEFAULTS = dict(enabled=False, history=True, collab=True)
 
 def now():
     return datetime.now(timezone.utc).isoformat()
@@ -218,7 +218,7 @@ class AgentSettings(BaseModel):
     max_budget_usd: float = Field(default=0, ge=0)
     env: dict[str, str] = Field(default_factory=dict)
     mcp_servers: dict[str, Any] = Field(default_factory=dict)
-    builtin_mcp: dict[Literal['enabled','schedules','history','collab'], StrictBool] = Field(default_factory=dict)
+    builtin_mcp: dict[Literal['enabled','history','collab'], StrictBool] = Field(default_factory=dict)
     as_subagent: StrictBool = False
     agents: dict[str, dict[str, Any]] = Field(default_factory=dict)
     enable_file_checkpointing: bool = True
@@ -231,6 +231,11 @@ class AgentSettings(BaseModel):
     idle_timeout_min: float = Field(default=10, ge=0)
     adaptive_keep: int = Field(default=1, ge=1)
     extra_args: dict[str, str | None] = Field(default_factory=dict)
+
+    @field_validator('builtin_mcp', mode='before')
+    @classmethod
+    def drop_removed_switches(cls, value):
+        return {k: v for k, v in value.items() if k != 'schedules'} if isinstance(value, dict) else value
 
     @field_validator('model', 'effort', mode='before')
     @classmethod
@@ -343,6 +348,7 @@ class Config(BaseModel):
     @field_validator('builtin_mcp')
     @classmethod
     def builtin_switches(cls, value):
+        value = {k: v for k, v in value.items() if k != 'schedules'}
         if any(key in value and type(value[key]) is not bool for key in BUILTIN_DEFAULTS):
             raise ValueError('builtin_mcp switches must be booleans')
         return {**BUILTIN_DEFAULTS, **value} if not value or value.keys() & BUILTIN_DEFAULTS.keys() else value
@@ -381,7 +387,6 @@ artifacts = true            # show conversation artifacts in the client
 
 [builtin_mcp]
 # enabled = false
-# schedules = true
 # history = true
 # collab = true
 

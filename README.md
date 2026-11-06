@@ -17,7 +17,6 @@ A self-hosted web console and PWA for AI agents. It has five bottom tabs: **Chat
   - Turns keep running when the browser closes.
 - **More Agents:** remote agents over ACP and native Codex agents through the Codex app-server. A Claude / More Agents / Running switch sits at the top of the tab; Running lists every working or waiting session across Claude and More Agents. More Agents sessions stream and survive disconnects.
 - **Built-in MCP** (`next` server, for Claude agents only):
-  - Schedules: cron or one-shot jobs that run an agent.
   - History: search an agent's own earlier sessions.
   - Collab: delegate to agents marked "available as a subagent" and watch them in a small live window.
   - Switches: a master switch, one per category and per-agent overrides.

@@ -7,7 +7,7 @@ import { Avatar, Crab, Spark } from '../../components/crab'
 import { IconArrowUp, IconChat, IconEdit, IconFolder, IconGrip, IconMoon, IconPlus, IconSort, IconTag, IconTrash } from '../../components/icons'
 import { DirPicker } from '../../components/DirPicker'
 import { Segmented, Sheet, TopBar, confirmDialog, promptDialog, useScrolled } from '../../components/ui'
-import { MoreAgents } from '../more-agents/Home'
+import { MoreAgents, MoreAgentsActions } from '../more-agents/Home'
 import { RunningList, running, useRunningFeed } from './Running'
 import { haptic, relTime, shortPath } from '../../lib/util'
 import type { Agent, Session } from '../../lib/types'
@@ -101,11 +101,7 @@ export function Home() {
   return (
     <div class="page wide-page">
       <TopBar scrolled={scrolled}
-        right={kind === 'running' ? undefined : kind === 'more' ? (
-          <div class="topbar-actions">
-            <button class="icon-btn" aria-label="New agent" onClick={() => navigate({ name: 'new-more-agent' })}><IconPlus /></button>
-          </div>
-        ) : sorting ? (
+        right={kind === 'running' ? undefined : kind === 'more' ? <MoreAgentsActions /> : sorting ? (
           <button class="btn primary small" disabled={saving} onClick={finishSort}>{saving ? <span class="spinner" /> : 'Done'}</button>
         ) : (
           <div class="topbar-actions">

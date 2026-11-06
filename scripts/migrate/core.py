@@ -36,7 +36,6 @@ def migrate(data, dry_run=False):
             else: profiles.append((profile,target))
         for source,target in profiles: move(source,target)
     move(data/'uploads',agents/'uploads')
-    move(data/'schedules.json',data/'builtin'/'schedules.json')
 
     sessions=agents/'sessions.json'
     source=sessions if sessions.exists() else data/'sessions.json'

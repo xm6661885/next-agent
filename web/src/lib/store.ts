@@ -27,7 +27,6 @@ export const moreAgentsVersion = signal(0)
 export const acpVersion = moreAgentsVersion
 export const chatVersion = signal(0)
 export const workflowVersion = signal(0)
-export const schedulesVersion = signal(0)
 export const automationsVersion = signal(0)
 export const asrVersion = signal(0)
 export const imagegenVersion = signal(0)
@@ -112,7 +111,6 @@ export function connectEvents() {
       runningVersion.value++
       moduleSessions.value = { ...moduleSessions.value, [msg.session_id]: { ...moduleSessions.value[msg.session_id], ...msg, id: msg.session_id } }
     } else if (msg.type === 'more_agents_changed') { moreAgentsVersion.value++
-    } else if (msg.type === 'schedules_changed') { schedulesVersion.value++
     } else if (msg.type === 'automations_changed') { automationsVersion.value++
     } else if (msg.type === 'chat_changed') { chatVersion.value++
     } else if (msg.type === 'asr_changed') { asrVersion.value++; lastAsrId.value = msg.id || ''

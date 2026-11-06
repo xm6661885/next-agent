@@ -311,7 +311,7 @@ export function AgentSettings({ agentId }: { agentId?: string }) {
 
           <div class="group-title">Built-in tools</div>
           <div class="group">
-            {([['enabled', 'Built-in tools'], ['schedules', 'Schedules'], ['history', 'History'], ['collab', 'Collaboration']] as const).map(([k, label]) => {
+            {([['enabled', 'Built-in tools'], ['history', 'History'], ['collab', 'Collaboration']] as const).map(([k, label]) => {
               const cur = a.builtin_mcp?.[k]
               const g = form?.builtin_mcp?.[k]
               return (

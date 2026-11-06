@@ -4,7 +4,7 @@ Web console with Chat, Claude Agents, More Agents, Workflow, Automations, speech
 
 ## Read first
 - `docs/protocol.md` (core + Claude agents), `protocol-more-agents.md`, `protocol-chat.md`, `protocol-workflow.md`, `protocol-automations.md`, `protocol-apps.md` and `builtin-mcp.md` are the contracts between `server/` and `web/`. Change both sides together and update the doc.
-- Modules never import each other's internals. Cross-module work goes through `core.bridge` (`server/bridge.py`); Workflow cards, schedules and collab tools never start their own CLI.
+- Modules never import each other's internals. Cross-module work goes through `core.bridge` (`server/bridge.py`); Workflow cards and collab tools never start their own CLI.
 - `docs/sdk-notes.md` has the SDK facts. Section 9 was verified against the real CLI and wins over the earlier sections.
 - `docs/backend-spec.md` is the original backend design. The code is the source of truth now.
 

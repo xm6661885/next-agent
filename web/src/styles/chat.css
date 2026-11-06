@@ -19,6 +19,7 @@
 
 .chat-title .titles { flex: 1; min-width: 0; }
 .chat-title .t1 { font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+.chat-title .conn-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }
 .chat-title .t2 { font-size: 12px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 6px; }
 
 .context-badge {

@@ -39,11 +39,9 @@ def mcp_tool(name, description, schema, handler):
 
 class Builtin:
     def __init__(self, core):
-        from .schedules import Schedules
         from .collab import Collab
         self.core = core
         self.pending = set()
-        self.schedules = Schedules(self)
         self.collab = Collab(self)
 
     @property
@@ -53,13 +51,12 @@ class Builtin:
     def categories_for(self, agent, session):
         switches = {**self.agents.settings(), **agent.builtin_mcp}
         if not switches.get('enabled', False): return ()
-        return tuple(name for name in ('schedules', 'history', 'collab') if switches.get(name, True)
+        return tuple(name for name in ('history', 'collab') if switches.get(name, True)
                      and (name!='collab' or session.get('origin')!='subagent'))
 
     @staticmethod
     def allowed_tools(categories):
-        names = {'schedules': ('schedule_create', 'schedule_list', 'schedule_delete'),
-                 'history': ('history_list', 'history_search', 'history_read'),
+        names = {'history': ('history_list', 'history_search', 'history_read'),
                  'collab': ('agents_list', 'task_create', 'task_status', 'task_send', 'task_stop', 'task_list')}
         return ['mcp__next__'+name for category in categories for name in names[category]]
 
@@ -68,7 +65,7 @@ class Builtin:
         categories = self.categories_for(agent, session)
         if not categories: return {}
         caller = dict(module='agents', agent_id=agent.id, session_id=session['id'])
-        factories = {'schedules': self.schedules.tools, 'history': lambda c: history_tools(self, c),
+        factories = {'history': lambda c: history_tools(self, c),
                      'collab': self.collab.tools}
         tools = [tool for category in categories for tool in factories[category](caller)]
         return {'next': create_sdk_mcp_server('next', tools=tools)}
@@ -127,5 +124,4 @@ def mount(app, core):
     module = Builtin(core)
     core.modules['builtin'] = module
     app.include_router(router(core, module))
-    core.background(module.schedules.run)
     core.on_shutdown(module.close)

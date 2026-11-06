@@ -351,4 +351,4 @@ export interface MemoryListing {
   projects: { id: string; cwd: string | null; mtime: number; files: MemoryFile[] }[]
 }
 
-export interface BuiltinSwitches { enabled: boolean; schedules: boolean; history: boolean; collab: boolean }
+export interface BuiltinSwitches { enabled: boolean; history: boolean; collab: boolean }

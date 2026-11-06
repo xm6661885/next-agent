@@ -29,8 +29,11 @@ export function SettingsHome() {
 
 function ModuleRow({ m }: { m: SettingsModule }) {
   const Icon = m.icon
+  const go = () => navigate(m.direct
+    ? { name: 'settings-section', module: m.key, section: m.direct }
+    : { name: 'settings-module', module: m.key })
   return (
-    <button type="button" class="row" onClick={() => navigate({ name: 'settings-module', module: m.key })}>
+    <button type="button" class="row" onClick={go}>
       <span class="settings-icon"><Icon width={18} height={18} /></span>
       <span class="label">{m.title}<span class="hint">{m.hint}</span></span>
       <IconChevron class="chev" />

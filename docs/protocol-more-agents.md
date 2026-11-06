@@ -200,7 +200,6 @@ Overview contributes `more_agents_agents` and `sessions` to the Agents counters.
 Run `uv run python scripts/migrate/core.py --data DIR` first. Then preview with
 `uv run python scripts/migrate/more_agents.py --data DIR --dry-run` and rerun without dry-run during deployment.
 It moves config/acp.toml and acp/, adds kind/cwd, renames tool_kind, normalizes unknown tool kinds, updates upload URLs/paths,
-workflow card types, schedule target modules, and Claude parent links. TOML comments and tokens are preserved.
-Affected workflows are printed by ID/name for manual cwd completion; no cwd is invented for workflow cards or schedules.
-Both old and new paths existing is an explicit collision error. Repeat runs are idempotent. The core migration moves the
-legacy schedules file into builtin/; this migration handles either location.
+workflow card types, and Claude parent links. TOML comments and tokens are preserved.
+Affected workflows are printed by ID/name for manual cwd completion; no cwd is invented for workflow cards.
+Both old and new paths existing is an explicit collision error. Repeat runs are idempotent. 

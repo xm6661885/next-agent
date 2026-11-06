@@ -9,7 +9,7 @@ import { Avatar, Spark } from '../../../components/crab'
 import { BackButton, Sheet, TopBar, promptDialog } from '../../../components/ui'
 import { IconBrain, IconCheck, IconChevron, IconChevronDown, IconCopy, IconMore, IconEdit, IconSelect, IconNewChat, IconTerminal, IconMoon, IconPlug, IconRefresh } from '../../../components/icons'
 import { openViewer } from '../../../components/ImageViewer'
-import { copyText, fmtBytes, fmtDuration, haptic, shortPath, uid } from '../../../lib/util'
+import { copyText, fmtBytes, fmtDuration, haptic, uid } from '../../../lib/util'
 import type { Attachment, Item, TextItem, ThinkingItem, UserItem } from '../../../lib/types'
 import { moreAgentsApi, type MoreAgent, type ConfigOption } from '../api'
 import { MoreAgentConn } from './conn'
@@ -208,11 +208,11 @@ export function MoreAgentChat({ agentId, sessionId }: { agentId: string; session
           <AvatarFor a={shown} busy={busy} size={32} />
           <span class="titles">
             <span class="t1">
+              {status === 'open' && conn.loaded.value && state !== 'offline' && state !== 'connecting' && <span class="conn-dot" role="img" aria-label="Connected" title="Connected" />}
               {session?.title || 'New conversation'}
               {session?.context && <span class="context-badge">{session.context.used}/{session.context.max}</span>}
             </span>
             <span class="t2">
-              {session?.cwd && <button class="cwd-chip" onClick={(e) => { e.stopPropagation(); copyText(session.cwd); toast('Copied') }}>{shortPath(session.cwd)}</button>}
               {state === 'connecting' && <><Spark size={11} /> connecting</>}
             </span>
           </span>

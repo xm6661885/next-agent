@@ -9,7 +9,7 @@ is the core (auth, paths, TOML store helpers, global event feed) and a few narro
 | core | `server/app.py`, `core.py`, `auth.py`, `paths.py`, `tomlstore.py`, `bridge.py` | `web/src/lib`, `web/src/components` | `data/config/core.toml` | `data/core/secret.key` |
 | Agents (Claude) | `server/*.py` (runtime, items, history, options, ...) | `web/src/modules/agents` | `data/config/agents.toml` | `data/agents/sessions.json`, `data/agents/profiles/<agent-id>/`, `data/agents/uploads/<session-id>/` (fallback uploads) |
 | More Agents | `server/more_agents/` | `web/src/modules/more-agents` | `data/config/more_agents.toml` | `data/more_agents/` |
-| Built-in MCP | `server/builtin/` | settings pages + tool cards in the Claude chat | `data/config/agents.toml` (`builtin_mcp`) | `data/builtin/schedules.json` |
+| Built-in MCP | `server/builtin/` | settings pages + tool cards in the Claude chat | `data/config/agents.toml` (`builtin_mcp`) | none |
 | Chat | `server/chat/` | `web/src/modules/chat` | `data/config/chat.toml` | `data/chat/` (sessions/messages/uploads; `assistants/<aid>/files/`; `memory/<aid>.json`) |
 | Workflow | `server/workflow/` (core/extra/user cards, HTTP triggers) | `web/src/modules/workflow` | `data/config/workflow.toml` | `data/workflow/` (`app.db` incl. per-workflow trigger tokens, `plugins/`, `workspace/`) |
 | Automations | `server/automations/` | `web/src/modules/automations` | `data/config/automations.toml` | `data/automations/` |
@@ -27,7 +27,7 @@ with per-workflow tokens stored in `app.db`'s `triggers` table; their management
 
 ## Bridges (the only cross-module calls)
 - `server/bridge.py` `AgentBridge`: run a turn on a Claude session (temporary or a named agent) or a More Agents session and
-  wait for the result. Used by Workflow cards, the scheduler and the built-in collaboration tools.
+  wait for the result. Used by Workflow cards, the built-in collaboration tools.
 - `core.emit` (`server/core.py`, served by `/ws/events` in `app.py`): the global feed. Every module emits `session_state` events tagged with `module`.
 - `GET /api/running`: combines the synchronous `running()` providers exposed by `core.modules`, including Claude Agents and More Agents, and sorts their session rows by `updated_at` descending. See `docs/protocol.md` for the row contract.
 

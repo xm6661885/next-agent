@@ -7,13 +7,13 @@ import { IconAgents, IconAutomation, IconChat, IconLayers, IconSettings } from '
 import { IconSparkle } from '../../components/icons-apps'
 
 export type Icon = (p: JSX.SVGAttributes<SVGSVGElement>) => JSX.Element
-export interface SettingsModule { key: string; title: string; hint: string; icon: Icon }
+export interface SettingsModule { key: string; title: string; hint: string; icon: Icon; /** Section key: the module has a single section, so its row opens that section directly. */ direct?: string }
 
 export const MODULES: SettingsModule[] = [
   { key: 'chat', title: 'Chat', hint: 'Model providers, defaults, titles, files and memory, MCP servers', icon: IconChat },
   { key: 'agents', title: 'Agents', hint: 'Claude Code CLI, defaults, models, built-in tools, ACP', icon: IconAgents },
-  { key: 'automations', title: 'Automations', hint: 'Scripts directory, interpreters, webhook secret', icon: IconAutomation },
-  { key: 'workflow', title: 'Workflow', hint: 'Run history, plugins, environment', icon: IconLayers },
+  { key: 'automations', title: 'Automations', hint: 'Scripts directory, interpreters, webhook secret', icon: IconAutomation, direct: 'automations' },
+  { key: 'workflow', title: 'Workflow', hint: 'Run history, plugins, environment', icon: IconLayers, direct: 'workflow' },
   { key: 'apps', title: 'Apps', hint: 'Speech to text and image generation', icon: IconSparkle },
   { key: 'general', title: 'General', hint: 'Account and API, config files', icon: IconSettings },
 ]
