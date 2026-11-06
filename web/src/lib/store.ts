@@ -26,10 +26,12 @@ export const acpVersion = signal(0)
 export const chatVersion = signal(0)
 export const workflowVersion = signal(0)
 export const schedulesVersion = signal(0)
+/** Bumped on every session state change in any module (and agents_changed); the Running view refetches on it. */
+export const runningVersion = signal(0)
 
 /** Per-tab count of sessions that need the user (pending requests), for the tab bar dot. */
 export const attention = computed(() => {
-  const out = { chat: 0, agents: 0, workflow: 0, more: 0 }
+  const out = { chat: 0, agents: 0, automations: 0, workflow: 0, more: 0 }
   for (const s of Object.values(liveSessions.value)) if (s.pending) out.agents++
   for (const s of Object.values(moduleSessions.value)) if (s.pending && s.module === 'acp') out.agents++
   return out
@@ -98,13 +100,17 @@ export function connectEvents() {
       acpVersion.value++; chatVersion.value++; workflowVersion.value++
       agentsVersion.value++
       sessionsVersion.value++
+      runningVersion.value++
     } else if (msg.type === 'session_state' && msg.module && msg.module !== 'agents') {
+      runningVersion.value++
       moduleSessions.value = { ...moduleSessions.value, [msg.session_id]: { ...moduleSessions.value[msg.session_id], ...msg, id: msg.session_id } }
     } else if (msg.type === 'acp_agents_changed') { acpVersion.value++
     } else if (msg.type === 'schedules_changed') { schedulesVersion.value++
     } else if (msg.type === 'chat_changed') { chatVersion.value++
     } else if (msg.type === 'workflow_changed' || msg.type === 'run_state') { workflowVersion.value++
     } else if (msg.type === 'session_state') {
+      // Claude sessions (module: 'agents')
+      runningVersion.value++
       const prev = liveSessions.value[msg.session_id]
       liveSessions.value = {
         ...liveSessions.value,
@@ -113,6 +119,7 @@ export function connectEvents() {
       if (!prev || prev.title !== msg.title || prev.updated_at !== msg.updated_at || !!prev.unread !== !!msg.unread) sessionsVersion.value++
     } else if (msg.type === 'agents_changed') {
       agentsVersion.value++
+      runningVersion.value++
     }
   }
   ws.onclose = (ev) => {

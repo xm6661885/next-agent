@@ -1,7 +1,7 @@
 # next-agent architecture
 
-One FastAPI process (`server/`) and one Preact PWA (`web/`). The app has four independent modules, shown as the
-bottom tabs **Chat · Agents · Workflow · More**. Modules do not import each other's internals; the only shared code
+One FastAPI process (`server/`) and one Preact PWA (`web/`). The app is made of independent modules, shown as the
+bottom tabs **Chat · Agents · Automations · Workflow · More**. Modules do not import each other's internals; the only shared code
 is the core (auth, paths, TOML store helpers, global event feed) and a few narrow bridges listed below.
 
 | Module | Backend | Frontend | Config file | Data |

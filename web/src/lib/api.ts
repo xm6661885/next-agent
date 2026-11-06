@@ -1,7 +1,7 @@
 // REST helpers. All requests send the auth cookie; a 401 flips the app to the login screen.
 
 import { authed } from './store'
-import type { Agent, Artifact, Attachment, ConfigForm, DirListing, Importable, MemoryFile, MemoryListing, Meta, SearchHit, Session, Item } from './types'
+import type { Agent, Artifact, Attachment, ConfigForm, DirListing, Importable, MemoryFile, MemoryListing, Meta, RunningRow, SearchHit, Session, Item } from './types'
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
@@ -76,6 +76,8 @@ export const api = {
   sessions: (agentId: string) => get<Session[]>(`/api/agents/${enc(agentId)}/sessions`),
   createSession: (agentId: string, title?: string) => post<Session>(`/api/agents/${enc(agentId)}/sessions`, { title }),
   tempSessions: () => get<Session[]>('/api/temp/sessions'),
+  /** Running or waiting sessions of Claude and More Agents, newest first. */
+  running: () => get<RunningRow[]>('/api/running'),
   createTempSession: (cwd: string) => post<Session>('/api/temp/sessions', { cwd }),
   dirs: (path: string, hidden = false) => get<DirListing>(`/api/fs/dirs?path=${enc(path)}${hidden ? '&hidden=1' : ''}`),
   importable: (agentId: string) => get<Importable[]>(`/api/agents/${enc(agentId)}/importable`),

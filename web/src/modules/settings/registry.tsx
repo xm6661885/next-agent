@@ -1,4 +1,4 @@
-// Every settings section, grouped by module. Add a module's pages here; nothing else in settings needs to change.
+// Every settings section (the leaf pages), each owned by a module from modules.ts. Add a module's pages here; nothing else in settings needs to change.
 
 import type { JSX } from 'preact'
 import { IconAgents, IconBolt, IconChat, IconCode, IconGlobe, IconLayers, IconLock, IconSettings, IconTerminal, IconTool } from '../../components/icons'
@@ -10,16 +10,10 @@ import { AcpSettings } from '../acp/Settings'
 import { ChatProviders, ChatDefaults, ChatMcp } from '../chat/settings'
 import { WorkflowSettings } from '../workflow/settings'
 import { GeneralSettings, RawFiles } from './General'
+import { MODULES, type Icon } from './modules'
 
-type Icon = (p: JSX.SVGAttributes<SVGSVGElement>) => JSX.Element
+export { MODULES }
 export interface Section { key: string; module: string; title: string; hint: string; icon: Icon; Component: (p: { title: string }) => JSX.Element }
-
-export const MODULES = [
-  { key: 'chat', title: 'Chat' },
-  { key: 'agents', title: 'Agents' },
-  { key: 'workflow', title: 'Workflow' },
-  { key: 'general', title: 'General' },
-]
 
 export const SECTIONS: Section[] = [
   { key: 'chat-providers', module: 'chat', title: 'Model providers', hint: 'OpenAI and Anthropic format APIs and their models', icon: IconGlobe, Component: ChatProviders },

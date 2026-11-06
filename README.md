@@ -1,6 +1,6 @@
 # next-agent
 
-A self-hosted web console and PWA for AI agents. It has four bottom tabs: **Chat**, **Agents**, **Workflow** and **More**. Everything runs on your server, and you can use it from a phone or a desktop browser.
+A self-hosted web console and PWA for AI agents. It has five bottom tabs: **Chat**, **Agents**, **Automations**, **Workflow** and **More**. Everything runs on your server, and you can use it from a phone or a desktop browser.
 
 - Backend: FastAPI + `claude-agent-sdk` (`server/`). Frontend: Preact + Vite (`web/`). See `docs/architecture.md`.
 - Data: `data/`, which is gitignored. It holds the config, sessions, uploads, the workflow database and the cookie secret.
@@ -15,16 +15,17 @@ A self-hosted web console and PWA for AI agents. It has four bottom tabs: **Chat
   - Agent settings: working directory, model, permissions, tools, CLAUDE.md, MCP servers and subagents.
   - Sessions with streaming tool cards, steering, approval cards, fork and rewind.
   - Turns keep running when the browser closes.
-- **Agents (ACP):** external agents that speak the Agent Client Protocol over TCP. A Claude/ACP switch sits at the top of the tab. ACP sessions stream and survive disconnects.
+- **Agents (ACP):** external agents that speak the Agent Client Protocol over TCP. A Claude / More Agents / Running switch sits at the top of the tab; Running lists every working or waiting session of both. ACP sessions stream and survive disconnects.
 - **Built-in MCP** (`next` server, for Claude agents only):
   - Schedules: cron or one-shot jobs that run an agent.
   - History: search an agent's own earlier sessions.
   - Collab: delegate to agents marked "available as a subagent" and watch them in a small live window.
   - Switches: a master switch, one per category and per-agent overrides.
-- **Workflow:** a card-based workflow editor with runs, a console and plugins.
+- **Automations:** scheduled scripts, webhooks and one-off tasks (the tab is a placeholder for now).
+- **Workflow:** a card-based workflow editor with runs, a console and plugins. Run history opens from the clock button at the top right.
   - Agent cards (temporary task, existing agent, ACP agent) run as normal Agents sessions through `core.bridge`.
   - Each card links to its chat page.
-- **More:** settings by category, and About.
+- **More:** Settings (your chat profile, then one page per module and category), Claude Code Memory, and About.
 
 ## Requirements
 

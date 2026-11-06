@@ -38,7 +38,7 @@ export function Memory() {
   return (
     <div class="page">
       <TopBar scrolled={scrolled} left={<BackButton label="More" onClick={() => back({ name: 'more' })} />}>
-        <span class="topbar-center">Memory</span>
+        <span class="topbar-center">Claude Code Memory</span>
       </TopBar>
       <div class="page-scroll" ref={ref} onScroll={onScroll}>
         <div class="container settings">

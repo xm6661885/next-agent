@@ -5,8 +5,8 @@ import { signal } from '@preact/signals'
 /** Agent id that owns temporary sessions. It has its own sessions page and settings, but is not in the agent list. */
 export const TEMP_AGENT = '_temp'
 
-export type Tab = 'chat' | 'agents' | 'workflow' | 'more'
-export const TABS: Tab[] = ['chat', 'agents', 'workflow', 'more']
+export type Tab = 'chat' | 'agents' | 'automations' | 'workflow' | 'more'
+export const TABS: Tab[] = ['chat', 'agents', 'automations', 'workflow', 'more']
 
 export type Route =
   | { name: 'home' }
@@ -24,6 +24,7 @@ export type Route =
   | { name: 'assistant-settings'; assistantId: string }
   | { name: 'new-assistant' }
   | { name: 'llm-chat'; assistantId: string; sessionId: string }
+  | { name: 'automations' }
   | { name: 'workflows' }
   | { name: 'wf-editor'; workflowId: string }
   | { name: 'wf-run'; runId: string }
@@ -32,17 +33,19 @@ export type Route =
   | { name: 'more' }
   | { name: 'about' }
   | { name: 'settings' }
-  | { name: 'settings-section'; section: string }
+  | { name: 'settings-module'; module: string }
+  | { name: 'settings-section'; module: string; section: string }
 
 /** Which bottom tab a route belongs to; tab roots show the tab bar. */
 export function tabOf(r: Route): Tab {
   if (r.name === 'chats' || r.name.startsWith('assistant') || r.name === 'new-assistant' || r.name === 'llm-chat') return 'chat'
+  if (r.name.startsWith('automation')) return 'automations'
   if (r.name.startsWith('wf') || r.name === 'workflows') return 'workflow'
   if (r.name === 'more' || r.name === 'about' || r.name.startsWith('settings') || r.name === 'memory') return 'more'
   return 'agents'
 }
-export const isTabRoot = (r: Route) => r.name === 'home' || r.name === 'chats' || r.name === 'workflows' || r.name === 'wf-console' || r.name === 'wf-runs' || r.name === 'more'
-export const tabRoot = (t: Tab): Route => ({ chat: { name: 'chats' }, agents: { name: 'home' }, workflow: { name: 'workflows' }, more: { name: 'more' } } as const)[t]
+export const isTabRoot = (r: Route) => r.name === 'home' || r.name === 'chats' || r.name === 'automations' || r.name === 'workflows' || r.name === 'wf-console' || r.name === 'more'
+export const tabRoot = (t: Tab): Route => ({ chat: { name: 'chats' }, agents: { name: 'home' }, automations: { name: 'automations' }, workflow: { name: 'workflows' }, more: { name: 'more' } } as const)[t]
 
 export function parse(path: string): Route {
   const [pathname, qs] = path.split('?')
@@ -62,15 +65,17 @@ export function parse(path: string): Route {
   if (p[0] === 'chat' && p[1] && p[2] === 's' && p[3]) return { name: 'llm-chat', assistantId: p[1], sessionId: p[3] }
   if (p[0] === 'chat' && p[1]) return { name: 'assistant', assistantId: p[1] }
   if (p[0] === 'chat') return { name: 'chats' }
+  if (p[0] === 'automations') return { name: 'automations' }
   if (p[0] === 'workflow' && p[1] === 'w' && p[2]) return { name: 'wf-editor', workflowId: p[2] }
   if (p[0] === 'workflow' && p[1] === 'r' && p[2]) return { name: 'wf-run', runId: p[2] }
   if (p[0] === 'workflow' && p[1] === 'runs') return { name: 'wf-runs', workflowId: q.get('workflow') || undefined }
   if (p[0] === 'workflow' && p[1] === 'console') return { name: 'wf-console' }
   if (p[0] === 'workflow') return { name: 'workflows' }
   if (p[0] === 'more' && p[1] === 'about') return { name: 'about' }
+  if (p[0] === 'more' && p[1] === 'memory') return { name: 'memory' }
   if (p[0] === 'more') return { name: 'more' }
-  if (p[0] === 'settings' && p[1] === 'memory') return { name: 'memory' }
-  if (p[0] === 'settings' && p[1]) return { name: 'settings-section', section: p[1] }
+  if (p[0] === 'settings' && p[1] && p[2]) return { name: 'settings-section', module: p[1], section: p[2] }
+  if (p[0] === 'settings' && p[1]) return { name: 'settings-module', module: p[1] }
   if (p[0] === 'settings') return { name: 'settings' }
   if (p.length === 0) return tabRoot(lastTab())
   return { name: 'home' }
@@ -84,7 +89,7 @@ export function href(r: Route): string {
     case 'agent': return `/agents/${e(r.agentId)}`
     case 'agent-settings': return `/agents/${e(r.agentId)}/settings`
     case 'chat': return `/agents/${e(r.agentId)}/s/${e(r.sessionId)}`
-    case 'memory': return '/settings/memory'
+    case 'memory': return '/more/memory'
     case 'new-acp': return '/acp/new'
     case 'acp': return `/acp/${e(r.agentId)}`
     case 'acp-settings': return `/acp/${e(r.agentId)}/settings`
@@ -94,6 +99,7 @@ export function href(r: Route): string {
     case 'assistant': return `/chat/${e(r.assistantId)}`
     case 'assistant-settings': return `/chat/${e(r.assistantId)}/settings`
     case 'llm-chat': return `/chat/${e(r.assistantId)}/s/${e(r.sessionId)}`
+    case 'automations': return '/automations'
     case 'workflows': return '/workflow'
     case 'wf-editor': return `/workflow/w/${e(r.workflowId)}`
     case 'wf-run': return `/workflow/r/${e(r.runId)}`
@@ -102,7 +108,8 @@ export function href(r: Route): string {
     case 'more': return '/more'
     case 'about': return '/more/about'
     case 'settings': return '/settings'
-    case 'settings-section': return `/settings/${e(r.section)}`
+    case 'settings-module': return `/settings/${e(r.module)}`
+    case 'settings-section': return `/settings/${e(r.module)}/${e(r.section)}`
   }
 }
 
@@ -165,8 +172,9 @@ export function parentOf(r: Route): Route {
     case 'llm-chat': case 'assistant-settings': return { name: 'assistant', assistantId: r.assistantId }
     case 'assistant': case 'new-assistant': return { name: 'chats' }
     case 'wf-editor': case 'wf-run': case 'wf-runs': case 'wf-console': return { name: 'workflows' }
-    case 'memory': case 'settings-section': return { name: 'settings' }
-    case 'settings': case 'about': return { name: 'more' }
+    case 'settings-section': return { name: 'settings-module', module: r.module }
+    case 'settings-module': return { name: 'settings' }
+    case 'settings': case 'about': case 'memory': return { name: 'more' }
     default: return { name: 'home' }
   }
 }

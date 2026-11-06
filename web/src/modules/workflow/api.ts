@@ -26,6 +26,8 @@ export interface PluginSchema {
   id: string; name: string; icon: string; color: string; category: string; description?: string
   inputs: PluginInput[]; outputs: { name: string; type: string; label: string }[]; default_output?: string
   container?: boolean; markers?: string[]; branches?: { key: string; label: string }[]; missing_env?: string[]
+  /** Where the plugin was loaded from: `core/<folder>`, `extra/<folder>` or `user/<folder>`. Containers have none. */
+  source?: string; version?: string; requires_env?: string[]; uses_agent_slot?: boolean
 }
 export interface Catalog { plugins: PluginSchema[]; containers: PluginSchema[]; markers: PluginSchema[]; errors: { folder: string; error: string; missing_deps?: boolean }[]; watching?: boolean }
 export interface ConsoleSession { module: 'agents' | 'acp'; agent_id: string; session_id: string; title: string; state: string; parent: Json }

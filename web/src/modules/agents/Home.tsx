@@ -4,10 +4,11 @@ import { agents, agentsVersion, agentLive, liveSessions, sessionsVersion, meta, 
 import { TEMP_AGENT, navigate } from '../../lib/router'
 import { sessionCache } from './AgentPage'
 import { Avatar, Crab, Spark } from '../../components/crab'
-import { IconArrowUp, IconChat, IconEdit, IconFolder, IconGrip, IconMoon, IconPlus, IconSettings, IconSort, IconTag, IconTrash } from '../../components/icons'
+import { IconArrowUp, IconChat, IconEdit, IconFolder, IconGrip, IconMoon, IconPlus, IconSort, IconTag, IconTrash } from '../../components/icons'
 import { DirPicker } from '../../components/DirPicker'
 import { Segmented, Sheet, TopBar, confirmDialog, promptDialog, useScrolled } from '../../components/ui'
 import { AcpAgents } from '../acp/Home'
+import { RunningList, running, useRunningFeed } from './Running'
 import { haptic, relTime, shortPath } from '../../lib/util'
 import type { Agent, Session } from '../../lib/types'
 
@@ -37,12 +38,13 @@ function greeting() {
   return 'Good evening'
 }
 
-/** Claude or ACP agents; remembered per device. */
+/** Claude agents, More Agents (ACP) or the running sessions of both; remembered per device. */
 const KIND_KEY = 'agents-kind'
-type Kind = 'claude' | 'acp'
+type Kind = 'claude' | 'more' | 'running'
+const KINDS: Kind[] = ['claude', 'more', 'running']
 
 export function Home() {
-  const [kind, setKindState] = useState<Kind>(() => localStorage.getItem(KIND_KEY) === 'acp' ? 'acp' : 'claude')
+  const [kind, setKindState] = useState<Kind>(() => KINDS.find((k) => k === localStorage.getItem(KIND_KEY)) || 'claude')
   const setKind = (k: Kind) => { haptic(); localStorage.setItem(KIND_KEY, k); setKindState(k) }
   const { scrolled, onScroll, ref: scrollRef } = useScrolled()
   const [loading, setLoading] = useState(agents.value === null)
@@ -52,6 +54,8 @@ export function Home() {
   const [groups, setGroups] = useState<string[]>(groupsCache)
   const [filter, setFilter] = useState<string | null>(initialFilter)
   const [managing, setManaging] = useState(false)
+  useRunningFeed()
+  const runningCount = running.value?.length ?? 0
 
   useEffect(() => {
     api.agents().then((a) => { agents.value = a }).catch(toastError).finally(() => setLoading(false))
@@ -97,9 +101,9 @@ export function Home() {
   return (
     <div class="page wide-page">
       <TopBar scrolled={scrolled}
-        right={kind === 'acp' ? (
+        right={kind === 'running' ? undefined : kind === 'more' ? (
           <div class="topbar-actions">
-            <button class="icon-btn" aria-label="ACP settings" onClick={() => navigate({ name: 'settings-section', section: 'acp' })}><IconSettings /></button>
+            <button class="icon-btn" aria-label="New agent" onClick={() => navigate({ name: 'new-acp' })}><IconPlus /></button>
           </div>
         ) : sorting ? (
           <button class="btn primary small" disabled={saving} onClick={finishSort}>{saving ? <span class="spinner" /> : 'Done'}</button>
@@ -107,7 +111,7 @@ export function Home() {
           <div class="topbar-actions">
             {list.length > 0 && <button class="icon-btn" aria-label="Manage groups" onClick={() => setManaging(true)}><IconTag /></button>}
             {(active === null ? list : shown).length > 1 && <button class="icon-btn" aria-label="Reorder agents" onClick={startSort}><IconSort /></button>}
-            <button class="icon-btn" aria-label="Agent defaults" onClick={() => navigate({ name: 'settings-section', section: 'agent-defaults' })}><IconSettings /></button>
+            <button class="icon-btn" aria-label="New agent" onClick={() => navigate({ name: 'new-agent' })}><IconPlus /></button>
           </div>
         )}>
         {scrolled && <span class="fade-in">Agents</span>}
@@ -116,9 +120,11 @@ export function Home() {
         <div class="container">
           <h1 class="large-title rise">{greeting()}</h1>
           <div class="kind-switch rise" style={{ '--i': 1 }}>
-            <Segmented value={kind} onChange={setKind} options={[{ value: 'claude', label: 'Claude' }, { value: 'acp', label: 'ACP' }]} />
+            <Segmented value={kind} onChange={setKind} options={[
+              { value: 'claude', label: 'Claude' }, { value: 'more', label: 'More Agents' },
+              { value: 'running', label: runningCount > 0 ? `Running ${runningCount}` : 'Running' }]} />
           </div>
-          {kind === 'acp' ? <AcpAgents /> : <>
+          {kind === 'running' ? <RunningList /> : kind === 'more' ? <AcpAgents /> : <>
           <p class="subtitle rise" style={{ '--i': 1 }}>
             {list.length ? `${list.length} agent${list.length > 1 ? 's' : ''} ready to help.` : 'Let us set up your first agent.'}
           </p>
@@ -170,9 +176,6 @@ export function Home() {
       <GroupManager open={managing} onClose={() => setManaging(false)} groups={groups}
         counts={Object.fromEntries(groups.map((g) => [g, list.filter((a) => a.group === g).length]))}
         onSaved={(g) => { setGroups(g); agentsVersion.value++ }} />
-      {!sorting && <button class="fab" onClick={() => navigate({ name: kind === 'acp' ? 'new-acp' : 'new-agent' })}>
-        <IconPlus /> {kind === 'acp' ? 'New ACP agent' : 'New agent'}
-      </button>}
     </div>
   )
 }

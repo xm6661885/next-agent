@@ -8,6 +8,8 @@ import { toast, toastError } from '../../lib/store'
 import { loadCatalog, wfApi, type Catalog, type WfSettings } from './api'
 
 type Env = { key: string; value: string }[]
+/** Loaded plugin cards are grouped by where they come from (the prefix of PluginSchema.source). */
+const PLUGIN_GROUPS = [['core/', 'Built-in'], ['extra/', 'Extras'], ['user/', 'User plugins']] as const
 const val = (e: Event) => (e.target as HTMLInputElement).value
 
 export function WorkflowSettings({ title }: { title: string }) {
@@ -97,6 +99,22 @@ export function WorkflowSettings({ title }: { title: string }) {
           ))}
         </div>
         {plugins && <p class="fhint" style={{ padding: '0 4px' }}>{plugins.plugins.length} plugins loaded. Put user plugins in data/workflow/plugins/&lt;name&gt;/plugin.py.</p>}
+        {plugins && PLUGIN_GROUPS.map(([prefix, label]) => {
+          const items = plugins.plugins.filter((p) => p.source?.startsWith(prefix))
+          return items.length > 0 && (
+            <div key={prefix}>
+              <div class="group-title">{label}</div>
+              <div class="group">
+                {items.map((p) => (
+                  <div key={p.id} class="row">
+                    <span class="label">{p.name}<span class="hint mono-label">{p.id}</span></span>
+                    {p.version && <span class="value">v{p.version}</span>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )
+        })}
       </>}
     </SettingsFrame>
   )

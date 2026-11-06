@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'preact/hooks'
 import { api } from '../../../lib/api'
+import { SecretInput } from '../../../components/ui'
 import { SettingsFrame, useConfigForm } from '../../settings/Frame'
 import type { ConfigForm } from '../../../lib/types'
 
@@ -45,8 +46,7 @@ export function ClaudeCliSettings({ title }: { title: string }) {
             <span class="fhint">Passed to every CLI as ANTHROPIC_BASE_URL. Empty uses the CLI default.</span>
           </label>
           <label class="field"><span class="flabel">API key</span>
-            <input class="input mono" type="password" value={form.server.anthropic_api_key ?? ''} placeholder="sk-ant-..." autocomplete="off" autocapitalize="off" spellcheck={false}
-              onInput={(e) => set('anthropic_api_key', (e.target as HTMLInputElement).value)} />
+            <SecretInput value={form.server.anthropic_api_key ?? ''} placeholder="sk-ant-..." label="API key" onInput={(v) => set('anthropic_api_key', v)} />
             <span class="fhint">Passed as ANTHROPIC_API_KEY. Empty uses the CLI login. Agent env variables override both.</span>
           </label>
         </div>

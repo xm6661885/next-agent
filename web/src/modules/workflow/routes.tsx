@@ -1,4 +1,4 @@
-// Workflow tab routes. Workflows, Console and Runs are tab roots switched by the segmented control at the top.
+// Workflow tab routes. Workflows and Console are tab roots switched by the segmented control; run history opens from the top-right button.
 
 import type { Route } from '../../lib/router'
 import { Editor } from './Editor'
