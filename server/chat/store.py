@@ -7,6 +7,7 @@ from uuid import uuid4
 from fastapi import HTTPException
 from ..paths import atomic_write
 from .config import now
+from .resources import text_content, file_name
 
 IMAGE_MIMES = {'image/png', 'image/jpeg', 'image/gif', 'image/webp'}
 
@@ -67,16 +68,21 @@ class ChatStore:
         path = self.root / 'uploads' / sid / 'index.json'
         return json.loads(path.read_text()) if path.exists() else {}
 
-    async def upload(self, sid, file):
-        if file.content_type not in IMAGE_MIMES: raise HTTPException(415, 'Only images are supported')
-        content = await file.read(10*1024*1024+1)
-        if len(content)>10*1024*1024: raise HTTPException(413, 'File is too large')
+    async def upload(self, sid, file, files_enabled=True):
+        image = file.content_type in IMAGE_MIMES
+        if not image and not files_enabled: raise HTTPException(415, 'Text files are disabled')
+        cap = (10 if image else 2)*1024*1024
+        content = await file.read(cap+1)
+        if len(content)>cap: raise HTTPException(413, 'File is too large')
+        text = None if image else text_content(content)
         fid = uuid4().hex
-        name = re.sub(r'[^A-Za-z0-9._-]', '_', Path(file.filename or 'image').name)[:80] or 'image'
+        if image: name = re.sub(r'[^A-Za-z0-9._-]', '_', Path(file.filename or 'image').name)[:80] or 'image'
+        else: name = file_name(file.filename or 'file')
         path = self.root / 'uploads' / sid / fid
         atomic_write(path, content)
         record = dict(id=fid, name=name, mime=file.content_type, size=len(content), path=str(path.resolve()),
-                      url=f'/api/chat/uploads/{sid}/{fid}', is_image=True)
+                      url=f'/api/chat/uploads/{sid}/{fid}', is_image=image)
+        if not image: record.update(is_text=True, mime='text/plain', chars=len(text), lines=len(text.splitlines()))
         index = self.upload_index(sid)
         index[fid] = record
         atomic_write(path.parent / 'index.json', json.dumps(index))

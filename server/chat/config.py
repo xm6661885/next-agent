@@ -22,7 +22,15 @@ class Settings(BaseModel):
 class Defaults(Settings):
     effort: Effort = 'medium'
     mcp: list[str] = Field(default_factory=list)
-    title_model: str = ''
+
+
+class Switch(BaseModel):
+    enabled: bool = True
+
+
+class Titles(Switch):
+    model: str = ''
+    prompt: str = ''
 
 
 class Profile(BaseModel):
@@ -34,6 +42,8 @@ class DefaultAssistant(Settings):
     name: str = Field(default='Temporary chat', min_length=1)
     avatar: str = 'crab:gray'
     description: str = ''
+    files: bool = True
+    memory: bool = False
     mcp: list[str] = Field(default_factory=list)
 
 
@@ -72,6 +82,9 @@ class McpServer(BaseModel):
 
 class ChatConfig(BaseModel):
     defaults: Defaults = Field(default_factory=Defaults)
+    titles: Titles = Field(default_factory=Titles)
+    files: Switch = Field(default_factory=Switch)
+    memory: Switch = Field(default_factory=Switch)
     profile: Profile = Field(default_factory=Profile)
     providers: list[Provider] = Field(default_factory=list)
     mcp_servers: dict[str, McpServer] = Field(default_factory=dict)
@@ -95,7 +108,17 @@ system_prompt = ""
 temperature = -1
 max_tokens = 0
 mcp = []
-title_model = ""
+
+[titles]
+enabled = true
+model = ""
+prompt = ""
+
+[files]
+enabled = true
+
+[memory]
+enabled = true
 
 [profile]
 name = "You"
@@ -105,6 +128,8 @@ avatar = ""
 name = "Temporary chat"
 avatar = "crab:gray"
 description = ""
+files = true
+memory = false
 model = ""
 effort = ""
 system_prompt = ""

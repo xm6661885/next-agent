@@ -13,6 +13,8 @@ from pydantic import ValidationError
 from . import mcp_tools, providers
 from .config import Assistant, ChatConfig, DefaultAssistant, Settings, now
 from .store import page
+from .resources import Resources
+from .local_tools import LocalTools
 
 
 class ChatRuntime:
@@ -26,7 +28,7 @@ class ChatRuntime:
         self.ring = deque(maxlen=500)
         self.subscribers = set()
         self.viewers = 0
-        self.task = self.active = None
+        self.task = self.active = self.title_task = None
         self.started = False
 
     def emit(self, event):
@@ -112,6 +114,13 @@ class ChatRuntime:
         self.add('user', broadcast=uuid is None, text=text, attachments=attachments, client_id=client_id,
                  pending=False, **({'group': group} if group else {}))
         if uuid is not None: self.emit({'type': 'items', **page(self.items)})
+        if not self.session['title']:
+            sentence = re.split(r'[。！？.!?\n]', text.strip(), maxsplit=1)[0]
+            fallback = ' '.join(sentence.split())[:60] if text.strip() else attachments[0]['name'][:60]
+            self.manager.update_session(self.sid, title=fallback)
+            if self.manager.config.data.titles.enabled:
+                if self.title_task: self.title_task.cancel()
+                self.title_task = asyncio.create_task(self.title(text, fallback))
         self.manager.update_session(self.sid, preview=text[:120])
         self.start()
 
@@ -179,28 +188,35 @@ class ChatRuntime:
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
 
-    async def title(self, model):
-        first = next(i for i in self.items if i['kind']=='user')
-        fallback = (first['text'] or first['attachments'][0]['name'])[:60]
+    async def close(self):
+        if self.title_task:
+            self.title_task.cancel()
+            await asyncio.gather(self.title_task, return_exceptions=True)
+        await self.stop()
+
+    async def title(self, text, fallback):
+        settings = self.manager.config.data.titles
         try:
-            provider, name = self.manager.provider_model(self.manager.config.data.defaults.title_model or model)
-            title = await providers.complete(provider, name, [{'role': 'user', 'content': first['text'] or fallback}],
-                                             system='Write only a short conversation title, at most 30 characters.')
-            title = ' '.join(title.split()).strip('"\'')[:30] or fallback
-        except Exception: title = fallback
-        if not self.session['title']: self.manager.update_session(self.sid, title=title)
+            model = settings.model or self.manager.resolve(self.sid)['model']
+            provider, name = self.manager.provider_model(model)
+            title = await providers.complete(provider, name, [{'role': 'user', 'content': text}],
+                                             system=settings.prompt or 'Write only a short title for this conversation, '
+                                             'at most 30 characters, in the language of the message.')
+            title = ' '.join(title.split()).strip('"\'“”‘’').strip()[:30]
+        except Exception: return
+        if title and self.session['title']==fallback: self.manager.update_session(self.sid, title=title)
 
     async def reply(self):
         self.started = True
         started, begin = time.monotonic(), len(self.items)
         usage, reason, model = {'input': 0, 'output': 0}, 'error', ''
-        first = not any(i['kind']=='result' for i in self.items)
         try:
             settings = self.manager.resolve(self.sid)
             model = settings['model']
             provider, name = self.manager.provider_model(model)
             async with mcp_tools.tools_for_reply(self.manager.config.data.mcp_servers, list(self.session['mcp']), self.notice) as layer:
-                tools = await mcp_tools.list_tools(layer)
+                local = LocalTools(self.manager, self.sid)
+                tools = local.tools + await mcp_tools.list_tools(layer)
                 for _ in range(20):
                     calls, round_usage = {}, {'input': 0, 'output': 0}
                     messages = providers.history(self.items, provider.format)
@@ -235,12 +251,12 @@ class ChatRuntime:
                     if not calls: break
                     for item in calls.values():
                         if item['streaming']: raise providers.ProviderError('Incomplete tool call')
-                        result = await mcp_tools.call_tool(layer, item['name'], item['input'])
+                        if item['name'] in local.calls: result = await local.call(item['name'], item['input'])
+                        else: result = await mcp_tools.call_tool(layer, item['name'], item['input'])
                         self.patch(item, result=result)
                 else:
                     reason = 'max_rounds'
                     self.notice('Tool round limit reached')
-            if first and not self.session['title']: await self.title(model)
         except asyncio.CancelledError:
             reason = 'cancelled'
             self.notice('Stopped', 'info')
@@ -264,6 +280,7 @@ class ChatManager:
     def __init__(self, core, config, store):
         self.core, self.config, self.store = core, config, store
         self.runtimes = {}
+        self.resources = Resources(store.root)
 
     def assistant(self, aid):
         if aid=='_default': return self.config.data.default_assistant
@@ -294,7 +311,7 @@ class ChatManager:
 
     def assistant_view(self, aid):
         sessions = self.sessions(aid)
-        return {**self.assistant(aid).model_dump(), 'id': aid,
+        return {**self.assistant(aid).model_dump(), 'id': aid, 'recent': sessions[:5],
                 'status': {'running': sum(s['state']=='running' for s in sessions),
                            'last_session': {k: sessions[0][k] for k in ('id', 'title', 'updated_at', 'preview')} if sessions else None}}
 
@@ -334,13 +351,13 @@ class ChatManager:
 
     async def delete_session(self, sid):
         self.session(sid)
-        if sid in self.runtimes: await self.runtimes[sid].stop()
+        if sid in self.runtimes: await self.runtimes[sid].close()
         self.runtimes.pop(sid, None)
         self.store.delete(sid)
         self.changed_event()
 
     async def close(self):
-        await asyncio.gather(*(r.stop() for r in self.runtimes.values()))
+        await asyncio.gather(*(r.close() for r in self.runtimes.values()))
 
     def resolve(self, sid):
         session = self.session(sid)
@@ -354,7 +371,25 @@ class ChatManager:
         if not values['model']:
             entries = self.config.data.providers
             if entries and entries[0].models: values['model'] = entries[0].id+'/'+entries[0].models[0]
+        parts = [values['system_prompt']]
+        aid = session['assistant_id']
+        if self.enabled(aid, 'files'):
+            files = self.resources.files(aid)
+            if files:
+                listing = '\n'.join(f"- {r['name']} ({r['size']} bytes, {r['lines']} lines)" for r in files)
+                parts.append('Files\n'+listing+'\nRead these files with file_read or search them with file_search.')
+        if self.enabled(aid, 'memory'):
+            entries = '\n'.join(f"[{r['id']}] {r['text']}" for r in self.resources.memories(aid))
+            parts.append('Memory\n'+entries+'\nSave durable facts about the user and preferences with memory_add, '
+                         'memory_update and memory_delete. Do not save secrets.')
+        values['system_prompt'] = '\n\n'.join(part for part in parts if part)
         return values
+
+    def enabled(self, aid, feature):
+        return getattr(self.config.data, feature).enabled and getattr(self.assistant(aid), feature)
+
+    def memory_changed(self, aid):
+        self.core.emit({'type': 'chat_changed', 'scope': 'memory', 'assistant_id': aid})
 
     def provider_model(self, model):
         pid, _, name = model.partition('/')
@@ -366,13 +401,14 @@ class ChatManager:
     def config_view(self):
         data = self.config.data
         return dict(defaults=data.defaults.model_dump(), mcp_servers={k: v.model_dump(exclude_unset=True) for k, v in data.mcp_servers.items()},
-                    providers=[p.model_dump() for p in data.providers], profile=data.profile.model_dump())
+                    providers=[p.model_dump() for p in data.providers], profile=data.profile.model_dump(),
+                    titles=data.titles.model_dump(), files=data.files.model_dump(), memory=data.memory.model_dump())
 
     def save_config(self, changes):
         try: ChatConfig.model_validate({**self.config.data.model_dump(), **changes})
         except ValidationError as exc: raise HTTPException(422, str(exc)) from exc
         for key, value in changes.items():
-            if isinstance(value, dict) and key in ('defaults', 'default_assistant', 'profile'):
+            if isinstance(value, dict) and key in ('defaults', 'default_assistant', 'profile', 'titles', 'files', 'memory'):
                 if key not in self.config.doc: self.config.doc[key] = tomlkit.table()
                 self.config.doc[key].update(value)
             else: self.config.doc[key] = tomlkit.item(value)
@@ -381,7 +417,7 @@ class ChatManager:
 
     def patch_config(self, body):
         changes = body.model_dump(exclude_unset=True)
-        for key in ('defaults', 'profile'):
+        for key in ('defaults', 'profile', 'titles', 'files', 'memory'):
             if key in changes: changes[key] = {**getattr(self.config.data, key).model_dump(), **changes[key]}
         if 'providers' in changes:
             keys = {p.id: p.api_key for p in self.config.data.providers}
@@ -417,6 +453,7 @@ class ChatManager:
         if aid=='_default': raise HTTPException(400, 'Cannot delete the default assistant')
         for session in self.sessions(aid): await self.delete_session(session['id'])
         self.save_config({'assistants': [a.model_dump() for a in self.config.data.assistants if a.id!=aid]})
+        self.resources.delete_assistant(aid)
         (self.store.avatars / aid).unlink(missing_ok=True)
         (self.store.avatars / (aid+'.mime')).unlink(missing_ok=True)
 

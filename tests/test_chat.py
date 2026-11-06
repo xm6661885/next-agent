@@ -170,6 +170,7 @@ async def test_stream_tools_history_and_persistence(chat):
     runtime = m.runtime(sid)
     runtime.send('hello', [attachment], 'client-1')
     await asyncio.wait_for(asyncio.shield(runtime.task), 3)
+    await runtime.title_task
     items = runtime.items
     assert [i['kind'] for i in items]==['user', 'thinking', 'text', 'tool', 'text', 'result']
     assert items[0]['uuid']==items[0]['id'] and items[0]['client_id']=='client-1'
@@ -195,10 +196,11 @@ async def test_stream_tools_history_and_persistence(chat):
     earlier = (await c.get(f"/api/chat/sessions/{sid}/items?before={items[-2]['id']}&limit=2")).json()
     assert earlier['items']==items[-4:-2]
     assert (await c.get(attachment['url'])).content==b'image-data'
-    request, first = peer.requests[0]
+    replies = [(request, body) for request, body in peer.requests if body and body.get('stream')]
+    request, first = replies[0]
     assert request.headers['x-extra']=='yes'
     assert first['tools'] and first['model']=='small'
-    second = peer.requests[1][1]
+    second = replies[1][1]
     assert 'Thinking' not in json.dumps(second['messages']) and 'Found it' in json.dumps(second['messages'])
     if chat.format=='openai':
         assert request.headers['authorization']=='Bearer secret'
@@ -213,7 +215,7 @@ async def test_stream_tools_history_and_persistence(chat):
         assert first['messages'][0]['content'][1]['source']['data']=='aW1hZ2UtZGF0YQ=='
         assert second['messages'][-2]['content'][-1]['type']=='tool_use'
         assert second['messages'][-1]['content'][0]['tool_use_id']=='call-1'
-    assert len(peer.requests)==3 and peer.requests[-1][1]['stream'] is False
+    assert len(peer.requests)==3 and sum(not body['stream'] for _, body in peer.requests)==1
     assert any(e.get('module')=='chat' and e.get('unread') for e in chat.events)
 
 
@@ -263,7 +265,7 @@ async def test_config_assistants_uploads_and_delete(chat):
     assert patch.json()['mcp']==['fetch'] and patch.json()['overrides']['model']=='local/large'
     assert (await c.patch(f'/api/chat/sessions/{sid}', json={'overrides': {'temperature': 'bad'}})).status_code==422
     assert (await c.get('/api/chat/assistants/writer/sessions')).json()[0]['title']=='Changed'
-    assert (await c.post(f'/api/chat/sessions/{sid}/uploads', files={'files': ('x.txt', b'no', 'text/plain')})).status_code==415
+    assert (await c.post(f'/api/chat/sessions/{sid}/uploads', files={'files': ('x.txt', b'no\x00', 'text/plain')})).status_code==415
     assert (await c.post(f'/api/chat/sessions/{sid}/uploads', files={'files': ('x.png', b'x'*(10*1024*1024+1), 'image/png')})).status_code==413
     attachment = (await c.post(f'/api/chat/sessions/{sid}/uploads', files={'files': ('x.png', b'yes', 'image/png')})).json()[0]
     other = m.create_session('_default')['id']
