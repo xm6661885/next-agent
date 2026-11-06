@@ -33,7 +33,7 @@ live in `web/src/components`.
 
 ## Contracts
 - `docs/protocol.md`: core + Agents (Claude) REST/WS, config layout and migration, settings API.
-- `docs/protocol-acp.md`, `docs/protocol-chat.md`, `docs/protocol-workflow.md`, `docs/builtin-mcp.md`.
+- `docs/protocol-acp.md`, `docs/protocol-chat.md`, `docs/protocol-workflow.md`, `docs/protocol-apps.md`, `docs/builtin-mcp.md`.
 
 ## AgentBridge (`server/bridge.py`, `core.bridge`)
 Runs work on Agents-module sessions for other modules. Claude sessions go through the normal `RuntimeManager`
@@ -57,3 +57,12 @@ def items(module, session_id) -> list           # transcript items (Claude: hist
 ```
 `text` is `ResultMessage.result` when non-empty, else the top-level `text` items produced in that turn joined by
 blank lines. `is_error` is true on a failed result, a CLI connection failure or a disconnect.
+
+## More tab apps
+Speech to text keeps recording metadata and audio under `data/asr/recordings/<id>/`; its `routes.py`, `jobs.py`,
+`store.py` and `transcribe.py` separate HTTP contracts, resumable processing, locked metadata and upstream/audio work.
+Image generation keeps job JSON, references/masks and outputs under `data/imagegen/jobs/<id>/`; `routes.py`,
+`jobs.py` and `client.py` separate validation, the two-job concurrency gate and OpenAI-compatible requests.
+Both register TOML files in the raw editor, honor HTTP proxy environment variables and invalidate the global feed
+with `asr_changed` / `imagegen_changed`. ASR resumes interrupted/stale work; image jobs interrupted by a restart
+become errors for explicit retry. Full client contracts are in `docs/protocol-apps.md`.

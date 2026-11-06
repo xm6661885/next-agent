@@ -13,8 +13,16 @@ class AsrConfig(BaseModel):
     @field_validator('api_base')
     @classmethod
     def valid_base(cls, value):
-        if not value.startswith(('http://', 'https://')): raise ValueError('API base must start with http:// or https://')
+        value = value.strip()
+        if not value.startswith(('http://', 'https://')):
+            raise ValueError('API base must start with http:// or https://')
         return value.rstrip('/')
+
+    @field_validator('model', 'language')
+    @classmethod
+    def trimmed(cls, value):
+        return value.strip()
+
 
 TEMPLATE = '''api_base = "https://api.openai.com/v1"
 api_key = ""
