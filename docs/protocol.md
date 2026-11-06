@@ -215,7 +215,7 @@ Requests never time out. They stay open until a device answers, the user interru
 | GET | `/api/sessions/{sid}/files/stat` | `?path=<absolute path>` | `{name, size, mime, is_image}` with the same access rule, else `404` |
 | GET | `/api/config` | | `ConfigForm` (below) |
 | PATCH | `/api/config` | partial `ConfigForm` (`server` and `defaults` merge key by key; `pricing` replaces the whole table; `host`, `port`, `default_file_output_prompt` and `default_genui_prompt` are ignored) | `ConfigForm`. `422 {detail}` on invalid values. Comments in the config files are kept. |
-| GET/PUT | `/api/config/raw` | `?file=core\|agents\|acp\|chat\|workflow` (default `agents`); PUT `{content}` | `{content, file, path}`. Raw text of `data/config/<file>.toml`. In `core`, `password_hash` is masked as `"***"`; PUT keeps the existing hash when it sees `"***"`. PUT validates that file's schema and returns `400 {detail}` on invalid TOML or schema; the owning module reloads at once. Unknown `file`: `400`. |
+| GET/PUT | `/api/config/raw` | `?file=core\|agents\|acp\|chat\|workflow\|automations` (default `agents`); PUT `{content}` | `{content, file, path}`. Raw text of `data/config/<file>.toml`. In `core`, `password_hash` is masked as `"***"`; PUT keeps the existing hash when it sees `"***"`. PUT validates that file's schema and returns `400 {detail}` on invalid TOML or schema; the owning module reloads at once. Unknown `file`: `400`. |
 | GET | `/api/settings/overview` | | `{version, files: [{file, path, mtime}], modules: {agents: {agents, acp_agents, sessions}, chat: {assistants, providers, sessions}, workflow: {workflows, runs}}}` counts for the settings home page |
 
 | GET/POST | `/api/external/send` | `prompt`, `agent_id`, `key` (query, form or JSON; key may also be `X-API-Key`), optional `session_id` | No cookie. Plain text `Message Sent` immediately, header `X-Session-Id`. Creates a session unless `session_id` is given. `403` when `server.api_key` is empty, `401` bad key, `404` unknown agent/session. Per agent, external messages run strictly in order: each waits until the previous turn finishes (and until the target session is idle). |
@@ -269,6 +269,7 @@ when it changes on disk. Comments are kept on every write.
 | `acp.toml` | Agents (ACP) | see `docs/protocol-acp.md` |
 | `chat.toml` | Chat | see `docs/protocol-chat.md` |
 | `workflow.toml` | Workflow | see `docs/protocol-workflow.md` |
+| `automations.toml` | Automations | see `docs/protocol-automations.md` |
 
 **Layout migration** (once, at startup, before anything else): when `data/config/core.toml` does not exist and
 `data/config.toml` does, `[server]` goes to `core.toml` and every other table and key goes to `agents.toml`

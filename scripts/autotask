@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+export PYTHONPATH=/home/xm666/next-agent${PYTHONPATH:+:$PYTHONPATH}
+exec /home/xm666/next-agent/.venv/bin/python -m server.automations.cli "$@"
