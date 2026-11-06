@@ -39,7 +39,6 @@ Runs work on Agents-module sessions for other modules. Claude sessions go throug
 ```python
 async def run_claude(agent_id, prompt, *, session_id=None, title='', origin='workflow', parent=None,
                      cwd=None, overrides=None, extra=None) -> dict
-
     # agent_id '_temp' (or None) = temporary session in `cwd` (default home) using the temp agent settings.
     # overrides: {model, effort, permission_mode} (None/'' = agent value); extra: see Session.extra.
     # Creates a session unless session_id is given; sends prompt (waits behind a running turn); waits for the result.
