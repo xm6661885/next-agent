@@ -81,6 +81,12 @@ become errors for explicit retry. Full client contracts are in `docs/protocol-ap
 ## Automations workers
 `server/automations/` retains AutoTask's SQLite v5 schema in `data/automations/autotask.db`, with logs, scripts and task
 Python environment alongside it. Its scheduler runs in a core-managed thread; every run goes through a detached
-`server.automations.cli` worker in a transient systemd user scope. Workers persist PID/results themselves and survive
-backend shutdown. A DB poller emits `automations_changed` on the global feed for CLI and worker changes. Configuration
-is registered in the raw editor; migration/cutover is handled by `scripts/migrate/automations.py`, never at service start.
+`server.automations.cli` worker in a transient system scope, launched with passwordless
+`sudo -n systemd-run --scope --collect --quiet --unit autotask-<task>-<run> --uid=<current uid> --gid=<current gid>`.
+The worker runs as the launching user; `/usr/bin/env` explicitly restores its full environment after sudo filtering.
+Workers persist PID/results themselves and survive backend shutdown and service restart because their
+`/system.slice/autotask-<task>-<run>.scope` cgroups are separate from `next-agent.service`. No user bus is needed.
+Scope launch failures warn and fall back to detached Popen without the restart-survival guarantee; stop still sends
+SIGTERM to the same-UID script process group. A DB poller emits `automations_changed` on the global feed for CLI and
+worker changes. Configuration is registered in the raw editor; migration/cutover is handled by
+`scripts/migrate/automations.py`, never at service start.

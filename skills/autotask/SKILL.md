@@ -14,7 +14,7 @@ metadata:
 
 # autotask — automated script runner
 
-AutoTask is next-agent’s Automations module. Use `autotask` for CLI management; the scheduler runs inside `next-agent.service`, with no separate service or `autotaskd`. Runs use transient systemd user scopes named `autotask-<task>-<run>` (task/run IDs).
+AutoTask is next-agent’s Automations module. Use `autotask` for CLI management; the scheduler runs inside `next-agent.service`, with no separate service or `autotaskd`. Runs use transient system scopes named `autotask-<task>-<run>` (task/run IDs), launched via passwordless `sudo -n systemd-run` as the current UID/GID with the worker environment passed explicitly. Their cgroups are separate from `next-agent.service`, so runs survive its restart. Scope launch failure warns and falls back to detached Popen without that guarantee.
 
 Run first:
 

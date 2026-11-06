@@ -36,17 +36,17 @@ def interpreter_for(path, cfg):
 
 def launch_worker(argv, task_id, run_id, data_root, ready):
     env = os.environ.copy()
-    env.setdefault('XDG_RUNTIME_DIR', f'/run/user/{os.getuid()}')
-    env.setdefault('DBUS_SESSION_BUS_ADDRESS', f'unix:path=/run/user/{os.getuid()}/bus')
     env['NEXT_AGENT_DATA'] = str(data_root)
     repo = str(Path(__file__).resolve().parents[2])
     env['PYTHONPATH'] = repo + (os.pathsep + env['PYTHONPATH'] if env.get('PYTHONPATH') else '')
     options = dict(env=env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                    stderr=subprocess.DEVNULL, start_new_session=True, close_fds=True)
-    scope = ['systemd-run', '--user', '--scope', '--collect', '--quiet',
-             '--unit', f'autotask-{task_id}-{run_id}', '--', *argv]
+    # Restore the worker environment after sudo's environment filtering.
+    scope = ['sudo', '-n', 'systemd-run', '--scope', '--collect', '--quiet',
+             '--unit', f'autotask-{task_id}-{run_id}', f'--uid={os.getuid()}', f'--gid={os.getgid()}',
+             '--', '/usr/bin/env', *[f'{key}={value}' for key, value in env.items()], *argv]
     # A scope's launcher stays alive until the worker exits. Its successful
-    # Popen alone does not mean systemd accepted the scope (e.g. no user bus).
+    # Popen alone does not mean sudo/systemd accepted the scope.
     try:
         proc = subprocess.Popen(scope, **options)
         while not ready.exists():

@@ -215,8 +215,12 @@ from now; initial null cache is populated without running on that tick. Running 
 is recomputed immediately after launch from the previous completion time, retaining the old immediate-follow-up nuance.
 
 All runs use `python -m server.automations.cli _execute-task ... --run-id ...` in
-`systemd-run --user --scope --collect --quiet --unit autotask-<id>-<rid> -- ...`. Missing runtime/bus environment variables
-are set to `/run/user/<uid>` and its bus. Scope launch failure logs a warning and falls back to detached Popen.
+`sudo -n systemd-run --scope --collect --quiet --unit autotask-<id>-<rid> --uid=<current uid> --gid=<current gid> -- /usr/bin/env KEY=value ... <worker argv>`.
+This requires passwordless sudo. The system scope runs as the launching user, with the complete worker environment
+passed explicitly after sudo (including HOME, PATH, LANG, task variables, NEXT_AGENT_DATA and PYTHONPATH).
+Its cgroup is `/system.slice/autotask-<id>-<rid>.scope`, separate from `next-agent.service`, so workers survive
+`systemctl restart next-agent`. No user bus is required. Scope launch failure logs a warning and falls back to detached
+Popen, which cannot guarantee restart survival. Stop sends SIGTERM to the script process group under the same UID.
 The worker owns stdout/stderr log output, script process group, PID and completion writes. The service only observes DB
 state; shutdown leaves workers alone. Recovery tests stored PIDs with `os.kill(pid,0)`: live/permission-denied workers
 remain open; dead/unstarted runs get interrupted exit -1 and one-offs fail. A script uses its actual directory as cwd,

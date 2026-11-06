@@ -74,21 +74,33 @@ def test_scope_launcher_and_environment(tmp_path,monkeypatch):
     def popen(argv,**kw): seen.append((argv,kw)); ready.touch(); return proc
     monkeypatch.setattr('server.automations.runner.subprocess.Popen',popen)
     monkeypatch.delenv('XDG_RUNTIME_DIR',raising=False); monkeypatch.delenv('DBUS_SESSION_BUS_ADDRESS',raising=False)
+    monkeypatch.setenv('HOME',str(tmp_path/'home')); monkeypatch.setenv('PATH','/task/bin:/usr/bin:/bin')
+    monkeypatch.setenv('LANG','C.UTF-8'); monkeypatch.setenv('PYTHONPATH','/task/modules')
+    monkeypatch.setenv('TASK_ENV','task value with spaces\nand a newline')
     assert launch_worker(['python','worker'],2,7,tmp_path,ready)==123
     argv,kw=seen[0]
-    assert argv==['systemd-run','--user','--scope','--collect','--quiet','--unit','autotask-2-7','--','python','worker']
-    assert kw['env']['XDG_RUNTIME_DIR']==f'/run/user/{os.getuid()}'
-    assert kw['env']['DBUS_SESSION_BUS_ADDRESS']==f'unix:path=/run/user/{os.getuid()}/bus'
+    assert argv[:11]==['sudo','-n','systemd-run','--scope','--collect','--quiet','--unit','autotask-2-7',
+                      f'--uid={os.getuid()}',f'--gid={os.getgid()}','--']
+    assert argv[11]=='/usr/bin/env' and argv[-2:]==['python','worker']
+    worker_env=dict(value.split('=',1) for value in argv[12:-2])
+    assert worker_env==kw['env']
+    assert worker_env['HOME']==str(tmp_path/'home') and worker_env['PATH']=='/task/bin:/usr/bin:/bin'
+    assert worker_env['LANG']=='C.UTF-8' and worker_env['TASK_ENV']=='task value with spaces\nand a newline'
+    assert worker_env['PYTHONPATH']==str(Path(__file__).resolve().parents[2])+':/task/modules'
+    assert 'XDG_RUNTIME_DIR' not in worker_env and 'DBUS_SESSION_BUS_ADDRESS' not in worker_env
     assert kw['start_new_session'] and kw['env']['NEXT_AGENT_DATA']==str(tmp_path)
     assert not ready.exists()
 
 
-def test_scope_exit_failure_falls_back(tmp_path,monkeypatch,caplog):
+@pytest.mark.parametrize('failure',['exit','missing'])
+def test_scope_failure_falls_back(tmp_path,monkeypatch,caplog,failure):
     ready=tmp_path/'ready'; rejected=Mock(); rejected.poll.return_value=1
     accepted=Mock(pid=456); calls=[]
     def popen(argv,**kw):
         calls.append(argv)
-        if len(calls)==1: return rejected
+        if len(calls)==1:
+            if failure=='missing': raise FileNotFoundError('sudo unavailable')
+            return rejected
         ready.touch(); return accepted
     monkeypatch.setattr('server.automations.runner.subprocess.Popen',popen)
     assert launch_worker(['worker'],2,7,tmp_path,ready)==456
@@ -99,7 +111,7 @@ def test_scope_exit_failure_falls_back(tmp_path,monkeypatch,caplog):
 def test_real_fallback_worker_payload_pid_log_and_exit(auto,script,monkeypatch):
     real_popen=subprocess.Popen
     def fallback(argv,**kw):
-        if argv[0]=='systemd-run': raise FileNotFoundError('test fallback')
+        if argv[0]=='sudo': raise FileNotFoundError('test fallback')
         return real_popen(argv,**kw)
     monkeypatch.setattr('server.automations.runner.subprocess.Popen',fallback)
     rel=script(content='echo "pid=$$"\npwd\ncat\nsleep .3\nexit 7\n')
@@ -149,7 +161,7 @@ def test_claim_failure_and_script_containment(auto,script,monkeypatch):
 def test_cli_wait_works_without_service(auto,script,cli,monkeypatch):
     real_popen=subprocess.Popen
     def fallback(argv,**kw):
-        if argv[0]=='systemd-run': raise FileNotFoundError('test fallback')
+        if argv[0]=='sudo': raise FileNotFoundError('test fallback')
         return real_popen(argv,**kw)
     monkeypatch.setattr('server.automations.runner.subprocess.Popen',fallback)
     auto.db.create_task('job',script(content='echo waited\nexit 0\n'),[],'manual',None)
