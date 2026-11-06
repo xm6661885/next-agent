@@ -112,7 +112,7 @@ def resolve_value(tokens: Any, scope: Scope) -> Any:
 
 def coerce(value: Any, typ: str, label: str = "") -> Any:
     where = f'"{label}"' if label else "Value"
-    if typ in ("text", "code", "select", "workflow", "agent", "acp_agent", "expr", "varname"):
+    if typ in ("text", "code", "select", "workflow", "agent", "more_agent", "expr", "varname"):
         return to_text(value)
     if typ == "number":
         if isinstance(value, bool):

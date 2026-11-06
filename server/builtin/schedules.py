@@ -14,9 +14,10 @@ from . import Input, Prompt, mcp_tool
 
 
 class Target(Input):
-    module: Literal['agents', 'acp'] = 'agents'
+    module: Literal['agents', 'more_agents'] = 'agents'
     agent_id: str = ''
     session: str = Field(default='new', min_length=1)
+    cwd: str = ''
 
 
 class Create(Prompt):
@@ -45,7 +46,7 @@ def next_run(values, now):
 class Schedules:
     def __init__(self, builtin):
         self.builtin = builtin
-        self.path = builtin.core.paths.root / 'schedules.json'
+        self.path = builtin.core.paths.root / 'builtin' / 'schedules.json'
         self.entries = json.loads(self.path.read_text()) if self.path.exists() else {}
         self.changed = asyncio.Event()
         self.launching = set()
@@ -76,6 +77,10 @@ class Schedules:
         upcoming = next_run(values, time.time())
         if values['at'] and future and upcoming<=time.time(): raise ValueError('at must be in the future')
         target = values['target']
+        if target['module'] == 'more_agents' and target['session'] == 'new' and not target.get('cwd'):
+            raise ValueError('cwd is required for a new More Agents schedule')
+        if target['module'] == 'agents' and target.get('cwd'):
+            raise ValueError('cwd is only valid for More Agents')
         if not target['agent_id']:
             if not caller: raise ValueError('target.agent_id is required')
             target['agent_id'] = caller['agent_id']
@@ -130,7 +135,7 @@ class Schedules:
             session_id, result = await self.builtin.start(target['module'], target['agent_id'], schedule['prompt'],
                 session_id=None if target['session']=='new' else target['session'], origin='schedule',
                 title=schedule['title'] or 'Scheduled: '+schedule['prompt'][:40],
-                model=schedule['model'], effort=schedule['effort'])
+                model=schedule['model'], effort=schedule['effort'], cwd=target.get('cwd') or None)
         except Exception as exc:
             schedule['last_result'] = dict(session_id=session_id, is_error=True, error=str(exc))
             self.save()
@@ -144,7 +149,7 @@ class Schedules:
         try: value = await result
         except Exception as exc: value = dict(is_error=True, error=str(exc))
         if self.entries.get(schedule['id']) is schedule and schedule['last_run']==run:
-            schedule['last_result'] = dict(session_id=sid, is_error=value.get('is_error', False), error=value.get('error'))
+            schedule['last_result'] = dict(session_id=sid, stop_reason=value.get('stop_reason','completed'), is_error=value.get('is_error', False), error=value.get('error'))
             self.save()
 
     async def run_due(self, startup=False):

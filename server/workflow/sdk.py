@@ -1,6 +1,6 @@
 """Plugin SDK: every card is a Plugin subclass and the frontend renders its form purely from the schema.
 
-Input types: text / number / bool / select / json / list / any / code / workflow / agent / acp_agent
+Input types: text / number / bool / select / json / list / any / code / workflow / agent / more_agent
 Free-form inputs (text/number/json/list/code/any) are magic by default and stored as token arrays; pass magic=False to opt out in the workflow and can include magic variables; other inputs are stored as raw values.
 """
 from dataclasses import dataclass, field

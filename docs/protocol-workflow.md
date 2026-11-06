@@ -4,8 +4,8 @@ Card-based workflows (iOS Shortcuts style), ported from the old next-workflow pr
 frontend `web/src/modules/workflow/`, config `data/config/workflow.toml`, data `data/workflow/` (`app.db` SQLite,
 `plugins/` user plugins, `workspace/` default card cwd). The old project's data is not migrated.
 
-Workflow never starts a Claude CLI or ACP connection itself. Every agent card runs through `core.bridge`
-(`server/bridge.py`), so the session is a normal Agents/ACP session: it shows in that agent's session list
+Workflow never starts a Claude CLI or More Agents connection itself. Every agent card runs through `core.bridge`
+(`server/bridge.py`), so the session is a normal Agents/More Agents session: it shows in that agent's session list
 (origin `workflow`, `parent = {run_id, block_id}`) and opens in the normal chat page.
 
 Removed from the old project: its auth, API keys, settings table, env table, `agent_sessions` table and the
@@ -35,7 +35,7 @@ Tables as before minus `settings`, `env_vars`, `api_keys`, `agent_sessions`: `gr
 |---|---|---|---|
 | `builtin.temp_task` | Temporary task | `prompt`*, `cwd`, `model`, `effort`, `permission_mode`, `append_system_prompt`, `output_schema` (json), `allowed_tools`, `disallowed_tools`, `add_dirs`, `max_turns`, `max_budget_usd`, `env` (json), `session_id` | `run_claude('_temp', ...)` |
 | `builtin.agent_task` | Agent task | `agent`* (type `agent`), `prompt`*, `session_id`, `model`, `effort`, `append_system_prompt`, `output_schema` | `run_claude(agent, ...)` |
-| `builtin.acp_task` | ACP agent task | `agent`* (type `acp_agent`), `prompt`*, `session_id` | `run_acp(agent, ...)` |
+| `builtin.more_agent_task` | More Agents agent task | `agent`* (type `more_agent`), `prompt`*, `session_id` | `run_more(agent, ...)` |
 
 Empty inputs mean "use the agent's own setting" (for the temporary task: the temporary chat agent settings in
 Agents settings). `cwd` empty = the temp agent default (home); relative = against `default_cwd`. `model`, `effort`,
@@ -48,13 +48,13 @@ Every session gets `origin = "workflow"`, `title = card note or "<workflow name>
 Outputs: `result` (text, default), `structured` (json, Claude only), `session_id`, `cost_usd` (Claude only).
 `is_error` results raise `StepError(error)`.
 
-As soon as the session id is known (before the turn starts; `run_claude`/`run_acp` take an
+As soon as the session id is known (before the turn starts; `run_claude`/`run_more` take an
 `on_session(sid)` callback for this) the card emits run event `agent_session`
-`{module: "agents"|"acp", agent_id, session_id}`; the Run page links to the normal chat page of that session.
+`{module: "agents"|"more_agents", agent_id, session_id}`; the Run page links to the normal chat page of that session.
 Cancelling the run calls `core.bridge.stop(module, sid)` for a running card.
 
 New plugin input types for the editor: `agent` (Claude agent id incl. `_temp`, options from `/api/agents`) and
-`acp_agent` (options from `/api/acp/agents`).
+`more_agent` (options from `/api/more-agents/agents`).
 
 Other cards are unchanged from next-workflow (text, show, alert, ask_input, var_define, var_set, split_text,
 get_time, save_file, shell, run_workflow, stop_output; containers `core.if` / `core.repeat` / `core.repeat_each`).

@@ -8,7 +8,7 @@ is the core (auth, paths, TOML store helpers, global event feed) and a few narro
 |---|---|---|---|---|
 | core | `server/app.py`, `core.py`, `auth.py`, `paths.py`, `tomlstore.py`, `bridge.py` | `web/src/lib`, `web/src/components` | `data/config/core.toml` | `data/secret.key` |
 | Agents (Claude) | `server/*.py` (runtime, items, history, options, ...) | `web/src/modules/agents` | `data/config/agents.toml` | `data/sessions.json`, `data/agents/`, `data/uploads/` |
-| Agents (ACP) | `server/acp/` | `web/src/modules/acp` | `data/config/acp.toml` | `data/acp/` |
+| More Agents | `server/more_agents/` | `web/src/modules/more-agents` | `data/config/more_agents.toml` | `data/more_agents/` |
 | Built-in MCP | `server/builtin/` | settings pages + tool cards in the Claude chat | `data/config/agents.toml` (`builtin_mcp`) | `data/schedules.json` |
 | Chat | `server/chat/` | `web/src/modules/chat` | `data/config/chat.toml` | `data/chat/` |
 | Workflow | `server/workflow/` | `web/src/modules/workflow` | `data/config/workflow.toml` | `data/workflow/` |
@@ -31,11 +31,11 @@ live in `web/src/components`.
 
 ## Contracts
 - `docs/protocol.md`: core + Agents (Claude) REST/WS, config layout and migration, settings API.
-- `docs/protocol-acp.md`, `docs/protocol-chat.md`, `docs/protocol-workflow.md`, `docs/builtin-mcp.md`.
+- `docs/protocol-more-agents.md`, `docs/protocol-chat.md`, `docs/protocol-workflow.md`, `docs/builtin-mcp.md`.
 
 ## AgentBridge (`server/bridge.py`, `core.bridge`)
 Runs work on Agents-module sessions for other modules. Claude sessions go through the normal `RuntimeManager`
-(same concurrency gate, idle reaper, transcripts, chat page); ACP sessions go through `core.modules['acp']`.
+(same concurrency gate, idle reaper, transcripts, chat page); More Agents sessions go through `core.modules['more_agents']`.
 ```python
 async def run_claude(agent_id, prompt, *, session_id=None, title='', origin='workflow', parent=None,
                      cwd=None, overrides=None, extra=None) -> dict
@@ -45,10 +45,10 @@ async def run_claude(agent_id, prompt, *, session_id=None, title='', origin='wor
     # -> {session_id, text, structured, cost_usd, is_error, error}
 def start_claude(...same args...) -> str        # session id; does not wait
 async def wait_claude(session_id) -> dict       # wait for the current/next turn result, same dict
-async def run_acp(agent_id, prompt, *, session_id=None, title='', origin='workflow', parent=None) -> dict
+async def run_more(agent_id, prompt, *, session_id=None, title='', origin='workflow', parent=None) -> dict
     # -> {session_id, text, stop_reason, is_error, error}
-def start_acp(...) -> str
-async def send(module, session_id, prompt)      # module 'agents' | 'acp'; like typing in the chat
+def start_more(...) -> str
+async def send(module, session_id, prompt)      # module 'agents' | 'more_agents'; like typing in the chat
 async def stop(module, session_id)              # interrupt
 def view(module, session_id) -> dict            # Session / AcpSession
 def items(module, session_id) -> list           # transcript items (Claude: history + live)
