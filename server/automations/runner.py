@@ -108,12 +108,16 @@ class Runner:
         try:
             payload = Path(payload_file).read_bytes() if payload_file else None
             if payload_file: Path(payload_file).unlink()
+            env = os.environ.copy()
+            python_dir = os.path.dirname(self.cfg['python_bin'])
+            if os.path.isdir(python_dir):
+                env['PATH'] = python_dir + (os.pathsep + env['PATH'] if env.get('PATH') else '')
             with open(log_path, 'wb') as logf:
                 logf.write(f"$ {' '.join(command)}\n".encode()); logf.flush()
                 proc = subprocess.Popen(command, stdin=subprocess.PIPE if payload is not None else subprocess.DEVNULL,
                     stdout=logf, stderr=subprocess.STDOUT,
                     cwd=cwd or os.path.dirname(resolve_script(self.cfg['scripts_dir'], task['script'])),
-                    env=os.environ.copy(), start_new_session=True)
+                    env=env, start_new_session=True)
                 self.db.update_task(task['id'], running_pid=proc.pid)
                 if payload is not None:
                     proc.stdin.write(payload); proc.stdin.close()

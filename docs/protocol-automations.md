@@ -221,6 +221,8 @@ The worker owns stdout/stderr log output, script process group, PID and completi
 state; shutdown leaves workers alone. Recovery tests stored PIDs with `os.kill(pid,0)`: live/permission-denied workers
 remain open; dead/unstarted runs get interrupted exit -1 and one-offs fail. A script uses its actual directory as cwd,
 Python/shell by extension, otherwise executable directly; no shell interpolation or automatic dependency installation.
+Scripts inherit the worker environment, with the configured `python_bin` directory prepended to PATH when that directory
+exists. Shell tasks therefore resolve `python`/`python3` from the task environment. LANG/LC_ALL are inherited unchanged.
 
 `python -m server.automations.cli` and the installed `scripts/autotask` wrapper expose the old public commands/flags,
 Chinese help and list/groups/log output. CLI accesses DB/files directly and works with the service down. `run --wait`

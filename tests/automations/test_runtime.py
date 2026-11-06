@@ -157,3 +157,31 @@ def test_cli_wait_works_without_service(auto,script,cli,monkeypatch):
     assert code==0
     assert '已触发运行，run_id=1' in out and '完成，退出码: 0' in out and 'waited\n' in out
     assert auto.db.list_runs()[0]['exit_code']==0
+
+
+@pytest.mark.parametrize('python_dir_exists',[True,False])
+@pytest.mark.parametrize('lang',['custom.UTF-8',None])
+def test_worker_task_path_and_inherited_environment(auto,script,monkeypatch,python_dir_exists,lang):
+    python_dir=auto.root/'task-venv/bin'
+    if python_dir_exists:
+        python_dir.mkdir(parents=True)
+        for name in ('python','python3'):
+            (python_dir/name).write_text('#!/bin/sh\necho task-venv\n')
+            (python_dir/name).chmod(0o755)
+    cfg=dict(auto.cfg,python_bin=str(python_dir/'python'))
+    monkeypatch.setenv('PATH','/usr/bin:/bin')
+    if lang is None: monkeypatch.delenv('LANG',raising=False)
+    else: monkeypatch.setenv('LANG',lang)
+    monkeypatch.setenv('LC_ALL','C.UTF-8')
+    seen=[]; real_popen=subprocess.Popen
+    def popen(*args,**kw):
+        seen.append(kw['env'])
+        return real_popen(*args,**kw)
+    monkeypatch.setattr('server.automations.runner.subprocess.Popen',popen)
+    rel=script(content='command -v python3\n'+('python3\npython\n' if python_dir_exists else ''))
+    task_id=auto.db.create_task('env',rel,[],'manual',None)
+    log=auto.root/'env.log'; rid=auto.db.create_run(task_id,'manual',str(log))
+    assert Runner(cfg,auto.db).execute_run(auto.db.get_task(task_id),rid,log,['/bin/bash',str(auto.scripts/rel)])==0
+    assert seen[0]['PATH']==(str(python_dir)+':' if python_dir_exists else '')+'/usr/bin:/bin'
+    assert seen[0].get('LANG')==lang and seen[0]['LC_ALL']=='C.UTF-8'
+    if python_dir_exists: assert log.read_text().count('task-venv\n')==2

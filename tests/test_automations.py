@@ -32,7 +32,7 @@ def test_interval_due_and_one_off():
 def test_runner_records_result(tmp_path):
     scripts=tmp_path/'scripts'; scripts.mkdir(); script=scripts/'ok.sh'; script.write_text('echo ok\n')
     db=DB(str(tmp_path)); tid=db.create_task('ok','ok.sh',[],'manual',None); log=tmp_path/'ok.log'; rid=db.create_run(tid,'manual',str(log))
-    runner=Runner({'scripts_dir':str(scripts),'shell_bin':'/bin/sh','data_dir':str(tmp_path)},db)
+    runner=Runner({'scripts_dir':str(scripts),'python_bin':'/usr/bin/python3','shell_bin':'/bin/sh','data_dir':str(tmp_path)},db)
     assert runner.execute_run(db.get_task(tid),rid,str(log),['/bin/sh',str(script)])==0
     assert db.get_run(rid)['exit_code']==0
     assert db.get_task(tid)['running_pid'] is None
