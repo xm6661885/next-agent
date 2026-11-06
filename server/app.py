@@ -29,7 +29,7 @@ from . import artifacts
 from . import btw
 from .core import Core
 from .bridge import AgentBridge
-from . import acp, chat, workflow, builtin, asr, imagegen
+from . import acp, chat, workflow, builtin, asr, imagegen, automations
 
 VERSION='0.2.0'
 
@@ -518,7 +518,7 @@ def create_app(data_dir=None):
     core.modules['agents']=SimpleNamespace(settings=lambda:config.config.builtin_mcp,
         agents=lambda:[*config.config.agents,manager.agent(TEMP_AGENT)],
         sessions=lambda:list(index.sessions.values()),search=agent_search,running=manager.running)
-    for module in (acp, builtin, chat, workflow, asr, imagegen): module.mount(app,core)
+    for module in (acp, builtin, chat, workflow, automations, asr, imagegen): module.mount(app,core)
     dist=Path(__file__).resolve().parents[1]/'web'/'dist'
     if dist.exists():
         assets=dist/'assets'

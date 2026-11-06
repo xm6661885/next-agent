@@ -12,6 +12,7 @@ is the core (auth, paths, TOML store helpers, global event feed) and a few narro
 | Built-in MCP | `server/builtin/` | settings pages + tool cards in the Claude chat | `data/config/agents.toml` (`builtin_mcp`) | `data/builtin/schedules.json` |
 | Chat | `server/chat/` | `web/src/modules/chat` | `data/config/chat.toml` | `data/chat/` (sessions/messages/uploads; `assistants/<aid>/files/`; `memory/<aid>.json`) |
 | Workflow | `server/workflow/` (core/extra/user cards, HTTP triggers) | `web/src/modules/workflow` | `data/config/workflow.toml` | `data/workflow/` (`app.db` incl. per-workflow trigger tokens, `plugins/`, `workspace/`) |
+| Automations | `server/automations/` | (frontend track) | `data/config/automations.toml` | `data/automations/` |
 | Speech to text | `server/asr/` | More tab | `data/config/asr.toml` | `data/asr/` |
 | Image generation | `server/imagegen/` | More tab | `data/config/imagegen.toml` | `data/imagegen/` |
 | Settings / More | `/api/settings/*` in `server/app.py` | `web/src/modules/settings`, `web/src/modules/more` | all of the above | |
@@ -37,7 +38,7 @@ live in `web/src/components`.
 
 ## Contracts
 - `docs/protocol.md`: core + Agents (Claude) REST/WS, config layout and migration, settings API.
-- `docs/protocol-acp.md`, `docs/protocol-chat.md`, `docs/protocol-workflow.md`, `docs/protocol-apps.md`, `docs/builtin-mcp.md`.
+- `docs/protocol-acp.md`, `docs/protocol-chat.md`, `docs/protocol-workflow.md`, `docs/protocol-automations.md`, `docs/protocol-apps.md`, `docs/builtin-mcp.md`.
 
 ## AgentBridge (`server/bridge.py`, `core.bridge`)
 Runs work on Agents-module sessions for other modules. Claude sessions go through the normal `RuntimeManager`
@@ -70,3 +71,10 @@ Image generation keeps job JSON, references/masks and outputs under `data/imageg
 Both register TOML files in the raw editor, honor HTTP proxy environment variables and invalidate the global feed
 with `asr_changed` / `imagegen_changed`. ASR resumes interrupted/stale work; image jobs interrupted by a restart
 become errors for explicit retry. Full client contracts are in `docs/protocol-apps.md`.
+
+## Automations workers
+`server/automations/` retains AutoTask's SQLite v5 schema in `data/automations/autotask.db`, with logs, scripts and task
+Python environment alongside it. Its scheduler runs in a core-managed thread; every run goes through a detached
+`server.automations.cli` worker in a transient systemd user scope. Workers persist PID/results themselves and survive
+backend shutdown. A DB poller emits `automations_changed` on the global feed for CLI and worker changes. Configuration
+is registered in the raw editor; migration/cutover is handled by `scripts/migrate/automations.py`, never at service start.
