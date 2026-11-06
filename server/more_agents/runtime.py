@@ -524,6 +524,7 @@ class MoreAgentsManager:
                     if runtime.state=='idle' and not runtime.queued and time.monotonic()-runtime.last_activity>timeout:
                         try:
                             await runtime.submit('sleep')
+                            if runtime.state != 'offline': await runtime._disconnect()
                             if isinstance(runtime, CodexRuntime) and not any(r.process and r.process.alive for r in self.runtimes.values() if r is not runtime and r.session['agent_id'] == runtime.session['agent_id']):
                                 process=self.processes.pop(runtime.session['agent_id'], None)
                                 if process: await process.close()

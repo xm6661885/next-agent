@@ -48,7 +48,9 @@ class FakeBridge:
 
     def start_more(self, aid, prompt, **kwargs):
         self.calls.append(('more_agents', aid, prompt, kwargs))
-        return self.acp.start_turn(aid, prompt, **kwargs)
+        sid=self.acp.start_turn(aid, prompt, **kwargs)
+        self.begin(sid, prompt)
+        return sid
 
     def view(self, module, sid):
         if module=='more_agents': return self.acp.view(sid)
@@ -263,7 +265,8 @@ async def test_scheduler_slow_start_and_failed_acp_setup(builtin, monkeypatch):
     gate.set()
     await until(lambda: len(b.bridge.calls)==2)
     for sid in list(b.bridge.results): b.bridge.finish(sid)
-    await call(tools_for(b), 'task_create', dict(module='more_agents', agent_id='phone', prompt='Unavailable', model='large', cwd=str(b.app.state.paths.root)), error=True)
+    task = await call(tools_for(b), 'task_create', dict(module='more_agents', agent_id='phone', prompt='Unavailable', model='large', cwd=str(b.app.state.paths.root)))
+    assert task['state'] == 'offline'
     acp = b.core.modules['more_agents']
     assert all(r.state=='offline' and r.client is None for r in acp.runtimes.values())
 
