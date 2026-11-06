@@ -44,16 +44,15 @@ class Collab:
 
     def agents_list(self, caller):
         more_agents = self.builtin.core.modules.get('more_agents')
-        groups = [('agents', self.builtin.agents.agents()), ('more_agents', more_agents.config.data.agents if more_agents else [])]
-        rows=[]
-        for module, agents in groups:
-            for a in agents:
-                if not a.as_subagent or (module, a.id)==(caller['module'], caller['agent_id']): continue
-                row=dict(module=module, agent_id=a.id, name=a.name, description=a.description, kind=('claude' if module=='agents' else a.kind), needs_cwd=(module=='more_agents'))
-                if module=='more_agents' and a.kind=='codex':
-                    models=self.builtin.core.modules['more_agents'].models(a.id)
-                    if models: row['models']=[dict(id=m.get('id') or m.get('model'), name=m.get('displayName') or m.get('name') or m.get('id'), efforts=m.get('supportedReasoningEfforts') or [], default_effort=m.get('defaultReasoningEffort') or '') for m in models]
-                rows.append(row)
+        rows = [dict(module='agents', agent_id=a.id, name=a.name, description=a.description, kind='claude', needs_cwd=False)
+                for a in self.builtin.agents.agents() if a.as_subagent and ('agents',a.id)!=(caller['module'],caller['agent_id'])]
+        for a in more_agents.agents() if more_agents else []:
+            if not a['as_subagent'] or ('more_agents',a['id'])==(caller['module'],caller['agent_id']): continue
+            row = dict(module='more_agents', agent_id=a['id'], name=a['name'], description=a['description'], kind=a['kind'], needs_cwd=True)
+            models = more_agents.cached_models(a['id'])
+            if a['kind']=='codex' and models:
+                row['models'] = [dict(id=m['model'], name=m['displayName'], efforts=[e['reasoningEffort'] for e in m['supportedReasoningEfforts']], default_effort=m['defaultReasoningEffort']) for m in models]
+            rows.append(row)
         return rows
 
     def get(self, task_id, caller):
@@ -95,7 +94,7 @@ class Collab:
             raise ValueError('Agent is not available as a subagent')
         tid = 't_'+uuid4().hex[:12]
         parent = dict(module='agents', session_id=caller['session_id'], task_id=tid)
-        if args.module == 'agents' and args.cwd: raise ValueError('cwd is only valid for More Agents')
+        if args.module == 'agents' and 'cwd' in args.model_fields_set: raise ValueError('cwd is only valid for More Agents')
         if args.module == 'more_agents' and not args.cwd: raise ValueError('cwd is required for More Agents tasks')
         sid, future = await self.builtin.start(args.module, args.agent_id, args.prompt, title=args.title,
             origin='subagent', parent=parent, model=args.model, effort=args.effort, cwd=args.cwd or None)
@@ -137,7 +136,7 @@ class Collab:
             return self.view(row)
         async def listing(args): return self.listing(caller)
         return [mcp_tool('agents_list', 'List other agents available for collaboration.', Input, agents),
-                mcp_tool('task_create', 'Start a subagent task, optionally waiting for its result.', CreateTask, create),
+                mcp_tool('task_create', 'Start a subagent task, optionally waiting. More Agents requires cwd; Claude rejects cwd. Choose model and effort from agents_list.', CreateTask, create),
                 mcp_tool('task_status', 'Get a task started by this session and its last assistant text.', TaskId, status),
                 mcp_tool('task_send', 'Send a follow-up prompt to a task started by this session.', SendTask, send),
                 mcp_tool('task_stop', 'Interrupt a task started by this session.', TaskId, stop),

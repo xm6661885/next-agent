@@ -27,7 +27,7 @@ class FakeBridge:
                     is_error=bool(self.error), error=self.error)
 
     async def run_claude(self, *args, **kwargs): return await self.turn('agents', *args, **kwargs)
-    async def run_more(self, *args, **kwargs): return await self.turn('acp', *args, **kwargs)
+    async def run_more(self, *args, **kwargs): return await self.turn('more_agents', *args, **kwargs)
     async def stop(self, module, sid):
         self.stops.append((module, sid))
         self.sessions[sid]['state'] = 'idle'
@@ -46,10 +46,11 @@ async def until(predicate):
         while not predicate(): await asyncio.sleep(.01)
 
 
-@pytest.mark.parametrize('card,aid,module', [('temp_task', '_temp', 'agents'), ('agent_task', 'claude', 'agents'), ('acp_task', 'remote', 'acp')])
+@pytest.mark.parametrize('card,aid,module', [('temp_task', '_temp', 'agents'), ('agent_task', 'claude', 'agents'), ('more_agent_task', 'remote', 'more_agents')])
 def test_cards_continue_and_session_events(logged, bridge, card, aid, module):
     params = {'prompt': 'hello'}
     if card!='temp_task': params['agent'] = aid
+    if card=='more_agent_task': params.update(cwd='C:\\remote', model='chosen', effort='low')
     wid = make_wf(logged, [
         {'id': 'a', 'type': 'builtin.'+card, 'params': params},
         {'id': 'b', 'type': 'builtin.'+card, 'note': 'Follow up',
@@ -61,13 +62,15 @@ def test_cards_continue_and_session_events(logged, bridge, card, aid, module):
     assert len(bridge.sessions)==1 and len(bridge.calls)==2
     first, second = bridge.calls
     assert first[:3]==(module, aid, 'hello') and first[3]['origin']=='workflow'
-    name = {'temp_task': 'Temporary task', 'agent_task': 'Agent task', 'acp_task': 'ACP agent task'}[card]
+    name = {'temp_task': 'Temporary task', 'agent_task': 'Agent task', 'more_agent_task': 'More Agents agent task'}[card]
     assert first[3]['title']==f't: {name}' and second[3]['title']=='Follow up'
     assert first[3]['parent']=={'module': 'workflow', 'run_id': answer['run_id'], 'block_id': 'a'}
     assert second[3]['session_id']=='session-1'
     if module=='agents':
         assert first[3]['extra']=={} and all(v is None for v in first[3]['overrides'].values())
     if card=='temp_task': assert first[3]['cwd'] is None
+    if card=='more_agent_task':
+        assert first[3]['cwd']=='C:\\remote' and first[3]['model']=='chosen' and first[3]['effort']=='low'
     evs = events(logged, answer['run_id'])
     agent_events = [e for e in evs if e['type']=='agent_session']
     assert [e['block_id'] for e in agent_events]==['a', 'b']
@@ -108,22 +111,22 @@ def test_temp_overrides_extra_and_cwd(logged, app, bridge, tmp_path):
     assert kw['extra']['output_schema']==schema and kw['extra']['append_system_prompt']=='append'
 
 
-@pytest.mark.parametrize('card', ['temp_task', 'acp_task'])
+@pytest.mark.parametrize('card', ['temp_task', 'more_agent_task'])
 def test_bridge_error_fails_step(logged, bridge, card):
     bridge.error = 'Agent turn failed'
-    wid = make_wf(logged, [{'id': 'a', 'type': 'builtin.'+card, 'params': {'agent': 'remote', 'prompt': 'fail'}}])
+    wid = make_wf(logged, [{'id': 'a', 'type': 'builtin.'+card, 'params': {'agent': 'remote', 'prompt': 'fail', 'cwd': '.'}}])
     answer = run(logged, wid)
     assert answer['status']=='failed' and bridge.error in answer['error']
     assert any(e['type']=='step_failed' and bridge.error in e['data']['error'] for e in events(logged, answer['run_id']))
 
 
-@pytest.mark.parametrize('card,module', [('temp_task', 'agents'), ('acp_task', 'acp')])
+@pytest.mark.parametrize('card,module', [('temp_task', 'agents'), ('more_agent_task', 'more_agents')])
 def test_cancel_stops_session_before_result(logged, app, bridge, monkeypatch, card, module):
     bridge.block = True
     manager = app.state.core.modules['workflow']
     feed = []
     monkeypatch.setattr(app.state.core, 'emit', feed.append)
-    wid = make_wf(logged, [{'id': 'a', 'type': 'builtin.'+card, 'params': {'agent': 'remote', 'prompt': 'wait'}}])
+    wid = make_wf(logged, [{'id': 'a', 'type': 'builtin.'+card, 'params': {'agent': 'remote', 'prompt': 'wait', 'cwd': '.'}}])
     rid = logged.post(f'/api/workflow/workflows/{wid}/run', json={}).json()['run_id']
     logged.portal.call(until, lambda: bool(bridge.calls))
     logged.portal.call(manager.bus.flush_db)
@@ -169,16 +172,18 @@ async def test_bridge_callbacks_precede_turn(app, monkeypatch):
     result = await bridge.run_claude('_temp', 'hi', on_session=seen.append)
     assert result['session_id']==seen[0]
     seen.clear()
-    monkeypatch.setattr(acp, 'agent', lambda aid: None)
+    from server.more_agents.config import AcpAgent
+    monkeypatch.setattr(acp, 'agent', lambda aid: AcpAgent(id=aid, name='Remote', host='localhost', port=1))
+    monkeypatch.setattr(acp, 'prepare', lambda sid: None)
     future = asyncio.get_running_loop().create_future()
     def runtime(sid):
-        def enqueue(prompt):
+        def enqueue(prompt, **kwargs):
             assert seen==[sid]
             future.set_result({'session_id': sid})
             return future
         return SimpleNamespace(enqueue=enqueue)
     monkeypatch.setattr(acp, 'runtime', runtime)
-    result = await bridge.run_more('remote', 'hi', on_session=seen.append)
+    result = await bridge.run_more('remote', 'hi', cwd=str(app.state.paths.root), on_session=seen.append)
     assert result['session_id']==seen[0]
 
 

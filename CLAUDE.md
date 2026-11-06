@@ -1,9 +1,9 @@
 # next-agent: maintainer notes
 
-Web console with four modules (Chat, Agents incl. ACP, Workflow, More) plus a built-in MCP server. See README.md for usage and `docs/architecture.md` for the module map.
+Web console with four modules (Chat, Agents incl. More Agents, Workflow, More) plus a built-in MCP server. See README.md for usage and `docs/architecture.md` for the module map.
 
 ## Read first
-- `docs/protocol.md` (core + Claude agents), `protocol-acp.md`, `protocol-chat.md`, `protocol-workflow.md` and `builtin-mcp.md` are the contracts between `server/` and `web/`. Change both sides together and update the doc.
+- `docs/protocol.md` (core + Claude agents), `protocol-more-agents.md`, `protocol-chat.md`, `protocol-workflow.md` and `builtin-mcp.md` are the contracts between `server/` and `web/`. Change both sides together and update the doc.
 - Modules never import each other's internals. Cross-module work goes through `core.bridge` (`server/bridge.py`); Workflow cards, schedules and collab tools never start their own CLI.
 - `docs/sdk-notes.md` has the SDK facts. Section 9 was verified against the real CLI and wins over the earlier sections.
 - `docs/backend-spec.md` is the original backend design. The code is the source of truth now.
@@ -14,7 +14,7 @@ Web console with four modules (Chat, Agents incl. ACP, Workflow, More) plus a bu
 - `server/permissions.py`: `can_use_tool` creates a pending request and waits on a future with no timeout. It handles AskUserQuestion answers and ExitPlanMode.
 - `server/options.py`: Agent + session overrides become `ClaudeAgentOptions`. It always sets `extra_args["replay-user-messages"]` (steering confirmation needs it) and `allow-dangerously-skip-permissions` (so a session can switch to bypassPermissions later).
 - `server/extensions.py`: `ExtensionBus`, the hook point for future webhooks, notifications and agent groups. Events: `session_state`, `turn_result`, `permission_request`, `agent_changed`.
-- `server/acp/`, `server/chat/`, `server/workflow/`, `server/builtin/`: one package per module, each with `mount(app, core)` and its own `data/config/*.toml`.
+- `server/more_agents/`, `server/chat/`, `server/workflow/`, `server/builtin/`: one package per module, each with `mount(app, core)` and its own `data/config/*.toml`.
 - `web/src/modules/<module>/`: each module's pages and its own copy of the chat UI (`chat/`, with `conn.ts` resuming by `seq`). Never import chat components across modules. Shared primitives live in `web/src/components` and `web/src/lib`. Styles live in `web/src/styles/` and use the CSS variables in `base.css`.
 - Tab roots are listed in `isTabRoot` (`web/src/lib/router.ts`); the route wrapper adds `with-tabbar`, so pages must not add it again.
 

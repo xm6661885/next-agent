@@ -55,6 +55,9 @@ Cancelling the run calls `core.bridge.stop(module, sid)` for a running card.
 
 New plugin input types for the editor: `agent` (Claude agent id incl. `_temp`, options from `/api/agents`) and
 `more_agent` (options from `/api/more-agents/agents`).
+For `builtin.more_agent_task`, cwd is required unless session_id is supplied. ACP paths are remote and passed unchanged;
+Codex expands/resolves them locally and requires an existing directory. Model, effort and session_id are advanced inputs;
+effort choices are empty, low, medium, high, xhigh, max. Outputs are result and session_id.
 
 Other cards are unchanged from next-workflow (text, show, alert, ask_input, var_define, var_set, split_text,
 get_time, save_file, shell, run_workflow, stop_output; containers `core.if` / `core.repeat` / `core.repeat_each`).

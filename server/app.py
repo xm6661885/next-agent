@@ -435,18 +435,6 @@ def create_app(data_dir=None):
                 'sessions':[{'id':s['id'],'agent_id':s['agent_id'],'state':manager.view(s['id'])['state'],
                              'pending':manager.view(s['id'])['pending']} for s in index.sessions.values()],
                 'memory_mb':manager.memory_mb()}
-    @app.get('/api/running')
-    async def running(_:None=Depends(require)):
-        rows=[]
-        more=core.modules.get('more_agents')
-        if more: rows.extend(more.running())
-        for sid, runtime in manager.runtimes.items():
-            view=manager.view(sid)
-            if view['state'] in ('running','interrupting') or view['pending']:
-                rows.append(dict(module='agents',session_id=sid,agent_id=view['agent_id'],agent_name=manager.session_agent(view).name,
-                                 avatar=manager.session_agent(view).avatar,title=view['title'],state=view['state'],pending=view['pending'],
-                                 unread=view['unread'],updated_at=view['updated_at'],preview=view['preview'],cwd=view.get('cwd')))
-        return rows
     @app.get('/api/meta')
     async def meta(_:None=Depends(require)):
         return {'models':list(dict.fromkeys(MODELS+config.config.defaults.custom_models)),
@@ -496,13 +484,13 @@ def create_app(data_dir=None):
         def counts(name):
             fn=core.modules.get('overview_'+name)
             return fn() if fn else {}
-        acp_counts=counts('more_agents')
+        more_counts=counts('more_agents')
         return {'version':VERSION,
                 'files':[{'file':name,'path':str(obj.path),
                           'mtime':datetime.fromtimestamp(obj.path.stat().st_mtime,timezone.utc).isoformat()}
                          for name,obj in raw_configs.items()],
-                'modules':{'agents':{'agents':len(config.config.agents),'more_agents_agents':acp_counts.get('more_agents_agents',0),
-                                     'sessions':len(index.sessions)+acp_counts.get('sessions',0)},
+                'modules':{'agents':{'agents':len(config.config.agents),'more_agents_agents':more_counts.get('more_agents_agents',0),
+                                     'sessions':len(index.sessions)+more_counts.get('sessions',0)},
                            'chat':counts('chat'),'workflow':counts('workflow')}}
     @app.get('/api/memory')
     async def memory_list(_:None=Depends(require)): return await asyncio.to_thread(memory.listing)

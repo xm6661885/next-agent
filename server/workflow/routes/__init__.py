@@ -28,7 +28,7 @@ def router(core, manager):
         sessions = []
         agents, more_agents = core.modules.get('agents'), core.modules.get('more_agents')
         for module, entries in (('agents', agents.sessions() if agents else []),
-                                ('more_agents', list(more_agents.store.sessions.values()) if more_agents else [])):
+                                ('more_agents', list(more_agents.sessions()) if more_agents else [])):
             for session in entries:
                 if session.get('origin')!='workflow': continue
                 view = core.bridge.view(module, session['id'])

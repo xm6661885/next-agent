@@ -48,10 +48,16 @@ async def wait_claude(session_id) -> dict       # wait for the current/next turn
 async def run_more(agent_id, prompt, *, cwd, session_id=None, title='', origin='workflow', parent=None, model='', effort='') -> dict
     # -> {session_id, text, stop_reason, is_error, error}
 def start_more(...) -> str
+async def wait_more(session_id) -> dict
 async def send(module, session_id, prompt)      # module 'agents' | 'more_agents'; like typing in the chat
 async def stop(module, session_id)              # interrupt
-def view(module, session_id) -> dict            # Session / AcpSession
+def view(module, session_id) -> dict            # Session / More Agents session
 def items(module, session_id) -> list           # transcript items (Claude: history + live)
 ```
+More Agents kinds live under `server/more_agents/kinds/`; the shared runtime owns queues, result futures, prompts and persistence.
+ACP retains its TCP transport; Codex owns one supervised stdio process per agent and routes by threadId.
+Session cwd is fixed, and new bridge calls must supply it. REST creation and WS attachment preload connections.
+The module stores Codex model caches under `data/more_agents/models/`.
+
 `text` is `ResultMessage.result` when non-empty, else the top-level `text` items produced in that turn joined by
 blank lines. `is_error` is true on a failed result, a CLI connection failure or a disconnect.

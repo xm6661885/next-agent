@@ -1,6 +1,6 @@
 """More Agents module: ACP endpoints and native Codex app-server agents."""
 from .config import config_file
-from .runtime import MoreAgentsManager
+from .manager import MoreAgentsManager
 from .store import MoreAgentsStore
 from .routes import router
 

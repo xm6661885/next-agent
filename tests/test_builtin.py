@@ -44,13 +44,11 @@ class FakeBridge:
 
     async def wait_claude(self, sid): return await asyncio.shield(self.results[sid])
 
-    async def wait_more(self, sid): return await asyncio.shield(self.results[sid])
+    async def wait_more(self, sid): return await self.acp.wait_turn(sid)
 
     def start_more(self, aid, prompt, **kwargs):
         self.calls.append(('more_agents', aid, prompt, kwargs))
-        sid=self.acp.start_turn(aid, prompt, **kwargs)
-        self.begin(sid, prompt)
-        return sid
+        return self.acp.start_turn(aid, prompt, **kwargs)
 
     def view(self, module, sid):
         if module=='more_agents': return self.acp.view(sid)
@@ -265,10 +263,10 @@ async def test_scheduler_slow_start_and_failed_acp_setup(builtin, monkeypatch):
     gate.set()
     await until(lambda: len(b.bridge.calls)==2)
     for sid in list(b.bridge.results): b.bridge.finish(sid)
-    task = await call(tools_for(b), 'task_create', dict(module='more_agents', agent_id='phone', prompt='Unavailable', model='large', cwd=str(b.app.state.paths.root)))
-    assert task['state'] == 'offline'
+    task = await call(tools_for(b), 'task_create', dict(module='more_agents', agent_id='phone', prompt='Unavailable', wait=True, model='large', cwd=str(b.app.state.paths.root)))
+    assert task['state'] == 'offline' and task['result']['is_error']
     acp = b.core.modules['more_agents']
-    assert all(r.state=='offline' and r.client is None for r in acp.runtimes.values())
+    assert all(r.state=='offline' and r.adapter.client is None for r in acp.runtimes.values())
 
 
 async def test_history_is_scoped_paged_and_flattened(builtin, monkeypatch, tmp_path):
@@ -425,3 +423,27 @@ def test_builtin_config_and_agent_fields(logged, app):
         assert logged.patch('/api/agents/'+aid, json={'builtin_mcp': {'history': 'yes'}}).status_code==422
     app.state.config.load()
     assert app.state.config.config.temp_agent.as_subagent
+
+
+async def test_more_agents_cwd_rules_and_discovery(builtin,monkeypatch):
+    from server.more_agents.config import CodexAgent
+    b=builtin
+    more=b.core.modules['more_agents']
+    more.config.data.agents.append(CodexAgent(id='native',name='Native',as_subagent=True))
+    monkeypatch.setattr(more,'cached_models',lambda aid: [dict(model='fake',displayName='Fake',supportedReasoningEfforts=[dict(reasoningEffort='low',description='Low')],defaultReasoningEffort='low')] if aid=='native' else [])
+    tools=tools_for(b)
+    rows=await call(tools,'agents_list')
+    assert next(r for r in rows if r['agent_id']=='worker')['needs_cwd'] is False
+    assert next(r for r in rows if r['agent_id']=='phone')['kind']=='acp'
+    native=next(r for r in rows if r['agent_id']=='native')
+    assert native['kind']=='codex' and native['needs_cwd']
+    assert native['models']==[dict(id='fake',name='Fake',efforts=['low'],default_effort='low')]
+    error=await call(tools,'task_create',dict(module='more_agents',agent_id='phone',prompt='x'),error=True)
+    assert 'cwd is required' in error['error']
+    error=await call(tools,'task_create',dict(module='agents',agent_id='worker',prompt='x',cwd='/'),error=True)
+    assert 'only valid for More Agents' in error['error']
+    with pytest.raises(ValueError,match='cwd is required'):
+        b.schedules.create(dict(prompt='x',cron='* * * * *',target=dict(module='more_agents',agent_id='phone',session='new')))
+    schedule=b.schedules.create(dict(prompt='x',cron='* * * * *',target=dict(module='more_agents',agent_id='phone',session='new',cwd='C:\\remote')))
+    assert schedule['target']['cwd']=='C:\\remote'
+    assert b.schedules.path==b.app.state.paths.root/'builtin'/'schedules.json'

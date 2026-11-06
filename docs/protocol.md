@@ -266,7 +266,7 @@ when it changes on disk. Comments are kept on every write.
 |---|---|---|
 | `core.toml` | core | `[server]`: `host`, `port`, `password_hash`, `api_key` (external API), and the Claude CLI setup shared by Agents and Workflow: `cli_path`, `max_concurrent`, `anthropic_base_url`, `anthropic_api_key` |
 | `agents.toml` | Agents (Claude) | `groups`, `[defaults]`, `[pricing]`, `[builtin_mcp]`, `[[agents]]`, `[temp_agent]`, `[extensions]` |
-| `more_agents.toml` | More Agents | see `docs/protocol-acp.md` |
+| `more_agents.toml` | More Agents | see `docs/protocol-more-agents.md` |
 | `chat.toml` | Chat | see `docs/protocol-chat.md` |
 | `workflow.toml` | Workflow | see `docs/protocol-workflow.md` |
 

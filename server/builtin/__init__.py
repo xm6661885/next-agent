@@ -74,7 +74,8 @@ class Builtin:
         return {'next': create_sdk_mcp_server('next', tools=tools)}
 
     def agent(self, module, aid):
-        agents = self.agents.agents() if module=='agents' else self.core.modules['more_agents'].config.data.agents
+        if module == 'more_agents': return self.core.modules['more_agents'].agent(aid)
+        agents = self.agents.agents()
         agent = next((a for a in agents if a.id==aid), None)
         if agent is None: raise ValueError('Target agent not found')
         return agent
@@ -82,7 +83,7 @@ class Builtin:
     def sessions(self, module):
         if module=='agents': return self.agents.sessions()
         more_agents = self.core.modules.get('more_agents')
-        return list(more_agents.store.sessions.values()) if more_agents else []
+        return more_agents.sessions() if more_agents else []
 
     def target(self, module, aid, sid=None):
         self.agent(module, aid)
@@ -104,14 +105,8 @@ class Builtin:
                                                 session_id=session_id, title=title, origin=origin, parent=parent)
             return sid, self.background(self.core.bridge.wait_claude(sid))
         if session_id is None and not cwd: raise ValueError('cwd is required for a new More Agents session')
-        more = self.core.modules['more_agents']
-        if session_id is None:
-            created = more.create_session(aid, title, origin, parent, cwd=cwd)
-            session_id = created['id']
-        await more.prepare(session_id)
-        sid = self.core.bridge.start_more(aid, prompt, cwd=cwd or self.core.bridge.view(module, session_id)['cwd'],
-                                          session_id=session_id, title=title, origin=origin, parent=parent,
-                                          model=model, effort=effort)
+        sid = self.core.bridge.start_more(aid, prompt, cwd=cwd, session_id=session_id, title=title, origin=origin,
+                                          parent=parent, model=model, effort=effort)
         return sid, self.background(self.core.bridge.wait_more(sid))
 
     async def send(self, module, sid, prompt):

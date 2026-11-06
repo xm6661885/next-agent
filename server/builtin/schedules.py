@@ -188,6 +188,6 @@ class Schedules:
             return [s for s in self.entries.values() if s['created_by'] and
                     (s['created_by']['module'], s['created_by']['agent_id'])==(caller['module'], caller['agent_id'])]
         async def delete(args): return self.delete(args.id, caller)
-        return [mcp_tool('schedule_create', 'Schedule a prompt using exactly one of cron (five fields) or at (local datetime).', Create, create),
+        return [mcp_tool('schedule_create', 'Schedule a prompt using exactly one of cron (five fields) or at (local datetime). New More Agents sessions require target.cwd; model and effort are optional.', Create, create),
                 mcp_tool('schedule_list', 'List schedules created by this agent.', Input, listing),
                 mcp_tool('schedule_delete', 'Delete a schedule created by this agent.', ScheduleId, delete)]

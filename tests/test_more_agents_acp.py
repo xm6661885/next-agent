@@ -13,14 +13,14 @@ from starlette.websockets import WebSocketDisconnect
 from server.more_agents import mount
 from server.more_agents.kinds.acp.client import AcpConnection, AcpError, LINE_LIMIT
 from server.more_agents.config import config_file
-from server.more_agents.runtime import MoreAgentsManager
+from server.more_agents.manager import MoreAgentsManager
 from server.more_agents.store import MoreAgentsStore
 from server.auth import Auth, COOKIE
 from server.core import Core
 from server.paths import DataDir
 
 
-OPTIONS = [{'id': 'model', 'name': 'Model', 'type': 'select', 'currentValue': 'small',
+OPTIONS = [{'id': 'model', 'name': 'Model', 'category': 'model', 'type': 'select', 'currentValue': 'small',
             'options': [{'value': 'small', 'name': 'Small'}, {'value': 'large', 'name': 'Large'}]}]
 MODES = {'currentModeId': 'ask', 'availableModes': [{'id': 'ask', 'name': 'Ask'}, {'id': 'auto', 'name': 'Auto'}]}
 
@@ -205,7 +205,7 @@ async def acp(tmp_path):
     peer = Peer()
     await peer.start()
     manager = core.modules['more_agents']
-    await manager.create_agent({'id': 'phone', 'name': 'Phone', 'host': '127.0.0.1', 'port': peer.port, 'token': 'secret', 'config_defaults': {'model': 'large'}})
+    await manager.create_agent({'kind': 'acp', 'id': 'phone', 'name': 'Phone', 'host': '127.0.0.1', 'port': peer.port, 'token': 'secret', 'config_defaults': {'model': 'large'}})
     await core.start()
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://testserver', cookies={COOKIE: core.auth.token()}) as client:
         yield SimpleNamespace(app=app, core=core, manager=manager, peer=peer, http=client, events=events)
@@ -221,9 +221,9 @@ async def until(predicate):
 
 async def test_turn_mapping_persistence_and_restart(acp):
     m = acp.manager
-    result = await asyncio.wait_for(m.run_turn('phone', 'first'), 3)
+    result = await asyncio.wait_for(m.run_turn('phone', 'first', cwd='/'), 3)
     sid = result['session_id']
-    assert result=={'session_id': sid, 'text': 'Hello firstDone', 'stop_reason': 'end_turn'}
+    assert result=={'session_id': sid, 'text': 'Hello firstDone', 'stop_reason': 'end_turn', 'is_error': False, 'error': None}
     session = m.view(sid)
     assert (session['title'], session['preview'], session['turns'], session['unread'], session['state'])==('first', 'Done', 1, True, 'idle')
     items = m.items(sid)
@@ -255,7 +255,7 @@ async def test_turn_mapping_persistence_and_restart(acp):
 
 async def test_load_replay_missing_session_and_titles(acp):
     m = acp.manager
-    sid = (await m.run_turn('phone', 'original'))['session_id']
+    sid = (await m.run_turn('phone', 'original', cwd='/'))['session_id']
     remote = m.view(sid)['remote_id']
     await m.sleep(sid)
     await m.run_turn('phone', 'title', session_id=sid)
@@ -291,7 +291,7 @@ async def test_connect_and_fresh_reconnect(acp):
 
 async def test_permission_queue_cancel_and_interrupt(acp):
     m = acp.manager
-    sid = m.start_turn('phone', 'permission')
+    sid = m.start_turn('phone', 'permission', cwd='/')
     runtime = m.runtime(sid)
     await until(lambda: runtime.permissions)
     assert m.view(sid)['origin']=='subagent' and m.agents()[0]['status']['pending']==1
@@ -321,7 +321,7 @@ async def test_permission_queue_cancel_and_interrupt(acp):
 
 async def test_disconnect_rpc_error_and_shutdown(acp):
     m = acp.manager
-    result = await m.run_turn('phone', 'disconnect')
+    result = await m.run_turn('phone', 'disconnect', cwd='/')
     sid = result['session_id']
     assert result['stop_reason']=='disconnected' and result['text']=='partial' and result['is_error']
     assert m.view(sid)['state']=='offline'
@@ -348,7 +348,7 @@ async def test_rest_config_sessions_uploads_and_auth(acp):
     assert (await c.patch('/api/more-agents/agents/phone', json={'token': None, 'name': 'New name'})).status_code==200
     assert m.agent('phone').token=='secret'
     assert (await c.patch('/api/more-agents/agents/phone', json={'token': ''})).json()['token']==''
-    assert (await c.post('/api/more-agents/agents', json={'name': 'Phone', 'host': 'localhost', 'port': 1})).status_code==409
+    assert (await c.post('/api/more-agents/agents', json={'kind': 'acp', 'name': 'Phone', 'host': 'localhost', 'port': 1})).status_code==409
     for body in ({'id': '../bad', 'name': 'Bad', 'host': 'x', 'port': 1}, {'name': 'Bad', 'host': 'x', 'port': 0}, {'name': 'Bad', 'host': 'x', 'port': 1, 'token': 'x\ny'}):
         assert (await c.post('/api/more-agents/agents', json=body)).status_code==422
     assert (await c.patch('/api/more-agents/agents/phone', json={'id': 'new'})).status_code==400
@@ -382,7 +382,8 @@ async def test_rest_config_sessions_uploads_and_auth(acp):
     prompt = [r['params']['prompt'] for r in acp.peer.requests if r['method']=='session/prompt'][-1]
     assert [b['type'] for b in prompt]==['text', 'resource', 'image']
     assert prompt[1]['resource']['text']=='file text' and prompt[2]['data']=='aW1hZ2U='
-    fallback = m.store.prompt('', uploads, {})
+    from server.more_agents.kinds.acp.encode import prompt as encode_prompt
+    fallback = encode_prompt('', uploads, {})
     assert [b['text'] for b in fallback]==['The user sent a file: note.txt', 'The user sent a file: pic.png']
     assert (await c.post(f'/api/more-agents/sessions/{sid}/read')).json()['unread'] is False
     assert (await c.patch(f'/api/more-agents/sessions/{sid}', json={'title': 'Changed'})).json()['title']=='Changed'
@@ -423,7 +424,7 @@ def test_websocket_resume_permissions_and_disconnect(tmp_path):
                 with c.websocket_connect('/ws/more-agents/missing', headers={'origin': 'http://testserver'}) as ws: ws.receive_json()
             assert exc.value.code==4401
             c.cookies.set(COOKIE, core.auth.token())
-            c.post('/api/more-agents/agents', json={'id': 'phone', 'name': 'Phone', 'host': '127.0.0.1', 'port': peer.port, 'token': 'secret'})
+            c.post('/api/more-agents/agents', json={'kind': 'acp', 'id': 'phone', 'name': 'Phone', 'host': '127.0.0.1', 'port': peer.port, 'token': 'secret'})
             sid = c.post('/api/more-agents/agents/phone/sessions', json={}).json()['id']
             path = f'/ws/more-agents/{sid}'
             with pytest.raises(WebSocketDisconnect) as exc:
@@ -535,9 +536,9 @@ async def test_offline_config_connect_and_idle_reaper(acp, monkeypatch):
     await runtime.submit('set_config', {'config_id': 'model', 'value': 'large'})
     assert runtime.state=='idle' and m.view(sid)['turns']==0
     assert m.view(sid)['config_options'][0]['currentValue']=='large'
-    await asyncio.sleep(.05)
+    await m.prepare(sid)
     runtime.last_activity = time.monotonic()-1000
-    import server.more_agents.runtime as module
+    import server.more_agents.manager as module
     original = asyncio.sleep
     async def tick(seconds): await original(.005)
     monkeypatch.setattr(module, 'asyncio', SimpleNamespace(**{**vars(asyncio), 'sleep': tick}))
@@ -560,3 +561,19 @@ async def test_malformed_peer_response_fails_pending_request(acp):
             await asyncio.wait_for(connection.request('malformed-error', {}), 2)
         assert connection.closed.done() and not connection.pending
     finally: await connection.close()
+
+
+async def test_session_cwd_is_fixed_and_launch_choices_use_categories(acp):
+    m=acp.manager
+    sid=m.create_session('phone',cwd='C:\\remote\\project')['id']
+    await m.prepare(sid)
+    assert next(r for r in acp.peer.requests if r['method']=='session/new')['params']['cwd']=='C:\\remote\\project'
+    await m.patch_agent('phone',dict(cwd='/changed-default'))
+    await m.sleep(sid)
+    await m.run_turn('phone','settings',session_id=sid,model='small',effort='high')
+    assert next(r for r in acp.peer.requests if r['method']=='session/load')['params']['cwd']=='C:\\remote\\project'
+    choices=[r['params'] for r in acp.peer.requests if r['method']=='session/set_config_option']
+    assert choices[-1]['configId']=='model' and choices[-1]['value']=='small'
+    assert all(c['configId']!='effort' for c in choices)
+    assert m.view(sid)['cwd']=='C:\\remote\\project'
+    with pytest.raises(HTTPException): m.create_session('phone',cwd=' ')

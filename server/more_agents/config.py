@@ -69,8 +69,6 @@ class MoreAgentsConfig(BaseModel):
         if any(a.group and a.group not in self.groups for a in self.agents): raise ValueError('Unknown group')
         return self
 
-# Routes use this name for the common server settings shape.
-AcpServer = MoreAgentsServer
 
 def config_file(core):
     directory = getattr(core.paths, 'config_dir', core.paths.root / 'config')

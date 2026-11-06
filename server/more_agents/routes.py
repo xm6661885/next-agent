@@ -1,4 +1,4 @@
-"""Authenticated ACP HTTP and WebSocket endpoints."""
+"""Authenticated More Agents HTTP and WebSocket endpoints."""
 import asyncio
 from contextlib import suppress
 from typing import Literal
@@ -6,9 +6,8 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, 
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, ValidationError
 from ..paths import atomic_write
-from .kinds.acp.client import AcpConnection
 from .store import page
-from .config import MoreAgentsServer as AcpServer
+from .config import MoreAgentsServer
 
 
 class Title(BaseModel):
@@ -46,7 +45,7 @@ async def session_socket(ws, sid, core, manager):
         await ws.close(code=4404)
         return
     runtime = manager.runtime(sid)
-    await manager.prepare(sid)
+    manager.prepare(sid)
     queue = asyncio.Queue(maxsize=1000)
     runtime.subscribers.add(queue)
     runtime.viewers += 1
@@ -162,7 +161,7 @@ def router(core, manager):
     async def settings(): return manager.config.data.server.model_dump()
 
     @api.patch('/api/more-agents/settings')
-    async def set_settings(body: AcpServer):
+    async def set_settings(body: MoreAgentsServer):
         if 'server' not in manager.config.doc: manager.config.doc['server'] = {}
         manager.config.doc['server']['idle_timeout_min'] = body.idle_timeout_min
         manager.config.save()
@@ -170,10 +169,7 @@ def router(core, manager):
 
     @api.get('/api/more-agents/agents/{aid}/models')
     async def models(aid: str):
-        agent = manager.agent(aid)
-        if agent.kind == 'codex' and not manager.models(aid):
-            await manager.process_for(agent)
-        return manager.models(aid)
+        return await manager.models(aid)
 
     @api.get('/api/more-agents/agents/{aid}')
     async def agent(aid: str): return manager.agent_view(manager.agent(aid))
@@ -207,23 +203,7 @@ def router(core, manager):
 
     @api.post('/api/more-agents/agents/{aid}/test')
     async def test_agent(aid: str):
-        agent = manager.agent(aid)
-        if agent.kind == 'codex':
-            try:
-                process = await manager.process_for(agent)
-                return {'ok': True, 'info': None, 'models': manager.models(aid), 'config_options': []}
-            except Exception as exc:
-                return {'ok': False, 'info': None, 'models': [], 'config_options': [], 'error': str(exc)}
-        connection = AcpConnection()
-        try:
-            async with asyncio.timeout(10):
-                await connection.open(agent.host, agent.port, agent.token)
-                await connection.initialize(core.version); manager.info[aid] = connection.info; manager.changed_event()
-                result = await connection.request('session/new', {'cwd': agent.cwd, 'mcpServers': []})
-                return {'ok': True, 'info': connection.info, 'config_options': result.get('configOptions', [])}
-        except Exception as exc:
-            return {'ok': False, 'info': connection.info, 'config_options': [], 'error': str(exc) or 'Connection test timed out'}
-        finally: await connection.close()
+        return await manager.test(aid)
 
     @api.get('/api/more-agents/agents/{aid}/sessions')
     async def sessions(aid: str):

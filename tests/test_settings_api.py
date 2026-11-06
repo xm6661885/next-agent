@@ -38,7 +38,7 @@ def test_raw_module_registry_available_at_mount(tmp_path,monkeypatch):
         assert app.state.raw_configs is core.modules['raw_configs']
         mounted.append(set(core.modules['raw_configs']))
         assert core.bridge is not None
-    monkeypatch.setattr(server.app.acp,'mount',mount)
+    monkeypatch.setattr(server.app.more_agents,'mount',mount)
     server.app.create_app(tmp_path)
     assert mounted==[{'core','agents'}]
 

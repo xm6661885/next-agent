@@ -1,3 +1,1 @@
-from .process import CodexProcess, CodexRpcError
-from .adapter import CodexRuntime
-CodexAdapter = CodexRuntime
+"""Native Codex app-server kind."""

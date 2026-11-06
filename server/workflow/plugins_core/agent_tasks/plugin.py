@@ -61,7 +61,7 @@ class AgentCard(Plugin):
                 kwargs['cwd'] = ctx.resolve_cwd(p['cwd']) if p['cwd'].strip() else None
         if self.module == 'more_agents':
             if not p.get('session_id') and not p.get('cwd', '').strip(): raise StepError('cwd is required for a new More Agents session')
-            kwargs.update(cwd=ctx.resolve_cwd(p['cwd']) if p.get('cwd', '').strip() else '', model=p.get('model', ''), effort=p.get('effort', ''))
+            kwargs.update(cwd=p.get('cwd', ''), model=p.get('model', ''), effort=p.get('effort', ''))
         try:
             call = ctx.bridge.run_more if self.module=='more_agents' else ctx.bridge.run_claude
             result = await call(aid, p['prompt'], **kwargs)
