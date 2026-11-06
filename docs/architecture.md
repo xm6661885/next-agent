@@ -12,6 +12,8 @@ is the core (auth, paths, TOML store helpers, global event feed) and a few narro
 | Built-in MCP | `server/builtin/` | settings pages + tool cards in the Claude chat | `data/config/agents.toml` (`builtin_mcp`) | `data/schedules.json` |
 | Chat | `server/chat/` | `web/src/modules/chat` | `data/config/chat.toml` | `data/chat/` |
 | Workflow | `server/workflow/` | `web/src/modules/workflow` | `data/config/workflow.toml` | `data/workflow/` |
+| Speech to text | `server/asr/` | More tab | `data/config/asr.toml` | `data/asr/` |
+| Image generation | `server/imagegen/` | More tab | `data/config/imagegen.toml` | `data/imagegen/` |
 | Settings / More | `/api/settings/*` in `server/app.py` | `web/src/modules/settings`, `web/src/modules/more` | all of the above | |
 
 ## Shared Claude CLI
