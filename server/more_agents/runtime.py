@@ -411,7 +411,7 @@ class MoreAgentsManager:
     def view(self, sid):
         runtime = self.runtimes.get(sid)
         session=self.session(sid)
-        return {**session, 'kind': session.get('kind', getattr(self.agent(session['agent_id']), 'kind', 'acp')), 'state': runtime.state if runtime else 'offline', 'pending': len(runtime.permissions) if runtime else 0, 'config_options': session.get('config_options', []), 'modes': session.get('modes'), 'commands': session.get('commands', []), 'usage': session.get('usage'), 'context': session.get('context')}
+        return {**session, 'kind': session.get('kind', getattr(self.agent(session['agent_id']), 'kind', 'acp')), 'state': runtime.state if runtime else 'offline', 'pending': (len(runtime.permissions) + len(getattr(runtime, 'questions', {}))) if runtime else 0, 'config_options': session.get('config_options', []), 'modes': session.get('modes'), 'commands': session.get('commands', []), 'usage': session.get('usage'), 'context': session.get('context')}
 
     def items(self, sid):
         self.session(sid)
