@@ -141,6 +141,9 @@ export interface Attachment {
   path: string
   url: string
   is_image: boolean
+  is_text?: boolean
+  chars?: number
+  lines?: number
 }
 
 interface ItemBase {

@@ -7,11 +7,13 @@ import { toast, toastError } from '../../../lib/store'
 import { back, navigate, parentOf, route } from '../../../lib/router'
 import { Avatar, Spark } from '../../../components/crab'
 import { BackButton, Sheet, Switch, TopBar, confirmDialog, promptDialog } from '../../../components/ui'
-import { IconBrain, IconChevronDown, IconCopy, IconMore, IconEdit, IconSelect, IconNewChat, IconPlug, IconRefresh, IconTrash, IconClose } from '../../../components/icons'
+import { IconBrain, IconChevronDown, IconCopy, IconMore, IconEdit, IconSelect, IconNewChat, IconPlug, IconRefresh, IconTrash, IconClose, IconFile } from '../../../components/icons'
 import { openViewer } from '../../../components/ImageViewer'
-import { copyText, fmtDuration, fmtTokens, haptic, uid } from '../../../lib/util'
+import { copyText, fmtBytes, fmtDuration, fmtTokens, haptic, uid } from '../../../lib/util'
 import type { Attachment, Item, TextItem, UserItem as BaseUser } from '../../../lib/types'
 import { EFFORTS, chatApi, modelLabel, type Assistant, type ChatMeta, type Effort } from '../api'
+import { useAssistantFlags } from '../flags'
+import { TextViewer } from '../TextViewer'
 import { ChatConn } from './conn'
 import { Composer } from './Composer'
 import { ToolCard } from './tools'
@@ -33,6 +35,8 @@ export function LlmChat({ assistantId, sessionId }: { assistantId: string; sessi
   const [asst, setAsst] = useState<Assistant | null>(null)
   const [meta, setMeta] = useState<ChatMeta | null>(null)
   const [sheet, setSheet] = useState<SheetKind>(null)
+  const flags = useAssistantFlags(assistantId)
+  const [viewFile, setViewFile] = useState<{ name: string; url: string } | null>(null)
   const [editing, setEditing] = useState<UserItem | null>(null)
   const [msgMenu, setMsgMenu] = useState<UserItem | null>(null)
   const [selectText, setSelectText] = useState<string | null>(null)
@@ -239,7 +243,7 @@ export function LlmChat({ assistantId, sessionId }: { assistantId: string; sessi
               return (
                 <div key={u.id} class="turn turn-user">
                   <MsgHead right avatar={<UserAvatar p={me} size={26} />} name={me.name} ts={u.ts} />
-                  <UserBubble it={u} onMenu={setMsgMenu} />
+                  <UserBubble it={u} onMenu={setMsgMenu} onFile={setViewFile} />
                   {!u.pending && <div class="msg-actions right">
                     <Versions v={u.version} disabled={busy} onSwitch={(i) => switchTo(`u:${u.group || u.id}`, i)} />
                     {u.text && <CopyAct text={u.text} />}
@@ -281,8 +285,10 @@ export function LlmChat({ assistantId, sessionId }: { assistantId: string; sessi
         <Composer sid={sessionId} busy={busy} model={modelLabel(model)} effort={effort} mcpOn={servers.length ? mcpOn.length : null}
           onSend={send} onStop={() => conn.send({ type: 'stop' })}
           onOpenModel={() => setSheet('model')} onOpenEffort={() => setSheet('effort')} onOpenMcp={() => setSheet('mcp')}
-          disabled={status === 'closed'} fill={fill.n ? fill : undefined} />
+          files={flags.files} disabled={status === 'closed'} fill={fill.n ? fill : undefined} />
       </div>
+
+      <TextViewer open={!!viewFile} onClose={() => setViewFile(null)} name={viewFile?.name || ''} url={viewFile?.url || ''} />
 
       <Sheet open={sheet === 'model'} onClose={() => setSheet(null)} title="Model">
         <div class="menu">
@@ -380,8 +386,9 @@ const ItemView = memo(function ItemView({ it, onImage }: { it: Item; onImage: (e
   return null
 })
 
-function UserBubble({ it, onMenu }: { it: UserItem; onMenu: (u: UserItem) => void }) {
+function UserBubble({ it, onMenu, onFile }: { it: UserItem; onMenu: (u: UserItem) => void; onFile: (f: { name: string; url: string }) => void }) {
   const images = it.attachments?.filter((a) => a.is_image) || []
+  const texts = it.attachments?.filter((a) => !a.is_image) || []
   const press = useRef<{ timer?: number; x: number; y: number }>({ x: 0, y: 0 })
   const startPress = (e: TouchEvent) => {
     const t = e.touches[0]
@@ -399,6 +406,16 @@ function UserBubble({ it, onMenu }: { it: UserItem; onMenu: (u: UserItem) => voi
           {images.map((a, i) => (
             <button type="button" key={a.id || a.url} class="msg-img press" aria-label={`View ${a.name}`}
               onClick={() => openViewer(images.map((x) => ({ src: x.url, name: x.name })), i)}><img src={a.url} alt={a.name} loading="lazy" /></button>
+          ))}
+        </div>
+      )}
+      {texts.length > 0 && (
+        <div class="msg-files">
+          {texts.map((a) => (
+            <button type="button" key={a.id || a.url} class="file-chip press" aria-label={`Open ${a.name}`} onClick={() => onFile({ name: a.name, url: a.url })}>
+              <span class="att-icon"><IconFile width={18} height={18} /></span>
+              <span class="att-meta"><span class="att-name">{a.name}</span><span class="att-size">{fmtBytes(a.size)}</span></span>
+            </button>
           ))}
         </div>
       )}

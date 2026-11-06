@@ -1,13 +1,13 @@
 // Every settings section (the leaf pages), each owned by a module from modules.ts. Add a module's pages here; nothing else in settings needs to change.
 
 import type { JSX } from 'preact'
-import { IconAgents, IconBolt, IconChat, IconCode, IconGlobe, IconLayers, IconLock, IconSettings, IconTerminal, IconTool } from '../../components/icons'
+import { IconFile, IconPencilLine, IconAgents, IconBolt, IconChat, IconCode, IconGlobe, IconLayers, IconLock, IconSettings, IconTerminal, IconTool } from '../../components/icons'
 import { ClaudeCliSettings } from '../agents/settings/ClaudeCli'
 import { DefaultsSettings } from '../agents/settings/Defaults'
 import { ModelsSettings } from '../agents/settings/Models'
 import { BuiltinMcpSettings } from '../agents/settings/BuiltinMcp'
 import { AcpSettings } from '../acp/Settings'
-import { ChatProviders, ChatDefaults, ChatMcp } from '../chat/settings'
+import { ChatProviders, ChatDefaults, ChatTitles, ChatFiles, ChatMcp } from '../chat/settings'
 import { WorkflowSettings } from '../workflow/settings'
 import { GeneralSettings, RawFiles } from './General'
 import { MODULES, type Icon } from './modules'
@@ -18,6 +18,8 @@ export interface Section { key: string; module: string; title: string; hint: str
 export const SECTIONS: Section[] = [
   { key: 'chat-providers', module: 'chat', title: 'Model providers', hint: 'OpenAI and Anthropic format APIs and their models', icon: IconGlobe, Component: ChatProviders },
   { key: 'chat-defaults', module: 'chat', title: 'Chat defaults', hint: 'Default model, thinking, system prompt', icon: IconChat, Component: ChatDefaults },
+  { key: 'chat-titles', module: 'chat', title: 'Titles', hint: 'Generate chat titles with a model', icon: IconPencilLine, Component: ChatTitles },
+  { key: 'chat-files', module: 'chat', title: 'Files and memory', hint: 'Assistant files, attachments and memory', icon: IconFile, Component: ChatFiles },
   { key: 'chat-mcp', module: 'chat', title: 'MCP servers', hint: 'Tools available to chat assistants', icon: IconTool, Component: ChatMcp },
   { key: 'claude-cli', module: 'agents', title: 'Claude Code CLI', hint: 'CLI path, API, concurrency. Shared with Workflow', icon: IconTerminal, Component: ClaudeCliSettings },
   { key: 'agent-defaults', module: 'agents', title: 'Agent defaults', hint: 'Model, permissions, prompts, sleep', icon: IconAgents, Component: DefaultsSettings },

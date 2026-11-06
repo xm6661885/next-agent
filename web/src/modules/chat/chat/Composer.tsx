@@ -2,7 +2,7 @@
 // One reply at a time: while the model answers, the send button becomes stop.
 
 import { useEffect, useRef, useState } from 'preact/hooks'
-import { chatApi } from '../api'
+import { chatApi, TEXT_ACCEPT } from '../api'
 import { toastError } from '../../../lib/store'
 import type { Attachment } from '../../../lib/types'
 import { IconBrain, IconCamera, IconFile, IconImage, IconPaperclip, IconPlug, IconSend, IconStop } from '../../../components/icons'
@@ -11,9 +11,12 @@ import { CropSheet } from '../../../components/CropSheet'
 import { fmtBytes, haptic, uid } from '../../../lib/util'
 import { IconChevronDown } from '../../../components/icons'
 
+const TEXT_EXT = /\.(txt|md|csv|json|ya?ml|toml|py|[jt]sx?|html?|css|log|sql|sh|xml|ini|conf|c|h|cpp|go|rs|java)$/i
+const isTextFile = (f: File) => f.type.startsWith('text/') || /json|xml|yaml|toml|javascript|x-sh/.test(f.type) || TEXT_EXT.test(f.name)
+
 interface Pending { key: string; file: File; progress: number; att?: Attachment; error?: string; preview?: string }
 
-export function Composer({ sid, busy, model, effort, mcpOn, onSend, onStop, onOpenModel, onOpenEffort, onOpenMcp, disabled, fill }: {
+export function Composer({ sid, busy, model, effort, mcpOn, onSend, onStop, onOpenModel, onOpenEffort, onOpenMcp, disabled, fill, files: filesEnabled }: {
   sid: string
   busy: boolean
   model: string
@@ -26,6 +29,8 @@ export function Composer({ sid, busy, model, effort, mcpOn, onSend, onStop, onOp
   onOpenEffort: () => void
   onOpenMcp: () => void
   disabled?: boolean
+  /** Effective Files switch: text files can be attached. */
+  files?: boolean
   /** Text to load into the box (editing a sent message); nonce makes repeats apply. */
   fill?: { text: string; n: number }
 }) {
@@ -45,6 +50,7 @@ export function Composer({ sid, busy, model, effort, mcpOn, onSend, onStop, onOp
   const ta = useRef<HTMLTextAreaElement>(null)
   const imgIn = useRef<HTMLInputElement>(null)
   const camIn = useRef<HTMLInputElement>(null)
+  const txtIn = useRef<HTMLInputElement>(null)
 
   const uploading = files.some((f) => !f.att && !f.error)
   const ready = files.filter((f) => f.att).map((f) => f.att!)
@@ -70,7 +76,7 @@ export function Composer({ sid, busy, model, effort, mcpOn, onSend, onStop, onOp
 
   const addFiles = (list: FileList | File[] | null) => {
     if (!list) return
-    const arr = Array.from(list).filter((f) => f.type.startsWith('image/'))
+    const arr = Array.from(list).filter((f) => f.type.startsWith('image/') || (filesEnabled && isTextFile(f)))
     if (!arr.length) return
     const items: Pending[] = arr.map((file) => ({
       key: uid(), file, progress: 0,
@@ -184,11 +190,13 @@ export function Composer({ sid, busy, model, effort, mcpOn, onSend, onStop, onOp
       </div>
       <input ref={imgIn} type="file" accept="image/*" multiple hidden onChange={(e) => { addFiles((e.target as HTMLInputElement).files); (e.target as HTMLInputElement).value = '' }} />
       <input ref={camIn} type="file" accept="image/*" capture="environment" hidden onChange={(e) => { const f = (e.target as HTMLInputElement).files?.[0]; if (f) setCropping(f); (e.target as HTMLInputElement).value = '' }} />
+      <input ref={txtIn} type="file" accept={TEXT_ACCEPT} multiple hidden onChange={(e) => { addFiles((e.target as HTMLInputElement).files); (e.target as HTMLInputElement).value = '' }} />
       <CropSheet file={cropping} onCancel={() => setCropping(null)} onDone={(f) => { setCropping(null); addFiles([f]) }} />
       <Sheet open={attachOpen} onClose={() => setAttachOpen(false)} title="Add to message">
         <div class="attach-grid">
           <button onClick={() => { setAttachOpen(false); camIn.current?.click() }}><span><IconCamera /></span>Camera</button>
           <button onClick={() => { setAttachOpen(false); imgIn.current?.click() }}><span><IconImage /></span>Photos</button>
+          {filesEnabled && <button onClick={() => { setAttachOpen(false); txtIn.current?.click() }}><span><IconFile /></span>Text file</button>}
         </div>
       </Sheet>
     </div>

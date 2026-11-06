@@ -7,10 +7,10 @@ import { back, navigate } from '../../lib/router'
 import { CRAB_COLORS, Crab } from '../../components/crab'
 import { BackButton, Switch, TopBar, confirmDialog, useScrolled } from '../../components/ui'
 import { IconTrash } from '../../components/icons'
-import { DEFAULT_ASSISTANT, EFFORTS, chatApi, modelLabel, type Assistant, type ChatMeta } from './api'
+import { DEFAULT_ASSISTANT, EFFORTS, chatApi, modelLabel, type Assistant, type ChatConfig, type ChatMeta } from './api'
 import { AssistantAvatar } from './chat/Chat'
 
-const BLANK: Partial<Assistant> = { name: '', avatar: 'crab:pink', description: '', model: '', effort: '', system_prompt: '', temperature: -1, mcp: [] }
+const BLANK: Partial<Assistant> = { name: '', avatar: 'crab:pink', description: '', model: '', effort: '', system_prompt: '', temperature: -1, mcp: [], files: true, memory: false }
 
 export function AssistantSettings({ assistantId }: { assistantId?: string }) {
   const isNew = !assistantId
@@ -19,12 +19,14 @@ export function AssistantSettings({ assistantId }: { assistantId?: string }) {
   const [a, setA] = useState<Partial<Assistant> | null>(isNew ? { ...BLANK } : null)
   const [orig, setOrig] = useState('')
   const [meta, setMeta] = useState<ChatMeta | null>(null)
+  const [cfg, setCfg] = useState<ChatConfig | null>(null)
   const [saving, setSaving] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (!isNew) chatApi.assistant(assistantId!).then((x) => { setA(x); setOrig(JSON.stringify(x)) }).catch(toastError)
     chatApi.meta().then(setMeta).catch(() => {})
+    chatApi.config().then(setCfg).catch(() => {})
   }, [assistantId])
 
   if (!a) return (
@@ -128,6 +130,14 @@ export function AssistantSettings({ assistantId }: { assistantId?: string }) {
               <textarea class="input" rows={6} value={a.system_prompt} placeholder={d?.system_prompt ? `Empty uses the default: ${d.system_prompt.slice(0, 80)}` : 'You are a helpful assistant.'}
                 onInput={(e) => set('system_prompt', (e.target as HTMLTextAreaElement).value)} />
             </label>
+          </div>
+
+          <div class="group-title">Files and memory</div>
+          <div class="group">
+            <div class="row"><span class="label">Files<span class="hint">Chats can read the files you add to this assistant and attach text files{cfg && !cfg.files.enabled ? '. Turned off globally in Settings, Chat' : ''}</span></span>
+              <Switch on={a.files !== false} onChange={(v) => set('files', v)} label="Files" /></div>
+            <div class="row"><span class="label">Memory<span class="hint">Remembers facts and preferences across chats{cfg && !cfg.memory.enabled ? '. Turned off globally in Settings, Chat' : ''}</span></span>
+              <Switch on={!!a.memory} onChange={(v) => set('memory', v)} label="Memory" /></div>
           </div>
 
           {(meta?.mcp_servers.length || 0) > 0 && <>

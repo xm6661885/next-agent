@@ -22,6 +22,8 @@ export type Route =
   | { name: 'chats' }
   | { name: 'assistant'; assistantId: string }
   | { name: 'assistant-settings'; assistantId: string }
+  | { name: 'assistant-files'; assistantId: string }
+  | { name: 'assistant-memory'; assistantId: string }
   | { name: 'new-assistant' }
   | { name: 'llm-chat'; assistantId: string; sessionId: string }
   | { name: 'automations' }
@@ -62,6 +64,8 @@ export function parse(path: string): Route {
   if (p[0] === 'acp' && p[1]) return { name: 'acp', agentId: p[1] }
   if (p[0] === 'chat' && p[1] === 'new') return { name: 'new-assistant' }
   if (p[0] === 'chat' && p[1] && p[2] === 'settings') return { name: 'assistant-settings', assistantId: p[1] }
+  if (p[0] === 'chat' && p[1] && p[2] === 'files') return { name: 'assistant-files', assistantId: p[1] }
+  if (p[0] === 'chat' && p[1] && p[2] === 'memory') return { name: 'assistant-memory', assistantId: p[1] }
   if (p[0] === 'chat' && p[1] && p[2] === 's' && p[3]) return { name: 'llm-chat', assistantId: p[1], sessionId: p[3] }
   if (p[0] === 'chat' && p[1]) return { name: 'assistant', assistantId: p[1] }
   if (p[0] === 'chat') return { name: 'chats' }
@@ -98,6 +102,8 @@ export function href(r: Route): string {
     case 'new-assistant': return '/chat/new'
     case 'assistant': return `/chat/${e(r.assistantId)}`
     case 'assistant-settings': return `/chat/${e(r.assistantId)}/settings`
+    case 'assistant-files': return `/chat/${e(r.assistantId)}/files`
+    case 'assistant-memory': return `/chat/${e(r.assistantId)}/memory`
     case 'llm-chat': return `/chat/${e(r.assistantId)}/s/${e(r.sessionId)}`
     case 'automations': return '/automations'
     case 'workflows': return '/workflow'
@@ -169,7 +175,7 @@ export function parentOf(r: Route): Route {
   switch (r.name) {
     case 'chat': case 'agent-settings': return { name: 'agent', agentId: r.agentId }
     case 'acp-chat': case 'acp-settings': return { name: 'acp', agentId: r.agentId }
-    case 'llm-chat': case 'assistant-settings': return { name: 'assistant', assistantId: r.assistantId }
+    case 'llm-chat': case 'assistant-settings': case 'assistant-files': case 'assistant-memory': return { name: 'assistant', assistantId: r.assistantId }
     case 'assistant': case 'new-assistant': return { name: 'chats' }
     case 'wf-editor': case 'wf-run': case 'wf-runs': case 'wf-console': return { name: 'workflows' }
     case 'settings-section': return { name: 'settings-module', module: r.module }

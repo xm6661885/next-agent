@@ -4,11 +4,12 @@ import { useEffect, useState } from 'preact/hooks'
 import { chatVersion, moduleSessions, toastError } from '../../lib/store'
 import { back, navigate, wide } from '../../lib/router'
 import { BackButton, Sheet, TopBar, confirmDialog, promptDialog, useScrolled } from '../../components/ui'
-import { IconChat, IconClose, IconEdit, IconMore, IconPlus, IconSearch, IconSettings, IconTrash } from '../../components/icons'
+import { IconBrain, IconChat, IconClose, IconEdit, IconFile, IconMore, IconPlus, IconSearch, IconSettings, IconTrash } from '../../components/icons'
 import { haptic } from '../../lib/util'
 import { chatApi, modelLabel, type Assistant, type ChatSession } from './api'
 import { AssistantAvatar } from './chat/Chat'
 import { SessionRow } from './Home'
+import { useAssistantFlags } from './flags'
 
 export function AssistantPage({ assistantId: agentId }: { assistantId: string }) {
   const { scrolled, onScroll, ref } = useScrolled()
@@ -18,6 +19,7 @@ export function AssistantPage({ assistantId: agentId }: { assistantId: string })
   const [hits, setHits] = useState<{ session: ChatSession; snippet: string }[] | null>(null)
   const [menuFor, setMenuFor] = useState<ChatSession | null>(null)
   const [creating, setCreating] = useState(false)
+  const flags = useAssistantFlags(agentId)
 
   useEffect(() => { chatApi.assistant(agentId).then(setAgent).catch((e) => { toastError(e); if (e.status === 404) back() }) }, [agentId, chatVersion.value])
   const load = () => chatApi.sessions(agentId).then(setSessions).catch(toastError)
@@ -59,7 +61,11 @@ export function AssistantPage({ assistantId: agentId }: { assistantId: string })
     <div class="page">
       <TopBar scrolled={scrolled}
         left={<BackButton label="Chat" onClick={() => wide.value ? navigate({ name: 'chats' }) : back({ name: 'chats' })} />}
-        right={<button class="icon-btn" aria-label="Assistant settings" onClick={() => navigate({ name: 'assistant-settings', assistantId: agentId })}><IconSettings /></button>}>
+        right={<div class="topbar-actions">
+          {flags.files && <button class="icon-btn" aria-label="Files" onClick={() => navigate({ name: 'assistant-files', assistantId: agentId })}><IconFile /></button>}
+          {flags.memory && <button class="icon-btn" aria-label="Memory" onClick={() => navigate({ name: 'assistant-memory', assistantId: agentId })}><IconBrain /></button>}
+          <button class="icon-btn" aria-label="Assistant settings" onClick={() => navigate({ name: 'assistant-settings', assistantId: agentId })}><IconSettings /></button>
+        </div>}>
         {scrolled && agent && <span class="topbar-center fade-in">{agent.name}</span>}
       </TopBar>
       <div class="page-scroll" ref={ref} onScroll={onScroll}>

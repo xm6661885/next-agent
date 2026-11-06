@@ -4,8 +4,8 @@ import { useEffect, useRef, useState } from 'preact/hooks'
 import { chatVersion, moduleSessions, toastError } from '../../lib/store'
 import { navigate } from '../../lib/router'
 import { Spark } from '../../components/crab'
-import { TopBar, useScrolled } from '../../components/ui'
-import { IconChat, IconPlus } from '../../components/icons'
+import { Sheet, TopBar, confirmDialog, promptDialog, useScrolled } from '../../components/ui'
+import { IconChat, IconEdit, IconPlus, IconTrash } from '../../components/icons'
 import { haptic, relTime } from '../../lib/util'
 import { DEFAULT_ASSISTANT, chatApi, modelLabel, type Assistant, type ChatMeta, type ChatSession } from './api'
 import { AssistantAvatar } from './chat/Chat'
@@ -36,11 +36,14 @@ export function ChatHome() {
   const { scrolled, onScroll, ref } = useScrolled()
   const [list, setList] = useState<Assistant[] | null>(cache)
   const [meta, setMeta] = useState<ChatMeta | null>(null)
+  const stamp = Object.values(moduleSessions.value).filter((s) => s.module === 'chat')
+    .map((s) => `${s.id}${s.title}${s.updated_at}${s.state}`).join()
   useEffect(() => {
-    chatApi.assistants().then((a) => { cache = a; setList(a) }).catch(toastError)
-    chatApi.meta().then(setMeta).catch(() => {})
-  }, [chatVersion.value])
-  void moduleSessions.value
+    // Debounced: a streaming reply emits many feed events.
+    const t = setTimeout(() => chatApi.assistants().then((a) => { cache = a; setList(a) }).catch(toastError), 300)
+    return () => clearTimeout(t)
+  }, [chatVersion.value, stamp])
+  useEffect(() => { chatApi.meta().then(setMeta).catch(() => {}) }, [chatVersion.value])
   const noModels = meta && !meta.models.length
 
   return (
@@ -56,11 +59,11 @@ export function ChatHome() {
           <DefaultCard meta={meta} />
           <div class="group-title">Assistants</div>
           {list === null ? (
-            <div class="agent-grid">{[0, 1].map((i) => <div key={i} class="skeleton" style={{ height: '128px', borderRadius: '20px' }} />)}</div>
+            <div class="chat-card-list">{[0, 1].map((i) => <div key={i} class="skeleton" style={{ height: '128px', borderRadius: '20px' }} />)}</div>
           ) : list.length === 0 ? (
             <p class="fhint" style={{ margin: '6px 4px' }}>Assistants keep their own prompt, model and tools. Create one with the plus button.</p>
           ) : (
-            <div class="agent-grid">{list.map((a, i) => <AssistantCard key={a.id} a={a} index={i} meta={meta} />)}</div>
+            <div class="chat-card-list">{list.map((a, i) => <AssistantCard key={a.id} a={a} index={i} meta={meta} />)}</div>
           )}
         </div>
       </div>
@@ -70,32 +73,80 @@ export function ChatHome() {
 
 function DefaultCard({ meta }: { meta: ChatMeta | null }) {
   const [a, setA] = useState<Assistant | null>(null)
-  const [list, setList] = useState<ChatSession[] | null>(null)
-  const live = chatLive(DEFAULT_ASSISTANT)
-  const stamp = Object.values(moduleSessions.value).filter((s) => s.module === 'chat' && s.assistant_id === DEFAULT_ASSISTANT).map((s) => `${s.id}${s.title}${s.updated_at}${s.state}`).join()
-  useEffect(() => { chatApi.assistant(DEFAULT_ASSISTANT).then(setA).catch(() => {}) }, [chatVersion.value])
-  useEffect(() => { chatApi.sessions(DEFAULT_ASSISTANT).then(setList).catch(() => {}) }, [stamp, chatVersion.value])
-  const shown = a || { id: DEFAULT_ASSISTANT, name: 'Temporary chat', avatar: 'crab:gray', order: 0 } as Assistant
-  const model = a?.model || meta?.defaults.model || meta?.models[0]?.id || ''
-  const rows = (list || []).slice(0, 5)
-  const start = async () => { haptic(); try { await openNewChat(DEFAULT_ASSISTANT) } catch (e) { toastError(e) } }
+  const stamp = useStamp(DEFAULT_ASSISTANT)
+  useEffect(() => {
+    const t = setTimeout(() => chatApi.assistant(DEFAULT_ASSISTANT).then(setA).catch(() => {}), 300)
+    return () => clearTimeout(t)
+  }, [stamp, chatVersion.value])
+  const shown = a || { id: DEFAULT_ASSISTANT, name: 'Temporary chat', avatar: 'crab:gray', order: 0, mcp: [] } as unknown as Assistant
   return (
     <section class="temp-section rise" style={{ '--i': 2, marginTop: 0, paddingBottom: 0 }}>
       <div class="group-title">Temporary</div>
-      <div class="temp-card">
-        <button class="temp-card-top press" onClick={() => navigate({ name: 'assistant', assistantId: DEFAULT_ASSISTANT })}>
-          <AssistantAvatar a={shown} size={52} busy={live.running > 0} />
-          <div class="agent-card-name">
-            <div class="n">{shown.name}{live.unread > 0 && <span class="unread-dot" aria-label="Unread" />}</div>
-            <div class="p">{list?.length ? `${list.length} chat${list.length > 1 ? 's' : ''}` : 'One-off chats with the defaults'}{model ? ` · ${modelLabel(model)}` : ''}</div>
-          </div>
-        </button>
-        {rows.length > 0 && <div class="temp-card-list">{rows.map((s) => <SessionRow key={s.id} s={s} />)}</div>}
-        <div class="temp-card-actions">
-          <button class="btn small primary" disabled={!meta?.models.length} onClick={start}><IconPlus width={16} height={16} /> New chat</button>
-        </div>
-      </div>
+      <ChatCard a={shown} meta={meta} loaded={!!a} subtitle="One-off chats with the defaults" />
     </section>
+  )
+}
+
+/** Changes whenever a chat of this assistant changes in the global feed (title, time, state). */
+function useStamp(assistantId: string) {
+  return Object.values(moduleSessions.value).filter((s) => s.module === 'chat' && s.assistant_id === assistantId)
+    .map((s) => `${s.id}${s.title}${s.updated_at}${s.state}`).join()
+}
+
+/** An assistant as a card: avatar and name, its latest chats, then All chats / New chat. */
+function ChatCard({ a, meta, loaded, subtitle }: { a: Assistant; meta: ChatMeta | null; loaded: boolean; subtitle?: string }) {
+  const live = chatLive(a.id)
+  const [menuFor, setMenuFor] = useState<ChatSession | null>(null)
+  const [removed, setRemoved] = useState<string[]>([])
+  const [titles, setTitles] = useState<Record<string, string>>({})
+  const creating = useRef(false)
+  const recent = (a.recent || []).filter((s) => !removed.includes(s.id)).map((s) => titles[s.id] ? { ...s, title: titles[s.id] } : s)
+  const rows = recent.slice(0, 5)
+  const running = live.running || a.status?.running || 0
+  const model = a.model || meta?.defaults.model || meta?.models[0]?.id || ''
+  const newChat = async () => {
+    if (creating.current) return
+    creating.current = true
+    haptic()
+    try { await openNewChat(a.id) } catch (err) { toastError(err) } finally { creating.current = false }
+  }
+  const rename = async (s: ChatSession) => {
+    setMenuFor(null)
+    const t = (await promptDialog({ title: 'Rename conversation', value: s.title, confirm: 'Rename' }))?.trim()
+    if (!t) return
+    try { await chatApi.updateSession(s.id, { title: t }); setTitles((m) => ({ ...m, [s.id]: t })) } catch (e) { toastError(e) }
+  }
+  const remove = async (s: ChatSession) => {
+    setMenuFor(null)
+    if (!await confirmDialog({ title: 'Delete conversation?', body: s.title || 'New conversation', confirm: 'Delete', danger: true })) return
+    try { await chatApi.deleteSession(s.id); setRemoved((r) => [...r, s.id]) } catch (e) { toastError(e) }
+  }
+  return (
+    <div class="temp-card chat-card">
+      <button class="temp-card-top press" onClick={() => navigate({ name: 'assistant', assistantId: a.id })}>
+        <AssistantAvatar a={a} size={52} busy={running > 0} />
+        <div class="agent-card-name">
+          <div class="n">{a.name}{live.unread > 0 && <span class="unread-dot" aria-label="Unread" />}</div>
+          <div class="p">{a.description || subtitle || modelLabel(model)}{model && (a.description || subtitle) ? ` · ${modelLabel(model)}` : ''}</div>
+        </div>
+        {running > 0 && <span class="chip pink"><Spark size={13} /> Replying</span>}
+      </button>
+      {rows.length > 0
+        ? <div class="temp-card-list">{rows.map((s) => <SessionRow key={s.id} s={s} onMore={() => setMenuFor(s)} />)}</div>
+        : loaded && <div class="chat-card-empty">No conversations yet.</div>}
+      <div class="temp-card-actions">
+        <button class="btn small" onClick={() => navigate({ name: 'assistant', assistantId: a.id })}>All chats</button>
+        <button class="btn small primary" disabled={!meta?.models.length} onClick={newChat}><IconPlus width={16} height={16} /> New chat</button>
+      </div>
+      <Sheet open={!!menuFor} onClose={() => setMenuFor(null)} title={menuFor?.title || 'Conversation'}>
+        {menuFor && (
+          <div class="menu">
+            <button onClick={() => rename(menuFor)}><IconEdit /> Rename</button>
+            <button class="danger" onClick={() => remove(menuFor)}><IconTrash /> Delete</button>
+          </div>
+        )}
+      </Sheet>
+    </div>
   )
 }
 
@@ -127,42 +178,9 @@ export function SessionRow({ s, onMore }: { s: ChatSession; onMore?: () => void 
 }
 
 function AssistantCard({ a, index, meta }: { a: Assistant; index: number; meta: ChatMeta | null }) {
-  const live = chatLive(a.id)
-  const running = live.running || a.status?.running || 0
-  const last = a.status?.last_session
-  const model = a.model || meta?.defaults.model || meta?.models[0]?.id || ''
-  const creating = useRef(false)
-  const newChat = async (e: Event) => {
-    e.stopPropagation()
-    if (creating.current) return
-    creating.current = true
-    try { await openNewChat(a.id) } catch (err) { toastError(err) } finally { creating.current = false }
-  }
   return (
-    <div class="agent-card-wrap rise" style={{ '--i': index + 3 }}>
-      <button class="agent-card press" onClick={() => navigate({ name: 'assistant', assistantId: a.id })}>
-        <div class="agent-card-top">
-          <AssistantAvatar a={a} size={52} busy={running > 0} />
-          <div class="agent-card-name">
-            <div class="n">{a.name}{live.unread > 0 && <span class="unread-dot" />}</div>
-            <div class="p">{a.description || modelLabel(model)}</div>
-          </div>
-          {running > 0 && <span class="chip pink"><Spark size={13} /> Replying</span>}
-        </div>
-        <div class="agent-card-last">
-          {last ? <><span class="lt">{last.title || 'Untitled'}</span><span class="lp">{last.preview || ' '}</span></>
-            : <span class="lp">No conversations yet.</span>}
-        </div>
-        <div class="agent-card-foot">
-          {model && <span class="mtag">{modelLabel(model)}</span>}
-          {a.effort && <span class="mtag">{a.effort}</span>}
-          {a.mcp.length > 0 && <span class="mtag">{a.mcp.length} MCP</span>}
-          <span class="when">{last ? relTime(last.updated_at) : ''}</span>
-        </div>
-      </button>
-      <button class="agent-new press" aria-label={`New chat with ${a.name}`} onClick={newChat}>
-        <IconPlus width={16} height={16} /><IconChat width={17} height={17} />
-      </button>
+    <div class="rise" style={{ '--i': index + 3 }}>
+      <ChatCard a={a} meta={meta} loaded />
     </div>
   )
 }
